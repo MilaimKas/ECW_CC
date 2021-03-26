@@ -275,7 +275,7 @@ def energy_d(t2, eris):
 
 # T1 and T2 equation
 # -----------------
-def T1T2eq(t1, t2, eris, fsp=None):
+def T1T2eq(t1, t2, eris, fsp=None, equation=True):
     
     nocc,nvir = t1.shape
     if fsp is None:
@@ -397,7 +397,7 @@ def La1La2eq(t1, t2, a1, a2, eris, fsp=None):
     He -= 1./2 * e("cbad,jicb,jd->ia", eris.vvvv, a2, t1)  # d18_ov
     He += 1./2 * e("bacj,ijba->ic", eris.vvvo, a2)  # d19_ov
     HHee -= p("ab..", e("jacb,ia->ijcb", eris.ovvv, a1))  # d20_oovv
-    He -= e("jcab,ic,jb->ia", eris.ovvv, a1, t1)  # d21_ov
+    He += e("jcab,ic,jb->ia", eris.ovvv, a1, t1)  # d21_ov                                    # - sign in PySCF
     He -= e("jacb,ia,ic->jb", eris.ovvv, a1, t1)  # d22_ov
     HHee -= p("..ab", p("ab..", e("icda,kjcb,kd->ijab", eris.ovvv, a2, t1)))  # d23_oovv
     He += 1./2 * e("kbcd,ijba,ic,jd->ka", eris.ovvv, a2, t1, t1)  # d24_ov
@@ -902,6 +902,7 @@ if __name__ == '__main__':
     import numpy as np
     from pyscf import gto, scf, cc
     import Eris
+    import utilities
 
     mol = gto.Mole()
     mol.atom = [
@@ -928,9 +929,12 @@ if __name__ == '__main__':
     print('################')
     print()
     
-    ts = np.random.random((nocc,nvir))*0.1
-    ls = np.random.random((nocc,nvir))*0.1
-    rs = np.random.random((nocc,nvir))*0.1
+    ts = np.random.random((nocc//2,nvir//2))*0.1
+    ls = np.random.random((nocc//2,nvir//2))*0.1
+    rs = np.random.random((nocc//2,nvir//2))*0.1
+    ts = utilities.convert_r_to_g_amp(ts)
+    ls = utilities.convert_r_to_g_amp(ls)
+    rs = utilities.convert_r_to_g_amp(rs)
     r0 = 0.1
     l0 = 0.1
 
@@ -940,3 +944,5 @@ if __name__ == '__main__':
     print(R1eq(ts,rs,r0,eris))
     print('L equations=')
     print(es_L1eq(ts, ls, l0, eris))
+    
+

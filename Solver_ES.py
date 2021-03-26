@@ -307,20 +307,25 @@ class Solver_ES:
 
                 # update r0
                 # ------------------------
-                r0n[i] = mycc.r0update(rn[i], En_r, R0inter)
+                r0n[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
+                print('r0 update')
+                print(r0n)
+                print()
 
                 # Update r
                 # -------------------------
                 rn[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r)
+                print('rn update')
+                print(rn)
+                print
 
                 # Get missing r ampl
                 # -------------------------
                 rn[i][o,v] = mycc.get_rov(ln[i], l0n[i], rn[i], r0n[i], [o,v])
+                print('rov update')
+                print(rn)
                 rn[i][o+1,v+1] = rn[i][o,v] # G format
-
-                print('r0= ',r0n[i])
-                print('rn= ')
-                print(rn[i])
+                print(rn)
                 print()
 
                 # L and L0 inter
@@ -332,12 +337,10 @@ class Solver_ES:
                 # Update En_l
                 # ------------------------
                 En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
-                print('E_l= ', En_l)
-                print()
 
                 # Update l0
                 # ------------------------
-                l0n[i] = mycc.l0update(ln[i], En_l, L0inter)
+                l0n[i] = mycc.l0update(ln[i], l0n[i], En_l, L0inter)
 
                 # Update l
                 # ------------------------
@@ -347,11 +350,6 @@ class Solver_ES:
                 # ------------------------
                 ln[i][o, v] = mycc.get_rov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
                 ln[i][o + 1, v + 1] = ln[i][o, v]  # G format
-
-                print('l0= ', l0n[i])
-                print('ln= ')
-                print(ln[i])
-                print()
 
                 # Store excited states energies Ep = (En_r,En_l)
                 # -----------------------------------------------
@@ -487,8 +485,12 @@ if __name__ == "__main__":
     #cis = tdscf.TDA(mrf)
     #cis.kernel(nstates=1)
 
+    # start with symetric r and l
     norm = utilities.check_ortho(lnini, rnini, l0ini, r0ini)
-    lnini /= norm
+    lnini /= np.sqrt(norm)
+    l0ini /= np.sqrt(norm)
+    rnini /= np.sqrt(norm)
+    r0ini /= np.sqrt(norm)
 
     # convergence options
     maxiter = 40

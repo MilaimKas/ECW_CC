@@ -11,9 +11,7 @@
 # File containing all PySCF RCCSD and GCCSD relevant functions
 # - L1/T1 and T2/L2 intermediates
 # - t and l updates
-
 #
-# TODO: l and t update not the same as T and L equations. However, Solver_CCSD works for T
 
 ###################################################################
 
@@ -225,14 +223,14 @@ class GCC:
 # t update
 ###########
 
-    def tupdate(self, t1, t2, fsp, alpha=None, equation=False):
+    def tupdate(self, t1, t2, fsp=None, alpha=None, equation=False):
         '''
         SCF update of the t1 and t2 amplitudes
         See PySCF.cc.gccsd
 
-        :param t1:
-        :param t2:
-        :param fsp: effective fock matrix
+        :param t1: t1 amplitudes in spin-orbital basis
+        :param t2: t2 amplitudes in spin-orbital basis
+        :param fsp: effective fock matrix in MO basis
         :param alpha: L1 reg coefficient
         :param equation: True if T1 is to be calculate
         :return:
@@ -242,6 +240,9 @@ class GCC:
         fock = self.fock.copy()
         
         nocc, nvir = t1.shape
+
+        if fsp is None:
+            fsp = fock.copy()
 
         fov = fsp[:nocc, nocc:].copy()
         diag_vv = np.diagonal(fock[nocc:, nocc:])
@@ -290,36 +291,27 @@ class GCC:
         tmp = einsum('ma,ijmb->ijab', t1, np.asarray(eris.ooov).conj())
         t2new -= (tmp - tmp.transpose(0, 1, 3, 2))
         
-        if not equation:
-            eia = diag_oo[:, None] - diag_vv
-            eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
-        else:
-            eia = 1
-            eijab = 1
-
         if alpha is not None:
+
+            # todo: switch from G to R format to increase speed
             W1 = utilities.subdiff(t1new, t1, alpha)
             W2 = utilities.subdiff(t2new, t2, alpha)
-            diag_ov = np.subtract.outer(diag_vv, diag_oo).transpose() # tmp[i,a]
-            W1 -= t1 * diag_ov
-            tmp = np.zeros_like((t2))
-            ar_nvir = np.arange(nvir)
-            for i in range(N):
-                tmp[(i, i, ar_nvir, ar_nvir)] = diag_ov[i, ar_nvir]
-            # with loop
-            #for i in range(nocc):
-            #    for j in range(nocc):
-            #        for a in range(nvir):
-            #            for b in range(nvir):
-            #                if i == j and a == b:
-            #                    tmp[i,j,a,b] = diag_ov[i,a]
-            W2 -= t2 * tmp
-            t1new = W1/eia
-            t2new = W2/eijab
-            del tmp, diag_ov
-        else:
-            t1new /= eia
-            t2new /= eijab
+            if equation:
+                return W1, W2
+            eia = diag_oo[:, None] - diag_vv
+            eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
+
+            W1 += t1*eia
+            W2 += t2*eijab
+            W1 /= eia
+            W2 /= eijab
+            return W1, W2
+
+        elif not equation:
+            eia = diag_oo[:, None] - diag_vv
+            eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
+            t1new /=eia
+            t2new /=eijab
 
         return t1new, t2new
 
@@ -402,26 +394,29 @@ class GCC:
 # l update
 ###########
 
-    def lupdate(self, t1, t2, l1, l2, fsp, alpha=None, equation=False):
+    def lupdate(self, t1, t2, l1, l2, fsp=None, alpha=None, equation=False):
         '''
         SCF update of the Lambda amplitudes
-        see cc.gccsd_lambda file
+        see pyscf.cc.gccsd_lambda file
 
-        :param t1:
-        :param t2:
-        :param l1:
-        :param l2:
-        :param fsp:
+        :param t1: t1 amplitudes in spin-orbital basis
+        :param t2: t2 amplitudes in spin-orbital basis
+        :param l1: lambda1 amplitudes in spin-orbital basis
+        :param l2: lambda2 amplitudes in spin-orbital basis
+        :param fsp: effective Fock matrix in molecular spin-orbital basis
         :param alpha: L1 reg coefficient
-        :param equation:
-        :return:
+        :param equation: True if the Lambda equations are to be returned
+        :return: updates l1 and l2 amplitudes or L1 and L2 equations
         '''
 
-        imds = self.Linter(t1,t2,fsp)
         eris = self.eris
         fock = self.fock.copy()
         nocc, nvir = t1.shape
 
+        if fsp is None:
+            fsp = fock.copy()
+
+        imds = self.Linter(t1, t2, fsp=fsp)
         fov = fsp[:nocc, nocc:].copy()
         diag_vv = np.diagonal(fock[nocc:, nocc:])
         diag_oo = np.diagonal(fock[:nocc, :nocc])
@@ -483,32 +478,24 @@ class GCC:
         l1new -= np.einsum('ik,ka->ia', mij, tmp)
         l1new -= np.einsum('ca,ic->ia', mba, tmp)
 
-        if not equation:
-            eia = diag_oo[:, None] - diag_vv
-            eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
-        else:
-            eia = 1
-            eijab = 1
-
         if alpha is not None:
+            
             W1 = utilities.subdiff(l1new, l1, alpha)
             W2 = utilities.subdiff(l2new, l2, alpha)
-            diag_ov = np.subtract.outer(diag_vv, diag_oo).transpose()
-            W1 -= l1 * diag_ov
-            tmp = np.zeros_like(l2)
-            for i in range(N):
-                tmp[(i, i, ar_nvir, ar_nvir)] = diag_ov[i, ar_nvir]
-            #for i in range(nocc):
-            #    for j in range(nocc):
-            #        for a in range(nvir):
-            #            for b in range(nvir):
-            #                if i == j and a == b:
-            #                    tmp[i, j, a, b] = diag_ov[i, a]
-            W2 -= l2 * tmp
+            if equation:
+                return W1, W2
+
+            #eia = np.subtract.outer(diag_vv, diag_oo).transpose() # tmp[i,a]
+            eia = diag_oo[:, None] - diag_vv
+            eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
+            W1 += np.multiply(l1, eia)
+            W2 += np.multiply(l2, eijab)
             l1new = W1/eia
             l2new = W2/eijab
 
-        else:
+        elif not equation:
+            eia = diag_oo[:, None] - diag_vv
+            eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
             l1new /= eia
             l2new /= eijab
 
@@ -520,20 +507,22 @@ class GCC:
 
     # see PySCF gccsd_lambda file
 
-    def Linter(self, t1, t2, fsp):
+    def Linter(self, t1, t2, fsp=None):
         '''
-        Lambda CCSD intermediate
+        Generalized Lambda CCSD intermediates
         see cc.gccsd_lambda PySCF file
 
-        :param t1:
-        :param t2:
-        :param fsp:
+        :param t1: t1 amplitudes in spin-orbital basis
+        :param t2: t2 amplitudes in spin-orbital basis
+        :param fsp: effective fock matrix in MO spin basis
         :return:
         '''
 
         eris = self.eris
         nocc, nvir = t1.shape
-        nov = nocc * nvir
+
+        if fsp is None:
+            fsp = self.fock
 
         foo = fsp[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
@@ -583,7 +572,6 @@ class GCC:
         wvvvo += einsum('kbad,jkcd->bcaj', eris.ovvv, t2)
 
         class _IMDS: pass
-
         imds = _IMDS()
         imds.woooo = woooo
         imds.wovvo = wovvo
@@ -604,7 +592,7 @@ if __name__ == "__main__":
     import Eris, utilities, CC_raw_equations, CCS
 
     mol = gto.Mole()
-    # mol.atom = [
+    #mol.atom = [
     #    [8 , (0. , 0.     , 0.)],
     #    [1 , (0. , -0.757 , 0.587)],
     #    [1 , (0. , 0.757  , 0.587)]]
@@ -632,45 +620,49 @@ if __name__ == "__main__":
     print(gnocc,gnvir)
     print()
 
-    eris = Eris.geris(cc.GCCSD(mgf))
+    mycc = cc.GCCSD(mgf)
+    eris = Eris.geris(mycc)
     fsp = eris.fock
-
     myccsd = GCC(eris)
-    myccs = CCS.Gccs(eris)
 
     # random values for t and l
-    t1 = np.random.random((gnocc,gnvir))
-    t2 = np.random.random((gnocc,gnocc,gnvir,gnvir))
-    l1 = np.random.random((gnocc,gnvir))
-    l2 = np.random.random((gnocc,gnocc,gnvir,gnvir))
-    #t1 = np.random.random((gnocc,gnvir))
-    #t2 = np.random.random((gnocc,gnocc,gnvir,gnvir))
-    #l1 = np.random.random((gnocc,gnvir))
-    #l2 = np.random.random((gnocc,gnocc,gnvir,gnvir))
+    nocc = gnocc//2
+    nvir = gnvir//2
+    t1 = np.random.random((nocc,nvir))
+    t2 = np.random.random((nocc,nocc,nvir,nvir))
+    l1 = np.random.random((nocc,nvir))
+    l2 = np.random.random((nocc,nocc,nvir,nvir))
+    # convert into spin orbital format
+    t1 = utilities.convert_r_to_g_amp(t1)
+    t2 = utilities.convert_r_to_g_amp(t2)
+    l1 = utilities.convert_r_to_g_amp(l1)
+    l2 = utilities.convert_r_to_g_amp(l2)
 
     T1,T2 = myccsd.tupdate(t1, t2, fsp, equation=True)
     L1,L2 = myccsd.lupdate(t1, t2, l1, l2, fsp, equation=True)
     
     T1_eq, T2_eq = CC_raw_equations.T1T2eq(t1, t2, eris)
     L1_eq, L2_eq = CC_raw_equations.La1La2eq(t1, t2, l1, l2, eris)
-
+    
+    print() 
+    print('###############################################')
     print('Difference between CCSD class and raw equations')
-    print('-----------------------------------------------')
+    print('###############################################')
     print()
     print("T1 - T1_eq")
-    print(np.subtract(T1_eq,T1))
+    print(np.sum(np.subtract(T1_eq,T1)))
 
     print()
     print("T2 - T2_eq")
-    print(np.subtract(T2_eq, T2))
+    print(np.sum(np.subtract(T2_eq, T2)))
 
     print()
     print("L1 - L1_eq")
-    print(np.subtract(L1_eq,L1))
+    print(np.sum(np.subtract(L1_eq,L1)))
 
     print()
     print("L2 - L2_eq")
-    print(np.subtract(L2_eq, L2))
+    print(np.sum(np.subtract(L2_eq, L2)))
 
     print()
     print("Gamma shape")
@@ -685,14 +677,36 @@ if __name__ == "__main__":
     pyscf_lupdate = gccsd_lambda.update_lambda(cc.GCCSD(mgf),t1,t2,l1,l2,pyscf_eris,imds)
 
     # ccsd
-    t_update = myccsd.tupdate(t1,t2,fsp)
-    l_update = myccsd.lupdate(t1,t2,l1,l2,fsp)
+    t_update = myccsd.tupdate(t1,t2)
+    l_update = myccsd.lupdate(t1,t2,l1,l2)
 
     # t1 and t2 OK
     # l1 and l2 OK
     print('t and l update comparison with PySCF')
     print('------------------------------------')
     print('l1')
-    print(np.subtract(pyscf_lupdate[0],l_update[0]))
+    print(np.sum(np.subtract(pyscf_tupdate[0],t_update[0])))
     print('l2')
-    print(np.subtract(pyscf_lupdate[1],l_update[1]))
+    print(np.sum(np.subtract(pyscf_tupdate[1],t_update[1])))
+
+    print()
+    print('###############################################')
+    print(' L1 regularization in CCSD                     ')
+    print('###############################################')
+    print()
+
+    print('Difference between t1new alpha=0 and alpha=None -> should be zero')
+    T1,T2 = myccsd.tupdate(t1,t2)
+    W1,W2 = myccsd.tupdate(t1,t2,alpha=0)
+    print('t1')
+    print(np.sum(np.subtract(W1,T1)))
+    print('t2')
+    print(np.sum(np.subtract(W2,T2)))
+    print()
+    L1, L2 = myccsd.lupdate(t1,t2,l1,l2)
+    W1, W2 = myccsd.lupdate(t1,t2,l1,l2,alpha=0)
+    print('l1')
+    print(np.sum(np.subtract(W1,L1)))
+    print('l2')
+    print(np.sum(np.subtract(W2,L2)))
+    print()

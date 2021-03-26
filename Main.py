@@ -26,7 +26,7 @@ import exp_pot
 import gamma_exp
 # Solver for ECW GS equations
 import Solver_GS
-# addiational functions
+# additional functions
 import utilities
 # PySCF two electron integrals
 import Eris

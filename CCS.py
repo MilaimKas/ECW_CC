@@ -13,12 +13,8 @@
 # - L1 and T1 intermediates 
 # - EXC-CCS Hessian
 #
-# TODO: Solve problem with RCCS L equation
 # TODO: factorize rdm1_es equations
 # TODO: factorize gradient terms
-# TODO: use T1 and L1 intermediates for T1 and L1 equations in ccs_gradient
-# TODO: in R and L inter -> Z intermediate is the same
-# TODO: Put some functions outside class and call them inside the class
 #
 ###################################################################
 
@@ -801,12 +797,13 @@ class Gccs:
         '''
 
         Fab, Fji, W, F, Zia, Pia = Rinter
+        nocc, nvir = rs.shape
 
-        # extract diagonal elements
-        diag_aa = np.diagonal(Fab)
-        diag_ii = np.diagonal(Fji)
-        np.fill_diagonal(Fab,0)
-        np.fill_diagonal(Fji,0)
+        # remove diagonal of the fock matrix
+        diag_vv = np.diagonal(self.fock[nocc:, nocc:])
+        diag_oo = np.diagonal(self.fock[:nocc, :nocc])
+        Fab[np.diag_indices(nvir)] -= diag_vv
+        Fji[np.diag_indices(nocc)] -= diag_oo
 
         # Ria = ria*En' matrix
         rsnew  = np.einsum('ab,ib->ia', Fab, rs)
@@ -815,10 +812,9 @@ class Gccs:
         rsnew += rs*F
         rsnew += r0*Zia
         rsnew += Pia
-        rsnew -= rs*Em
 
         # divide by diag
-        rsnew /= (diag_ii[:,None]-diag_aa)
+        rsnew /= (Em+diag_oo[:,None]-diag_vv)
 
         return rsnew
 
@@ -836,7 +832,7 @@ class Gccs:
 
         return Ria
 
-    def r0update(self, rs, Em, R0inter):
+    def r0update(self, rs, r0, Em, R0inter):
         '''
 
         :param rs: r1 amplitude
@@ -847,9 +843,10 @@ class Gccs:
 
         Fjb, Z, P = R0inter
         F = np.einsum('jb,jb',rs,Fjb)
-        r0 = (F+P)/(Em+Z)
+        r0new = F+P+(r0*Z)
+        r0new /= Em
 
-        return r0
+        return r0new
 
     def get_rov(self, ls, l0, rs, r0, r_ind):
         '''
@@ -868,7 +865,7 @@ class Gccs:
         rs[o+1, v+1] = 0 # G format
         lov = ls[o, v].copy()
         if abs(lov - ls[o+1,v+1]) >= 10**-2:
-            raise ValueError('l/r matrix is not in G format or a symmetry breaking happend')
+            raise ValueError('l/r matrix is not in G format or a symmetry breaking occured')
         rov = 1 - r0 * l0 - np.einsum('ia,ia', rs, ls)
         rov /= lov
 
@@ -1062,12 +1059,13 @@ class Gccs:
         '''
 
         Fba, Fij, W, F, Zia, P = L1inter
+        nocc, nvir = ls.shape
 
-        # remove diagonal elements
-        diag_aa = np.diagonal(Fba)
-        diag_ii = np.diagonal(Fij)
-        np.fill_diagonal(Fba,0)
-        np.fill_diagonal(Fij,0)
+        # remove diagonal of the fock matrix
+        diag_vv = np.diagonal(self.fock[nocc:, nocc:])
+        diag_oo = np.diagonal(self.fock[:nocc, :nocc])
+        Fba[np.diag_indices(nvir)] -= diag_vv
+        Fij[np.diag_indices(nocc)] -= diag_oo
 
         # get lia
         lsnew  = np.einsum('ib,ba->ia', ls, Fba)
@@ -1076,10 +1074,10 @@ class Gccs:
         lsnew += ls*F
         lsnew += l0*Zia
         lsnew += P
-        lsnew -= ls*Em
+        #lsnew -= ls*Em
 
         # divide by diag
-        lsnew /= (diag_ii[:,None]-diag_aa)
+        lsnew /= (Em+diag_oo[:,None]-diag_vv)
 
         return lsnew
 
@@ -1106,7 +1104,7 @@ class Gccs:
 
         return Lia
 
-    def l0update(self, ls, Em, L0inter):
+    def l0update(self, ls, l0, Em, L0inter):
         '''
         Update the l0 amplitude
 
@@ -1119,9 +1117,10 @@ class Gccs:
         Fjb, Wjb, Z, P = L0inter
         F = np.einsum('jb,bj',ls,Fjb)
         W = np.einsum('jb,jb',ls,Wjb)
-        l0 = (F+W+P)/(Em-Z)
+        l0new = F+W+P+(l0*Z)
+        l0new /= Em
 
-        return l0
+        return l0new
 
     def L0eq(self, En, t1, l1, fsp=None):
         '''

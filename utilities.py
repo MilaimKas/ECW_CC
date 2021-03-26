@@ -28,7 +28,7 @@ import numpy as np
 # L1 regularization related functions
 #######################################
 
-def subdiff(eq,var,alpha,thres=10**-10):
+def subdiff(eq,var,alpha,thres=10**-8):
 
     '''
     Calculates the sub-gradient value of a functional
@@ -715,18 +715,22 @@ if __name__ == '__main__':
     fock = eris.fock
     
     # random t1
-    ts=np.random.random((nocc,nvir))*0.01
-    ts[0,0] = 10**-7
-    ts[3,2] = 10**-7
+    ts=np.random.random((nocc,nvir))*0.1
+    td=np.random.random((nocc,nocc,nvir,nvir))*0.1
 
     # T1 eq
-    mccs = CCS.Gccs(eris)
-    eq= mccs.T1eq(ts,fock)
+    import CC_raw_equations
+    T1,T2 = CC_raw_equations.T1T2eq(ts,td,eris)
 
     # print sub-gradient
-    alpha = 0.1
-    W = subdiff(eq,ts,alpha,thres=10**-6)
-    print(np.subtract(W,eq))
+    alpha = 0
+    print('alpha=0')
+    W1 = subdiff(T1,ts,alpha)
+    W2 = subdiff(T2,td,alpha)
+    print('W1-T1')
+    print(np.subtract(W1,T1))
+    print('W2-T2')
+    print(np.subtract(W2,T2))
     
     print()
     print('################################')

@@ -19,7 +19,7 @@ from pyscf import lib
 
 
 class Solver_CCS:
-    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-8, tsini=None, lsini=None, diis=tuple(),
+    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=tuple(),
                  maxiter=80, maxdiis=20, CCS_grad=None):
         '''
         
@@ -83,13 +83,13 @@ class Solver_CCS:
 
     def l_check(self,dic):
         ls = dic.get('ls')
-        return np.linalg.norm(ls)
+        return ls
 
     def tl_check(self,dic):
         ls = dic.get('ls')
         ts = dic.get('ts')
-        conv = np.linalg.norm(ts+ls)
-        return conv
+        arr = abs(ls)+abs(ts)
+        return arr
 
     #############
     # SCF method
@@ -205,7 +205,7 @@ class Solver_CCS:
             dic = {'ts': ts, 'ls': ls, 'fsp': fsp}
             conv = self.Conv_check(dic)
             if ite > 0:
-                Dconv = abs(conv - conv_old)
+                Dconv = np.linalg.norm(conv - conv_old)
             conv_ite.append(Dconv)
 
             # print convergence infos
@@ -499,7 +499,7 @@ class Solver_CCS:
 ####################################
 
 class Solver_CCSD:
-    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-8, tsini=None, lsini=None, tdini=None, ldini=None, diis=tuple(),
+    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, tdini=None, ldini=None, diis=tuple(),
                  maxiter=50, maxdiis=15):
         '''
         Solver Class for the ECW-CCSD equations
@@ -581,8 +581,7 @@ class Solver_CCSD:
         ls = dic.get('ls')
         ld = dic.get('ld')
         arr = np.concatenate((ls.flatten(),ld.flatten()))
-        norm = np.linalg.norm(arr)
-        return norm
+        return arr
 
     def tl_check(self, dic):
         ls = dic.get('ls').flatten()
@@ -590,8 +589,7 @@ class Solver_CCSD:
         ld = dic.get('ld').flatten()
         td = dic.get('td').flatten()
         arr = np.concatenate((ls+ts,ld+td))
-        norm = np.linalg.norm(arr)
-        return norm
+        return arr
 
     def x2_check(self, ts, ls, fsp):
         return
@@ -689,7 +687,7 @@ class Solver_CCSD:
 
             # update t amplitudes
             # ---------------------------------
-            ts, td = mycc.tupdate(ts, td, fsp, alpha=alpha)
+            ts, td = mycc.tupdate(ts, td, fsp=fsp, alpha=alpha)
             # apply DIIS
             if 't' in diis:
                 ts_vec = np.ravel(ts)
@@ -699,7 +697,7 @@ class Solver_CCSD:
 
             # update l amplitudes
             # ------------------------------------
-            ls, ld = mycc.lupdate(ts, td, ls, ld, fsp, alpha=alpha)
+            ls, ld = mycc.lupdate(ts, td, ls, ld, fsp=fsp, alpha=alpha)
             # apply DIIS
             if 'l' in diis:
                 ls_vec = np.ravel(ls)
@@ -712,7 +710,7 @@ class Solver_CCSD:
             dic = {'ts': ts, 'ls': ls, 'fsp': fsp, 'td': td, 'ld': ld}
             conv = self.Conv_check(dic)
             if ite > 0:
-                Dconv = abs(conv - conv_old)
+                Dconv = np.linalg.norm(conv - conv_old)
             conv_ite.append(Dconv)
             del dic
 
@@ -781,7 +779,7 @@ if __name__ == "__main__":
 
     # GCCS object
     mccsg = CCS.Gccs(geris)
-    # Gradient objct
+    # Gradient object
     mygrad = CCS.ccs_gradient(geris)
 
     # Vexp object
@@ -821,9 +819,10 @@ if __name__ == "__main__":
     print('########################')
 
     # CHECK for conv=tl 10^-8
-    # - L=0, alpha=0,   t1=l1=rand --> SCF converges after 18 it
-    # - L=0, alpha=0,   t1=l1=0    --> SCF converges after 18 it
-    # - L=0, alpha=0.1, t1=l1=0
+    # - L=0, alpha=None,   t1=l1=rand --> SCF converges after 18 it
+    # - L=0, alpha=None,   t1=l1=0    --> SCF converges after 18 it
+    # - L=0, alpha=0,      t1=l1=0    --> SCF converges after 18 it
+    # - L=0, alpha=0.1,    t1=l1=0    --> SCF converges after 67 it
 
     # GCCS object
     mccsd = CCSD.GCC(geris)
@@ -836,16 +835,16 @@ if __name__ == "__main__":
     #lsini = np.random.rand(gnocc,gnvir)*0.1
 
     # convergence options
-    maxiter = 50
+    maxiter = 20
     conv_thres = 10 ** -8
     diis = ('')  # must be tuple
 
     # initialise Solver_CCS Class
-    Solver = Solver_CCSD(mccsd, VXexp, conv='Ep', conv_thres=conv_thres, diis=diis, maxiter=80, maxdiis=20)
+    Solver = Solver_CCSD(mccsd, VXexp, conv='tl', conv_thres=conv_thres, diis=diis, maxiter=maxiter, maxdiis=20)
 
     # Solve for L
     L = 0
-    Results = Solver.SCF(L,alpha=None)
+    Results = Solver.SCF(L,alpha=0.1)
     print(Results[0])
     print()
     print('conv')
