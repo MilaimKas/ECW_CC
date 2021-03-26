@@ -864,8 +864,8 @@ class Gccs:
         rs[o, v] = 0
         rs[o+1, v+1] = 0 # G format
         lov = ls[o, v].copy()
-        if abs(lov - ls[o+1,v+1]) >= 10**-2:
-            raise ValueError('l/r matrix is not in G format or a symmetry breaking occured')
+        if abs(lov - ls[o+1,v+1]) >= 10**-4:
+            raise ValueError('l/r matrix is not in G format or a symmetry breaking occurred')
         rov = 1 - r0 * l0 - np.einsum('ia,ia', rs, ls)
         rov /= lov
 

@@ -19,7 +19,7 @@ import utilities
 
 
 class Solver_ES:
-    def __init__(self, mycc, Vexp_class, rn_ini, r0n_ini, ln_ini=None, l0n_ini=None, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -8, diis=tuple(),
+    def __init__(self, mycc, Vexp_class, rn_ini, r0n_ini, ln_ini=None, l0n_ini=None, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
                  maxiter=80, maxdiis=20):
         '''
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
@@ -106,17 +106,14 @@ class Solver_ES:
     def tl_check(self, dic):
         ls = dic.get('ls')
         ts = dic.get('ts')
-        return np.sum(abs(ts) + abs(ls))
+        return (abs(ts) + abs(ls))
 
     def rl_check(self, dic):
         rn = dic.get('rn')
         ln = dic.get('ln')
-        if isinstance(rn,list):
-            ans = 0
-            for r,l in zip(rn,ln):
-               ans += np.sum(abs(r)+abs(l))
-        else:
-            raise ValueError('rn/ln must be a list')
+        ans = np.zeros_like(rn[0])
+        for r,l in zip(rn,ln):
+            ans += (abs(r)+abs(l))
         return ans
 
     #############
@@ -302,31 +299,19 @@ class Solver_ES:
                 # ------------------------
                 En_r, o,v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
 
-                print('E_r= ',En_r)
-                print()
-
                 # update r0
                 # ------------------------
                 r0n[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
-                print('r0 update')
-                print(r0n)
-                print()
 
                 # Update r
                 # -------------------------
                 rn[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r)
-                print('rn update')
-                print(rn)
-                print
 
                 # Get missing r ampl
                 # -------------------------
-                rn[i][o,v] = mycc.get_rov(ln[i], l0n[i], rn[i], r0n[i], [o,v])
-                print('rov update')
-                print(rn)
-                rn[i][o+1,v+1] = rn[i][o,v] # G format
-                print(rn)
-                print()
+                if rn[0].shape[0]**2 > 4:
+                    rn[i][o,v] = mycc.get_rov(ln[i], l0n[i], rn[i], r0n[i], [o,v])
+                    rn[i][o+1,v+1] = rn[i][o,v] # G format
 
                 # L and L0 inter
                 # ------------------------
@@ -348,8 +333,9 @@ class Solver_ES:
 
                 # Get missing l amp
                 # ------------------------
-                ln[i][o, v] = mycc.get_rov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
-                ln[i][o + 1, v + 1] = ln[i][o, v]  # G format
+                if ln[0].shape[0] ** 2 > 4:
+                    ln[i][o, v] = mycc.get_rov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
+                    ln[i][o + 1, v + 1] = ln[i][o, v]  # G format
 
                 # Store excited states energies Ep = (En_r,En_l)
                 # -----------------------------------------------
@@ -369,7 +355,7 @@ class Solver_ES:
             conv = self.Conv_check(dic)
             conv_ite.append(conv)
             if ite > 0:
-                Dconv = abs(conv - conv_old)
+                Dconv = np.linalg.norm(conv - conv_old)
             conv_ite.append(Dconv)
 
             # print convergence infos
@@ -396,6 +382,8 @@ class Solver_ES:
             print()
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L.flatten(), ite)
             print(Conv_text)
+            print()
+            print('Final energies: ', Ep_ite[-1])
              
         #return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite),dic
 
@@ -518,8 +506,3 @@ if __name__ == "__main__":
     # Solve for L = 0
     L = np.zeros((2,2))
     Solver.SCF(L)
-
-    #print()
-    #print('fock element and W')
-    #print(mo_energy)
-    #print(geris.voov-geris.oooo+geris.vovo)
