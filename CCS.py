@@ -280,19 +280,18 @@ class Gccs:
         :return: updated ts amplitudes
         '''
 
-        Fae,Fmi,fov = T1inter
-        fock = self.fock
+        Fae, Fmi, fov = T1inter
         nocc, nvir = ts.shape
 
+        diag_vv = np.diagonal(self.fock[nocc:, nocc:])
+        diag_oo = np.diagonal(self.fock[:nocc, :nocc])
+
         # remove diagonal of the fock matrix
-        diag_vv = np.diagonal(fock[nocc:, nocc:])
-        diag_oo = np.diagonal(fock[:nocc, :nocc])
-        
         Fae[np.diag_indices(nvir)] -= diag_vv
         Fmi[np.diag_indices(nocc)] -= diag_oo
 
         # update ts
-        tsnew = fov
+        tsnew = fov.copy()
         tsnew += np.einsum('ie,ae->ia', ts, Fae)
         tsnew -= np.einsum('ma,mi->ia', ts, Fmi)
         tsnew -= np.einsum('nf,naif->ia', ts, self.eris.ovov)
@@ -328,7 +327,7 @@ class Gccs:
         return tsnew
     
     # ts update with L1 reg
-    def tsupdate_L1(self,ts,T1inter,alpha):
+    def tsupdate_L1(self, ts, T1inter, alpha):
         '''
 
         SCF+L1 (regularization) update of the t1 amplitudes
@@ -340,39 +339,38 @@ class Gccs:
         :return: updated ts
         '''
 
-        Fae,Fmi,fov = T1inter
-        fock = self.fock
+        Fae, Fmi, fov = T1inter
         nocc, nvir = ts.shape
 
-        diag_vv = np.diagonal(fock[nocc:, nocc:])
-        diag_oo = np.diagonal(fock[:nocc, :nocc])
+        # remove diagonal of the fock matrix
+        diag_vv = np.diagonal(self.fock[nocc:, nocc:])
+        diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
-        # T1 equations
-        T1 = fov
+        # update ts
+        T1 = fov.copy()
         T1 += np.einsum('ie,ae->ia', ts, Fae)
         T1 -= np.einsum('ma,mi->ia', ts, Fmi)
         T1 -= np.einsum('nf,naif->ia', ts, self.eris.ovov)
 
         # subdifferential
-        W = utilities.subdiff(T1,ts,alpha)
+        dW = utilities.subdiff(T1, ts, alpha)
 
         # remove diagonal elements
-        # with outer
-        tmp = np.subtract.outer(diag_vv,diag_oo).transpose()
-        W -= ts*tmp
-        # with loop
-        #for i in range(nocc):
-        #    for a in range(nvir):
-        #       W[i,a] -= ts[i,a]*(diag_vv[a]-diag_oo[i])
+        eia = diag_oo[:, None] - diag_vv
+        dW += ts*eia
 
-        tsnew = W/(diag_oo[:, None] - diag_vv)
-
-        return tsnew
+        return dW/eia
 
     # T1 intermediates
     def T1inter(self, ts, fsp):
-        # script from PySCF
-        # cc/gintermediates.py
+        '''
+        T1 intermediates in spin orbital MO basis
+        see PySCF cc/gintermediates
+
+        :param ts: t1 amplitudes
+        :param fsp: effective fock matrix in spin orbital MO basis
+        :return:
+        '''
 
         nocc, nvir = ts.shape
 
@@ -460,6 +458,7 @@ class Gccs:
         # from gccsd import update_lambda(mycc, t1, t2, l1, l2, eris, imds)
         # where imds are the intermediates taken from make_intermediates(mycc, t1, t2, eris)
         '''
+        SCF update of the lambda singles amplitudes
 
         :param rsn: list with r amplitudes associated to excited state n
         :param lsn: list with l amplitudes associated to excited state n
@@ -467,15 +466,14 @@ class Gccs:
         :return lsnew: updated lambda 1 values
         '''
 
-        Fia,Fea,Fim,Wieam = L1inter
+        Fia, Fea, Fim, Wieam = L1inter
 
-        nocc, nvir = ts.shape
-        fock = self.fock
+        nocc, nvir = ls.shape
+
+        diag_vv = np.diagonal(self.fock[nocc:, nocc:])
+        diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
         # remove diagonal of the fock matrix
-        diag_vv = np.diagonal(fock[nocc:, nocc:])
-        diag_oo = np.diagonal(fock[:nocc, :nocc])
-
         Fea[np.diag_indices(nvir)] -= diag_vv
         Fim[np.diag_indices(nocc)] -= diag_oo
 
@@ -523,11 +521,9 @@ class Gccs:
         return lsnew
     
     # lambda update with L1 reg
-    def lsupdate_L1(self,ls,ts,L1inter,alpha):
-
+    def lsupdate_L1(self, ls, L1inter, alpha):
         '''
-
-        SCF+L1 regularization for the updated lambda amplitudes
+        SCF+L1 regularization for the updated lambda single amplitudes
 
         :param ts: t1 amplitudes
         :param T1inter: T1 intermediates
@@ -536,35 +532,27 @@ class Gccs:
         :return: updated ts
         '''
 
-        Fia,Fea,Fim,Wieam = L1inter
+        Fia, Fea, Fim, Wieam = L1inter
 
-        nocc, nvir = ts.shape
-        fock = self.fock
+        nocc, nvir = ls.shape
 
-        diag_vv = np.diagonal(fock[nocc:, nocc:])
-        diag_oo = np.diagonal(fock[:nocc, :nocc])
+        diag_vv = np.diagonal(self.fock[nocc:, nocc:])
+        diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
-        # Lambda 1 equations
         L1 = Fia.copy()
         L1 += np.einsum('ie,ea->ia', ls, Fea)
         L1 -= np.einsum('ma,im->ia', ls, Fim)
         L1 += np.einsum('me,ieam->ia', ls, Wieam)
 
         # subdifferential
-        W = utilities.subdiff(L1,ls,alpha)
+        dW = utilities.subdiff(L1, ls, alpha)
 
         # remove diagonal elements
-        # with outer
-        tmp = np.subtract.outer(diag_vv,diag_oo).transpose()
-        W -= ls*tmp
-        # with loop
-        #for i in range(nocc):
-        #    for a in range(nvir):
-        #       W[i,a] -= ls[i,a]*(diag_vv[a]-diag_oo[i])
+        eia = diag_oo[:, None] - diag_vv
+        dW += ls*eia
+        dW /= eia
 
-        lsnew = W/(diag_oo[:, None] - diag_vv)
-
-        return lsnew
+        return dW
 
     # Lambda intermediates
     def L1inter(self, ts, fsp):
@@ -575,14 +563,18 @@ class Gccs:
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
 
-        tau = np.zeros((nocc, nocc, nvir, nvir))
-        for i in range(0, nocc):
-            for j in range(0, nocc):
-                for a in range(0, nvir):
-                    for b in range(0, nvir):
-                        tau[i, j, a, b] = 0.25 * (
-                                    ts[i, a] * ts[j, b] - ts[j, a] * ts[i, b] - ts[i, b] * ts[j, a] + ts[j, b] * ts[
-                                i, a])
+        #tau = np.zeros((nocc, nocc, nvir, nvir))
+        #for i in range(0, nocc):
+        #    for j in range(0, nocc):
+        #        for a in range(0, nvir):
+        #            for b in range(0, nvir):
+        #                tau[i, j, a, b] = 0.25 * (
+        #                            ts[i, a] * ts[j, b] - ts[j, a] * ts[i, b] - ts[i, b] * ts[j, a] + ts[j, b] * ts[
+        #                        i, a])
+        fac = 0.5
+        tsts = np.einsum('ia,jb->ijab', fac * 0.5 * ts, ts)
+        tsts = tsts - tsts.transpose(1, 0, 2, 3)
+        tau = tsts - tsts.transpose(0, 1, 3, 2)
 
         TFea = fvv.copy()
         TFea -= 0.5 * np.einsum('ma,me->ea', fov, ts)
@@ -607,7 +599,7 @@ class Gccs:
 
         Wieam = self.eris.ovvo.copy()
         Wieam += np.einsum('mf,ieaf->ieam', ts, self.eris.ovvv)
-        # inam oovo becomes nima ooov in PySCF but same resuls
+        # inam oovo becomes nima ooov in PySCF but same result
         Wieam -= np.einsum('ne,inam->ieam', ts, self.eris.oovo)
         # inaf becomes nifa in PySCF but same result
         Wieam -= np.einsum('mf,ne,inaf->ieam', ts, ts, self.eris.oovv)
@@ -1491,14 +1483,14 @@ if __name__ == "__main__":
 
     mygcc = cc.GCCSD(mgf)
     geris = Eris.geris(mygcc) #mygcc.ao2mo(mgf.mo_coeff)
-    gfs = geris.fock
+    gfs = geris.fock.copy()
 
     mccsg = Gccs(geris)
 
-    gts = np.random.rand(gnocc, gnvir)
-    #gts = gts / np.sum(gts)
-    gls = np.random.rand(gnocc, gnvir)
-    #gls = gls / np.sum(gls)
+    gts = np.random.rand(gnocc//2, gnvir//2)
+    gts = utilities.convert_r_to_g_amp(gts)
+    gls = np.random.rand(gnocc//2, gnvir//2)
+    gls = utilities.convert_r_to_g_amp(gls)
 
     print()
     print('##########################')
@@ -1527,11 +1519,17 @@ if __name__ == "__main__":
     print(" ts_update with L1 reg          ")
     print("--------------------------------")
 
-    print('ts updated with alpha = 0.0005')
-    inter = mccsg.T1inter(gts,gfs)
-    ts_up = mccsg.tsupdate_L1(gts,inter,0.0005)
-    print(ts_up)
+    print('ts updated with alpha = 0.')
+    inter = mccsg.T1inter(gts, gfs)
+    ts_L1 = mccsg.tsupdate_L1(gts, inter, 0.)
+    ts_up = mccsg.tsupdate(gts, inter)
+    print(np.subtract(ts_up,ts_L1))
     print()
+    print('ls updated with alpha = 0.')
+    inter = mccsg.L1inter(gts, gfs)
+    ls_L1 = mccsg.lsupdate_L1(gls, inter, 0.)
+    ls_up = mccsg.lsupdate(gts, gls, inter)
+    print(np.subtract(ls_up, ls_L1))
 
     print()
     print('####################')
@@ -1539,27 +1537,28 @@ if __name__ == "__main__":
     print('####################')
     print()
 
-    print("-------------------------------------")
-    print("TEST CCS Jacobian and Newton's method")
-    print("-------------------------------------")
-
     mgrad = ccs_gradient(geris)
 
-    print("Lamdba = 0")
+    print("Newton's method with Lamdba = 0 from random initial guess")
     print()
 
     ts_G = gts.copy()*0.1
     ls_G = gls.copy()*0.1
-    ite = 50
-    for i in range(ite):
-       tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0)
-       ts_G = tsnew
-       ls_G = lsnew
+    conv = 1.
+    ite = 1
+    norm = 0.
+    while conv > 10**-6:
+        norm_old = norm
+        tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0)
+        ts_G = tsnew
+        ls_G = lsnew
+        norm = np.concatenate((ts_G.flatten(), ls_G.flatten()))
+        conv = np.linalg.norm(norm-norm_old)
+        ite += 1
+        if ite > 50:
+            break
 
-    print("t and l amplitudes after {} iteration".format(ite))
-    print(ts_G)
-    print(ls_G)
-
+    print("t and l amplitudes converged after {} iteration".format(ite))
 
     print()
     print("######################################")
@@ -1567,11 +1566,6 @@ if __name__ == "__main__":
     print("######################################")
     print()
 
-    print('Symmetrized and unsymmetrized gamma_GS')
-    tmp = np.subtract(mccsg.gamma(gts,gls),mccsg.gamma_unsym(gts,gls))
-    print(tmp)
-
-    print()
     print('gamma for GS')
     print('symmetrized')
     g1 = mccsg.gamma(gts,gls)
@@ -1608,7 +1602,6 @@ if __name__ == "__main__":
     rdm1 = mccsg.gamma_es(t1, l1, r1, r0, l0)
     print(rdm1.trace()-np.sum(mol.nelec))
 
-
     print()
     print("######################################")
     print(" Test R and L intermediates           ")
@@ -1628,11 +1621,13 @@ if __name__ == "__main__":
     Linter = mccsg.es_L1inter(ts, gfs, vn) #Fba, Fij, W, F, Zia, P
 
     print('Difference between R1 and L1 inter for t=0  and l1=r1 (should be zero)')
+    print('----------------------------------------------------------------------')
     for R,L in zip(Rinter,Linter):
        print(np.subtract(R,L))
 
     print()
     print('Difference between R1 and L1 equations for t=0 and l1=r1 (should be zero)')
+    print('-------------------------------------------------------------------------')
     print('with intermediates')
     print(np.subtract(mccsg.R1eq(rs,r0,Rinter),mccsg.es_L1eq(ls,l0,Linter)))
     print('raw equations')
@@ -1640,6 +1635,7 @@ if __name__ == "__main__":
 
     print()
     print('Difference between inter and raw equations for t=0')
+    print('--------------------------------------------------')
     print('R1 difference')
     print(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris)))
     print('L1 difference')
@@ -1647,6 +1643,7 @@ if __name__ == "__main__":
 
     print()
     print('Difference between inter and raw equations for t random')
+    print('-------------------------------------------------------')
     rs = np.random.random((gnocc,gnvir))*0.1
     r0 = 0.1
     l0 = 0.18
@@ -1662,8 +1659,3 @@ if __name__ == "__main__":
     #       except the Zia intermediates, which contracts with r0 and l0
     #       note anymore when lambda > 0
     # Fab, Fji, W, F, Zia, Pia
-    print()
-    print('Difference between R1 and L1 inter for t random and l1=r1')
-    for R, L in zip(Rinter, Linter):
-        print('INTER')
-        print(np.subtract(R, L))

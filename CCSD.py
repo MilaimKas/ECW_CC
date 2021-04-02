@@ -293,19 +293,18 @@ class GCC:
         
         if alpha is not None:
 
-            # todo: switch from G to R format to increase speed
-            W1 = utilities.subdiff(t1new, t1, alpha)
-            W2 = utilities.subdiff(t2new, t2, alpha)
+            dW1 = utilities.subdiff(t1new, t1, alpha)
+            dW2 = utilities.subdiff(t2new, t2, alpha)
             if equation:
-                return W1, W2
+                return dW1, dW2
             eia = diag_oo[:, None] - diag_vv
             eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
 
-            W1 += t1*eia
-            W2 += t2*eijab
-            W1 /= eia
-            W2 /= eijab
-            return W1, W2
+            dW1 += t1*eia
+            dW2 += t2*eijab
+            dW1 /= eia
+            dW2 /= eijab
+            return dW1, dW2
 
         elif not equation:
             eia = diag_oo[:, None] - diag_vv
@@ -414,10 +413,11 @@ class GCC:
         nocc, nvir = t1.shape
 
         if fsp is None:
-            fsp = fock.copy()
+            fsp = fock
 
         imds = self.Linter(t1, t2, fsp=fsp)
         fov = fsp[:nocc, nocc:].copy()
+
         diag_vv = np.diagonal(fock[nocc:, nocc:])
         diag_oo = np.diagonal(fock[:nocc, :nocc])
 
@@ -479,19 +479,19 @@ class GCC:
         l1new -= np.einsum('ca,ic->ia', mba, tmp)
 
         if alpha is not None:
-            
-            W1 = utilities.subdiff(l1new, l1, alpha)
-            W2 = utilities.subdiff(l2new, l2, alpha)
-            if equation:
-                return W1, W2
 
-            #eia = np.subtract.outer(diag_vv, diag_oo).transpose() # tmp[i,a]
+            dW1 = utilities.subdiff(l1new, l1, alpha)
+            dW2 = utilities.subdiff(l2new, l2, alpha)
+            if equation:
+                return dW1, dW2
             eia = diag_oo[:, None] - diag_vv
             eijab = lib.direct_sum('ia,jb->ijab', eia, eia)
-            W1 += np.multiply(l1, eia)
-            W2 += np.multiply(l2, eijab)
-            l1new = W1/eia
-            l2new = W2/eijab
+
+            dW1 += l1*eia
+            dW2 += l2*eijab
+            dW1 /= eia
+            dW2 /= eijab
+            return dW1, dW2
 
         elif not equation:
             eia = diag_oo[:, None] - diag_vv
@@ -589,17 +589,17 @@ if __name__ == "__main__":
 
     from pyscf import gto, scf, cc
     from pyscf.cc import gccsd, gccsd_lambda
-    import Eris, utilities, CC_raw_equations, CCS
+    import Eris, utilities, CC_raw_equations
 
     mol = gto.Mole()
-    #mol.atom = [
-    #    [8 , (0. , 0.     , 0.)],
-    #    [1 , (0. , -0.757 , 0.587)],
-    #    [1 , (0. , 0.757  , 0.587)]]
-    mol.atom = """
-    H 0 0 0
-    H 0 0 1
-    """
+    mol.atom = [
+        [8 , (0. , 0.     , 0.)],
+        [1 , (0. , -0.757 , 0.587)],
+        [1 , (0. , 0.757  , 0.587)]]
+    #mol.atom = """
+    #H 0 0 0
+    #H 0 0 1
+    #"""
 
     mol.basis = 'sto3g'
     mol.spin = 0
@@ -625,22 +625,16 @@ if __name__ == "__main__":
     fsp = eris.fock
     myccsd = GCC(eris)
 
-    # random values for t and l
-    nocc = gnocc//2
-    nvir = gnvir//2
-    t1 = np.random.random((nocc,nvir))
-    t2 = np.random.random((nocc,nocc,nvir,nvir))
-    l1 = np.random.random((nocc,nvir))
-    l2 = np.random.random((nocc,nocc,nvir,nvir))
-    # convert into spin orbital format
-    t1 = utilities.convert_r_to_g_amp(t1)
-    t2 = utilities.convert_r_to_g_amp(t2)
-    l1 = utilities.convert_r_to_g_amp(l1)
-    l2 = utilities.convert_r_to_g_amp(l2)
+    #from pyscf
+    mycc.kernel()
+    t1 = mycc.t1*0.1
+    t2 = mycc.t2*0.1
+    l1 = t1*0.05
+    l2 = t2*0.05
 
     T1,T2 = myccsd.tupdate(t1, t2, fsp, equation=True)
     L1,L2 = myccsd.lupdate(t1, t2, l1, l2, fsp, equation=True)
-    
+
     T1_eq, T2_eq = CC_raw_equations.T1T2eq(t1, t2, eris)
     L1_eq, L2_eq = CC_raw_equations.La1La2eq(t1, t2, l1, l2, eris)
     
@@ -685,7 +679,7 @@ if __name__ == "__main__":
     print('t and l update comparison with PySCF')
     print('------------------------------------')
     print('l1')
-    print(np.sum(np.subtract(pyscf_tupdate[0],t_update[0])))
+    print(np.sum(np.subtract(pyscf_lupdate[0],l_update[0])))
     print('l2')
     print(np.sum(np.subtract(pyscf_tupdate[1],t_update[1])))
 
@@ -696,14 +690,15 @@ if __name__ == "__main__":
     print()
 
     print('Difference between t1new alpha=0 and alpha=None -> should be zero')
-    T1,T2 = myccsd.tupdate(t1,t2)
+    print()
+    T1,T2 = myccsd.tupdate(t1,t2,alpha=None)
     W1,W2 = myccsd.tupdate(t1,t2,alpha=0)
     print('t1')
     print(np.sum(np.subtract(W1,T1)))
     print('t2')
     print(np.sum(np.subtract(W2,T2)))
     print()
-    L1, L2 = myccsd.lupdate(t1,t2,l1,l2)
+    L1, L2 = myccsd.lupdate(t1,t2,l1,l2,None)
     W1, W2 = myccsd.lupdate(t1,t2,l1,l2,alpha=0)
     print('l1')
     print(np.sum(np.subtract(W1,L1)))

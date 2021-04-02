@@ -21,132 +21,144 @@ import numpy as np
 import utilities
 
 class Exp:
-   def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None):
-       '''
-       Class containing the experimental potentials Vnm
+    def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None):
+        '''
+        Class containing the experimental potentials Vnm
 
-       :param exp_data: nn square matrix of list ('text',F) where text indicates which property or rdm1 is given
-                   text = 'mat','Ek','dip','v1e'
-                   Vexp = exp-calc
-                   Vexp[0,0] -> GS
-                   Vexp[n,0] and Vexp[0,n] -> transition case
-                   Vexp[n,n] -> ES
-                   'mat' is either a rdm1 or transition rdm1
-                     -> must be given in AOs basis
-                     -> must be given in G format
-       :param mol: PySCF molecule object
-       :param mo_coeff: "canonical" MOs coefficients
-       :param mo_coeff_def: MOs coefficients for the exp rdm1 ("deformed" one)
-       '''
+        :param exp_data: nn square matrix of list ('text',F) where text indicates which property or rdm1 is given
+                    text = 'mat','Ek','dip','v1e'
+                    Vexp = exp-calc
+                    Vexp[0,0] -> GS
+                    Vexp[n,0] and Vexp[0,n] -> transition case
+                    Vexp[n,n] -> ES
+                    'mat' is either a rdm1 or transition rdm1
+                      -> must be given in MOs basis
+                      -> must be given in G (spin-orbital basis) format
+        :param mol: PySCF molecule object
+        :param mo_coeff: "canonical" MOs coefficients
+        :param mo_coeff_def: MOs coefficients for the exp rdm1 ("deformed" one)
+        '''
 
-       self.nbr_of_states = len(exp_data[0]) # total nbr of states: GS+ES
-       self.exp_data = exp_data
-       self.mo_coeff = mo_coeff
-       self.mo_coeff_def = mo_coeff_def
-       self.mol = mol
-       
-       # store necessary AOs integrals
-       self.Ek_int = None
-       self.dip_int = None
-       self.v1e_int = None
-       self.charge_center = None
-       for n in exp_data:
-           # dipole integrals
-           if n[0] == 'dip' and self.dip_int is None:
-               charges = mol.atom_charges()
-               coords = mol.atom_coords()
-               self.charge_center = np.einsum('z,zr->r', charges, coords) / charges.sum()
-               # calculate integral -> 3 components
-               with mol.with_common_orig(self.charge_center):
-                   self.dip_int = mol.intor_symmetric('int1e_r', comp=3)
-           # coulomb integrals
-           if n[0] == 'v1e' and self.v1e_int is None:
-               self.v1e_int = mol.intor_symmetric('int1e_nuc')
-           # Kinetic integrals
-           if n[0] == 'Ek' and self.Ek_int is None:
-               self.Ek_int = mol.intor_symmetric('int1e_kin')
+        self.nbr_of_states = len(exp_data[0]) # total nbr of states: GS+ES
+        self.exp_data = exp_data
+        self.mo_coeff = mo_coeff
+        self.mo_coeff_def = mo_coeff_def
+        self.mol = mol
 
-       # calculate Ek_exp from rdm1_exp for the GS if rdm1 given
-       # initialize Ek_calc_GS
-       if self.exp_data[0, 0][0] == 'mat':
-           if self.Ek_int is None:
-               self.Ek_int = mol.intor_symmetric('int1e_kin')
-           self.Ek_exp_GS = utilities.Ekin(mol, exp_data[0, 0][1], g=True, AObasis=True, Ek_int=self.Ek_int)
-           self.Ek_calc_GS = None
-           self.X2_Ek_GS = None
+        # store necessary AOs integrals
+        # -------------------------------
 
-       # initialize Vexp potential 2D list
-       self.Vexp = np.full((self.nbr_of_states,self.nbr_of_states),None)
+        self.Ek_int = None
+        self.dip_int = None
+        self.v1e_int = None
+        self.charge_center = None
 
-   def Vexp_update(self, rdm1, L, index):
+        for n in exp_data:
 
-       '''
-       Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
+            # dipole integrals
+            if n[0] == 'dip' and self.dip_int is None:
+                charges = mol.atom_charges()
+                coords = mol.atom_coords()
+                self.charge_center = np.einsum('z,zr->r', charges, coords) / charges.sum()
+                # calculate integral -> 3 components
+                with mol.with_common_orig(self.charge_center):
+                    self.dip_int = mol.intor_symmetric('int1e_r', comp=3)
 
-       :param rdm1: calculated rdm1 or tr_rdm1 in MO basis
-       :param L: exp weight
-       :param index: nm index of the potential Vexp
-            -> index = (0,0) for GS
-            -> index = (n,n) for prop. of excited state n
-            -> index = (0,n) for transition prop. of excited state n
-       :return: (positive) Vexp(index) potential
-       '''
+            # coulomb integrals
+            if n[0] == 'v1e' and self.v1e_int is None:
+                self.v1e_int = mol.intor_symmetric('int1e_nuc')
 
-       n, m = index
-       k, l = np.sort(index)
+            # Kinetic integrals
+            if n[0] == 'Ek' and self.Ek_int is None:
+                self.Ek_int = mol.intor_symmetric('int1e_kin')
 
-       X2 = None
-       vmax = None
-       
-       # check if prop or mat comparison
-       check = self.exp_data[k,l][0]
+        # calculate Ek_exp from rdm1_exp for the GS if rdm1 given
+        # ---------------------------------------------------------
 
-       if check == 'mat' and index == (0,0):
-           #print('GS',n,m)
-           self.Vexp[0,0] = np.subtract(self.exp_data[0, 0][1], rdm1)
-           X2 = np.sum(self.Vexp[0,0] ** 2)
-           vmax = np.max(self.Vexp[0,0] ** 2)
-           # calculate Ek_calc
-           self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, g=True, AObasis=False, mo_coeff=self.mo_coeff, Ek_int=self.Ek_int)
-           self.X2_Ek_GS = self.Ek_exp_GS-self.Ek_calc_GS
+        # initialize Ek_calc_GS
+        if self.exp_data[0, 0][0] == 'mat':
+            if self.Ek_int is None:
+                self.Ek_int = mol.intor_symmetric('int1e_kin')
+            self.Ek_exp_GS = utilities.Ekin(mol, exp_data[0, 0][1], AObasis=False,
+                                            Ek_int=self.Ek_int, mo_coeff=self.mo_coeff)
+            self.Ek_calc_GS = None
+            self.X2_Ek_GS = None
 
-       elif check == 'mat' and index != (0,0):
-           #print('ES', n, m)
-           self.Vexp[n,m] = np.subtract(self.exp_data[k,l][1], rdm1)
-           X2 = np.sum(self.Vexp[n,m] ** 2)
-           vmax = np.max(self.Vexp[n,m] ** 2)
+        # initialize Vexp potential 2D list
+        # ------------------------------------
+        self.Vexp = np.full((self.nbr_of_states,self.nbr_of_states),None)
 
-       elif check == 'Ek':
-           # calculate Ek_calc
-           Ek_calc = utilities.Ekin(self.mol, rdm1, g=True, AObasis=False, mo_coeff=self.mo_coeff, Ek_int=self.Ek_int)
-           self.Vexp[n,m] = (self.exp_data[k,l][1] - Ek_calc)
-           X2 = np.abs(self.Vexp[n,m])
-           vmax = X2.copy()
-           self.Vexp[n,m] *= rdm1
 
-       elif check == 'v1e':
-           # calculate v1e
-           v1e_calc = utilities.v1e(self.mol, rdm1, g=True, AObasis=False, mo_coeff=self.mo_coeff, v1e_int=self.v1e_int)
-           self.Vexp[n,m] = (self.exp_data[k,l][1] - v1e_calc)
-           X2 = np.abs(self.Vexp[n,m])
-           vmax = X2.copy()
-           self.Vexp[n,m] *= rdm1
-           
-       elif check == 'dip':
-           dip_calc = utilities.dipole(self.mol,rdm1,g=True,AObasis=False,mo_coeff=self.mo_coeff, dip_int=self.dip_int)
-           X2 = 0
-           for i in range(3):
-              self.Vexp[n,m] = 0
-              self.Vexp[n,m] += (self.exp_data[k,l][1][i] - dip_calc[i])
-              X2 = self.Vexp[n,m]**2
-           self.Vexp[n,m] *= 1/3
-           self.Vexp[n,m] *= rdm1
-           X2 *= 1 / 3
-           vmax = X2.copy()
-       else:
-           raise ValueError('Exp list must contain information on the type of properties given: "mat", "dip", "Ek" or "v1e"')
+    def Vexp_update(self, rdm1, L, index):
 
-       return self.Vexp[n,m]*L, X2, vmax
+        '''
+        Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
+
+        :param rdm1: calculated rdm1 or tr_rdm1 in MO basis
+        :param L: exp weight
+        :param index: nm index of the potential Vexp
+             -> index = (0,0) for GS
+             -> index = (n,n) for prop. of excited state n
+             -> index = (0,n) for transition prop. of excited state n
+        :return: (positive) Vexp(index) potential
+        '''
+
+        n, m = index
+        k, l = np.sort(index)
+
+        X2 = None
+        vmax = None
+
+        # check if prop or mat comparison
+        check = self.exp_data[k,l][0]
+
+        # GS: comparison between rdm1
+        if check == 'mat' and index == (0,0):
+            self.Vexp[0,0] = np.subtract(self.exp_data[0, 0][1], rdm1)
+            X2 = np.sum(self.Vexp[0,0] ** 2)
+            vmax = np.max(self.Vexp[0,0] ** 2)
+            # calculate Ek_calc
+            self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, AObasis=False, mo_coeff=self.mo_coeff, Ek_int=self.Ek_int)
+            self.X2_Ek_GS = (self.Ek_exp_GS-self.Ek_calc_GS)**2
+
+        # ES: comparison between tr_rdm1
+        elif check == 'mat' and index != (0,0):
+            self.Vexp[n,m] = np.subtract(self.exp_data[k,l][1], rdm1)
+            X2 = np.sum(self.Vexp[n,m] ** 2)
+            vmax = np.max(self.Vexp[n,m] ** 2)
+
+        # GS or ES: use Ek has property
+        elif check == 'Ek':
+            Ek_calc = utilities.Ekin(self.mol, rdm1, g=True, AObasis=False, mo_coeff=self.mo_coeff, Ek_int=self.Ek_int)
+            self.Vexp[n,m] = (self.exp_data[k,l][1] - Ek_calc)
+            X2 = np.abs(self.Vexp[n,m])
+            vmax = X2.copy()
+            self.Vexp[n,m] *= rdm1
+
+        # GS or ES: use v1e has property
+        elif check == 'v1e':
+            v1e_calc = utilities.v1e(self.mol, rdm1, g=True, AObasis=False, mo_coeff=self.mo_coeff, v1e_int=self.v1e_int)
+            self.Vexp[n,m] = (self.exp_data[k,l][1] - v1e_calc)
+            X2 = np.abs(self.Vexp[n,m])
+            vmax = X2.copy()
+            self.Vexp[n,m] *= rdm1
+
+        # GS or ES: use dip or tr_dip has property
+        elif check == 'dip':
+            dip_calc = utilities.dipole(self.mol,rdm1,g=True,AObasis=False,mo_coeff=self.mo_coeff, dip_int=self.dip_int)
+            X2 = 0
+            for i in range(3):
+               self.Vexp[n,m] = 0
+               self.Vexp[n,m] += (self.exp_data[k,l][1][i] - dip_calc[i])
+               X2 = self.Vexp[n,m]**2
+            self.Vexp[n,m] *= 1/3
+            self.Vexp[n,m] *= rdm1
+            X2 *= 1 / 3
+            vmax = X2.copy()
+        else:
+            raise ValueError('Exp list must contain information on the type of properties given: "mat", "dip", "Ek" or "v1e"')
+
+        return self.Vexp[n,m]*L, X2, vmax
 
 
 if __name__ == "__main__":

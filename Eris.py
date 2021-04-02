@@ -25,7 +25,7 @@ class geris():
     see pyscf.cc.gccsd._make_eris_incore function
     '''
 
-    def __init__(self,mycc, threshold=10**-8):
+    def __init__(self, mycc, int_thresh=10 ** -10):
         '''
         PySCF electron repulsion integrals in physics notation
         see cc.gccsd.eris
@@ -33,10 +33,10 @@ class geris():
         <pq||rs> = <pq|rs> - <pq|sr>
 
         :param mycc: PySCF CC class
-        :param threshold: threshold for the two electron integrals
+        :param int_thresh: threshold for the two electron integrals
         '''
 
-        self.threshold = threshold
+        self.threshold = int_thresh
 
         # convert to GHF
         if not isinstance(mycc, cc.gccsd.GCCSD):

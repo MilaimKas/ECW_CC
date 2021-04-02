@@ -28,42 +28,51 @@ import numpy as np
 # L1 regularization related functions
 #######################################
 
-def subdiff(eq,var,alpha,thres=10**-8):
+def subdiff(eq,var,alpha,thres=10**-8, R_format=False):
 
     '''
     Calculates the sub-gradient value of a functional
     see equations (17) in Ivanov et al, Molecular Physics, 115(21–22)
 
-    :param eq: Jacobian matrix of the functional (T,L equations)
-    :param var: matrix of variables (t or l amplitudes)
+    :param eq: Jacobian matrix of the functional (T,L equations) given in amp format
+    :param var: matrix of variables (t or l amplitudes) given in amp format
     :param alpha: L1 threshold
-    :return: subdifferential W
+    :return: subdifferential W in amp format
     '''
-
-    # initialize sub-gradient W
-    W = np.zeros_like(eq)
-
+    
     # check shape
     if eq.shape != var.shape:
         raise ValueError('equations and variables matrices must have the same shape')
 
+    # transform in R format
+    if R_format:
+        eq = convert_g_to_r_amp(eq)
+        var = convert_g_to_r_amp(var)
+
+    # initialize sub-gradient W
+    dW = np.zeros_like(eq)
+
     # check for non zero elements in var
     ind = np.argwhere(np.abs(var) > thres)
     for ix in ind:
-        W[tuple(ix)] = eq[tuple(ix)]+alpha*np.sign(var[tuple(ix)])
+        dW[tuple(ix)] = eq[tuple(ix)]+alpha*np.sign(var[tuple(ix)])
 
     # zero elements in var
     ind = np.argwhere(var <= thres)
     for ix in ind:
         ix = tuple(ix)
         if eq[ix] < -alpha:
-            W[ix] = eq[ix]+alpha
+            dW[ix] = eq[ix]+alpha
         elif eq[ix] > alpha:
-            W[ix] = eq[ix]-alpha
+            dW[ix] = eq[ix]-alpha
         else:
-            W[ix] = 0.
+            dW[ix] = 0.
 
-    return W
+    # back transform into G format
+    if R_format:
+        dW = convert_r_to_g_amp(dW)
+
+    return dW
 
 def prox_l1(x_J, alpha):
     '''
@@ -126,41 +135,50 @@ def get_init_r(mol, roots=10):
 #############################################
 
 def convert_r_to_g_amp(amp):
+    # todo: sign issue with R <-> G conversion
     '''
     Converts amplitudes in restricted format into generalized, spin-orbital format
     amp must be given in nocc x nvir shape
     NOTE: PySCF as several functions to perform the conversion within CC, CI or EOM classes: spatial2spin()
 
-    :param amp: single amplitudes (t in restricted format
+    :param amp: amplitudes in restricted format
     :return: amp in generalized spin-orb format
     '''
 
-    #g_amp = np.zeros((amp.shape[0]*2,amp.shape[1]*2))
-    #for i in range(amp.shape[0]):
-    #    for j in range(amp.shape[1]):
-    #        a = amp[i,j]
-    #        g_amp[i*2:i*2+2,j*2:j*2+2] = np.diag(np.asarray([a,a]))
-    
-    # PySCF function is faster
-    g_amp = pyscf.cc.addons.spatial2spin(amp)
+    if amp.ndim == 2:
+        g_amp = np.zeros((amp.shape[0]*2,amp.shape[1]*2))
+        for i in range(amp.shape[0]):
+            for j in range(amp.shape[1]):
+                a = amp[i,j]
+                g_amp[i*2:i*2+2,j*2:j*2+2] = np.diag(np.asarray([a,a]))
+    elif amp.ndim == 4:
+        g_amp = cc.addons.spatial2spin(amp)
+
+    #else:
+    #    raise ValueError('amp must be either dim 2 or 4')
 
     return g_amp
 
 def convert_g_to_r_amp(amp):
+    # todo: sign issue with R <-> G conversion
     '''
-    Converts G format single amplitudes into R format
+    Converts G format amplitudes into R format
 
-    :param amp:
+    :param amp:CC single or double amplitudes
     :return:
     '''
 
-    # PySCF function --> what is orbspin ?
-    # r_amp = cc.addons.spin2spatial(amp,orbspin)
-    
-    r_amp = np.zeros((amp.shape[0]//2,amp.shape[1]//2))
-    for i in range(amp.shape[0],2):
-        for j in range(amp.shape[1],2):
-            r_amp[i//2,j//2] = amp[i,j]
+    if amp.ndim == 2:
+       tmp = np.delete(amp, np.s_[1::2], 0)
+       r_amp = np.delete(tmp, np.s_[1::2], 1)
+    elif amp.ndim == 4:
+        dim = amp.shape[0]+amp.shape[2]
+        orbspin = np.zeros(dim, dtype=int)
+        orbspin[1::2] = 1
+        r_amp = cc.addons.spin2spatial(amp, orbspin)[1] # t2ab
+
+    else:
+        raise ValueError('amp dimension must be 2 or 4')
 
     return r_amp
 
@@ -274,7 +292,7 @@ def get_norm(rs, ls, r0=0, l0=0):
     if rs.shape != ls.shape:
         raise ValueError('Shape of both set of amplitudes must be the same')
 
-    C = l0*r0+np.sum(rs*ls)
+    C = abs(l0*r0)+np.sum(abs(rs*ls))
 
     return C
 
@@ -289,17 +307,19 @@ def ortho(mol,cL,cR):
     '''
 
     # Get AOs overlap
-    if isinstance(mol,gto.Mole):
-       S_ao = mol.intor('int1e_ovlp')
-    elif not isinstance(mol,np.ndarray):
+    if isinstance(mol, gto.Mole):
+        S_AO = mol.intor('int1e_ovlp')
+    elif isinstance(mol, np.ndarray):
+        S_AO = mol
+    else:
         raise ValueError('AOs overlap must be a ndarray or a PySCF Mole class')
 
     # check shape
-    if S_ao.shape != cL.shape:
+    if S_AO.shape != cL.shape:
         raise ValueError('MOs coefficients and AO overlap matrix must be the same size')
 
     # Build MOs overlap matrix
-    S = np.einsum('mp,nq,mn->pq',cL.conj(),cR,S_ao)
+    S = np.einsum('mp,nq,mn->pq',cL.conj(),cR,S_AO)
 
     # perform svd
     u,S_sv,v = np.linalg.svd(S)
@@ -315,14 +335,14 @@ def ortho(mol,cL,cR):
 
     return newcL, newcR
 
-def check_ortho(ln, rn, l0n, r0n, thres_norm=2.,thres_ortho=1.,S_AO=None):
+def check_ortho(ln, rn, l0n, r0n, thres_ortho=10**-2,S_AO=None):
     '''
     Check the norm for a list of r and l vectors
 
     :param ln,rn: list of r and l vectors
     :param l0n,r0n: list of r0 and l0 value
     :param thres_ortho: threshold for C=<rk|ln>
-    :param thres_norm: threshold for C=<rk|lk>
+    :param S_AO: either PySCF.mol object or AO overlap matrix
     :return:
     '''
 
@@ -338,15 +358,12 @@ def check_ortho(ln, rn, l0n, r0n, thres_norm=2.,thres_ortho=1.,S_AO=None):
     for k in range(nbr_of_states):
         for l in range(nbr_of_states):
             C_norm[k, l] = get_norm(rn[k], ln[l], r0=r0n[k], l0=l0n[l])
-            if l == k and C_norm[k, l] > thres_norm:
-                print()
-                #print('r_k*l_k norm is > 2')
-                # ln[l] /= C_norm[k,l]
-            elif l != k and C_norm[k, l] > thres_ortho:
-                print()
-                #print('r_k*l_n norm is > 0.5')
-                if S_AO is not None:
-                  ln[l], rn[k] = ortho(S_AO,ln[l],rn[k])
+            # otthogonalize vectors
+            # todo: here a set of vectors have to be orthogonalize! Not MOs
+            #if l != k and C_norm[k, l] > thres_ortho:
+            #    if S_AO is not None:
+            #        ln[l], rn[k] = ortho(S_AO,ln[l],rn[k])
+            #        C_norm[k, l] = get_norm(rn[k], ln[l], r0=r0n[k], l0=l0n[l])
 
     return C_norm
 
@@ -358,7 +375,7 @@ def koopman_init_guess(mo_energy,mo_occ,nstates=1):
     :param mo_energy: MOs energies
     :param: mo_occ: occupation array
     :param nstates: number of states
-    :return: list of r_ini
+    :return: list of r_ini and koopman's excitation
     '''
 
     # convert to R format
@@ -387,14 +404,26 @@ def koopman_init_guess(mo_energy,mo_occ,nstates=1):
 
     return x0, DE
 
-def tdm_slater():
+def tdm_slater(TcL, TcR, occ_diff):
     '''
-    Calculate the transition density matrix between two Slater determinant
+    Express a bi-orthogonal transition density matrix in AOs basis
 
-    :return:
+    math:
+    <Tphi_L|Tphi_R> = delta_{pq}
+    gamma_ao = TcL Tgamma (TcR)^dag
+    see Werner 2007 DOI:10.1080/00268970701326978
+
+    :param TcL: left transformed orbital (T=tilde)
+    :param TcR: right transformed orbital (T=tilde)
+    :param occ_diff: occupation difference in MO spin-orbitals basis between the two Slater states
+           --> ex: a single excitation i->a for i=2 and a=5, occ_diff = [0,0,1,0,0,1,0]
+    :return: transition density matrix in AOs basis
     '''
-
-    return
+    
+    Tgamma = np.diag(occ_diff)
+    gamma_ao = np.einsum('pi,ij,qj->pq',TcL,Tgamma,TcR.conj())
+    
+    return gamma_ao
 
 def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
     '''
@@ -699,6 +728,7 @@ if __name__ == '__main__':
     print('########################')
     print('# Test L1 sub-gradient')
     print('########################')
+    print()
 
     import CCS
     from pyscf import cc
@@ -714,28 +744,31 @@ if __name__ == '__main__':
     eris = Eris.geris(mygcc)
     fock = eris.fock
     
-    # random t1
-    ts=np.random.random((nocc,nvir))*0.1
-    td=np.random.random((nocc,nocc,nvir,nvir))*0.1
+    # random R t1 and t2
+    ts=np.random.random((nocc//2,nvir//2))*0.1
+    td=np.random.random((nocc//2,nocc//2,nvir//2,nvir//2))*0.1
+    ts = convert_r_to_g_amp(ts)
+    td = convert_r_to_g_amp(td)
 
     # T1 eq
     import CC_raw_equations
     T1,T2 = CC_raw_equations.T1T2eq(ts,td,eris)
 
     # print sub-gradient
-    alpha = 0
+    alpha = 0.
     print('alpha=0')
     W1 = subdiff(T1,ts,alpha)
     W2 = subdiff(T2,td,alpha)
     print('W1-T1')
-    print(np.subtract(W1,T1))
+    print(np.sum(np.subtract(W1,T1)))
     print('W2-T2')
-    print(np.subtract(W2,T2))
+    print(np.sum(np.subtract(W2,T2)))
     
     print()
     print('################################')
     print('# Test SVD for orbital rotation ')
     print('################################')
+    print()
 
     # create MOs coeff
     dim = mol.nao
@@ -747,6 +780,7 @@ if __name__ == '__main__':
 
     print('check orthogonality --> OK')
     print(np.einsum('mp,nq,mn->pq',cL,cR,S_AO))
+    print('norm=', get_norm(cL,cR))
 
 
     print()

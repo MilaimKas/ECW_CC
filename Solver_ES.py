@@ -396,6 +396,7 @@ if __name__ == "__main__":
     import gamma_exp
     import Eris
 
+    # build molecule
     mol = gto.Mole()
     #mol.atom = [
     #    [8 , (0. , 0.     , 0.)],
@@ -405,11 +406,11 @@ if __name__ == "__main__":
     H 0 0 0
     H 0 0 1.
     '''
-
     mol.basis = 'sto3g'
     mol.spin = 0
     mol.build()
 
+    # GHF calc
     mgf = scf.GHF(mol)
     mgf.kernel()
     mo_occ = mgf.mo_occ
@@ -428,57 +429,31 @@ if __name__ == "__main__":
     # GCCS object
     mccsg = CCS.Gccs(geris)
 
+    # overlap integral
+    S_AO = mol.intor('int1e_ovlp')
+
     # build gamma_exp for GS
     ts = np.random.random((gnocc,gnvir))*0.1
     ls = np.random.random((gnocc,gnvir))*0.1 
     GS_exp_ao = mccsg.gamma(ts, ls)
     GS_exp_ao = utilities.mo_to_ao(GS_exp_ao,mo_coeff)
-    # build gamma_exp for ES
-    rn = np.random.random((gnocc,gnvir))*0.1
-    r0 = np.random.rand()*0.1
-    ln = np.random.random((gnocc,gnvir))*0.1
-    l0 = np.random.rand()*0.1
-    # normalize rn and ln
-    norm = utilities.get_norm(rn, ln, r0, l0)
-    l0 /= norm
-    ln /= norm
-    ES_exp_ao = mccsg.gamma_es(ts,ln,rn,r0,l0)
-    ES_exp_ao = utilities.mo_to_ao(ES_exp_ao, mo_coeff)
-    tr_ES_exp_ao = mccsg.gamma_tr(ts, ln,0, 1, l0)
-    tr_ES_exp_ao = utilities.mo_to_ao(tr_ES_exp_ao, mo_coeff)
-    
+
     # build exp list
-    exp_data = np.full((2, 2), None)
+    exp_data = np.full((3, 3), None)
     exp_data[0, 0] = ['mat', GS_exp_ao]
-    exp_data[0, 1] = ['mat', tr_ES_exp_ao]
-    exp_data[1, 1] = ['mat', ES_exp_ao]
+    # todo: add QChem transition dipole moment
+    exp_data[0, 1] = ['dip', []]
+    exp_data[0, 2] = ['dip', []]
 
     # Vexp object
     VXexp = exp_pot.Exp(exp_data,mol,mgf.mo_coeff)
 
-    # initial ts and ls: random
-    tsini = ts.copy()
-    lsini = ls.copy()
-    
     # initial rn, r0n and ln, l0n list
     #noise = np.random.random((gnocc,gnvir))*0.001
-    rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,1) #[rn+noise]
+    rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,2) #[rn+noise]
     lnini = [i * 1 for i in rnini] #[ln-noise]
     r0ini = utilities.EOM_r0(DE,np.zeros((gnocc,gnvir)),rnini,gfs,geris.oovv)#[r0+0.001]
     l0ini = [i * 0 for i in r0ini] #[l0-0.001]
-
-    #from pyscf import tdscf
-    #mrf = scf.RHF(mol)
-    #mrf.kernel()
-    #cis = tdscf.TDA(mrf)
-    #cis.kernel(nstates=1)
-
-    # start with symetric r and l
-    norm = utilities.check_ortho(lnini, rnini, l0ini, r0ini)
-    lnini /= np.sqrt(norm)
-    l0ini /= np.sqrt(norm)
-    rnini /= np.sqrt(norm)
-    r0ini /= np.sqrt(norm)
 
     # convergence options
     maxiter = 40
@@ -504,5 +479,5 @@ if __name__ == "__main__":
     print()
 
     # Solve for L = 0
-    L = np.zeros((2,2))
+    L = np.zeros_like((exp_data))
     Solver.SCF(L)

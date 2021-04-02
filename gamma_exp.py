@@ -3,24 +3,24 @@
 
 '''
 
- ECW-CCS v1
+ ECW-CC
  -----------
 
  Gexp: ground state
- Class for the simulated experimental reduced density matrix
+ Class for the simulated "target" or "experimental" one-electron reduced density matrix
  - Start from HF
  - Using CCSD or CCSD(T)
  - Adding external static field
- - distorted geometry
  - simulate underfiting
 
- ESexp: excited state exp
+ ESexp: excited state
  Class for the simulated experimental reduced transition density matrix
  or reduced density matrix for some excited states
  - MOM methods
- - TDA (CIS)
- - EOM-CCSD
- returns gamme_exp for excited states, initial guess for r,l and E'n
+ - TDA (CIS): to implement
+ - EOM-CCSD: to implement (L equations not implemented for EOM-EE)
+
+ returns gamme_exp for excited states, initial guess for r and E'n
 
 '''
 
@@ -32,33 +32,67 @@
 #  Transition dipole moment(a.u.):
 #  GS->ES: (X 0.000000, Y 0.523742, Z 0.0000)
 #  ES->GS: (X 0.000000, Y 0.550251, Z 0.00000)
+#   Amplitude    Transitions between orbitals
+#   0.5614       5 (A) A                   ->    6 (A) A
+#   0.5614       5 (A) B                   ->    6 (A) B
+#   0.2731       5 (A) A                   ->    8 (A) A
+#   0.2731       5 (A) B                   ->    8 (A) B
+#   0.2498       5 (A) A                   ->    10 (A) A
+#   0.2498       5 (A) B                   ->    10 (A) B
+#  -0.1278       5 (A) A                   ->    18 (A) A
+#  -0.1278       5 (A) B                   ->    18 (A) B
 #
 #  EOMEE transition 3/A
 #  Total energy = -75.96762546 a.u.  Excitation energy = 9.9605 eV. 
 #  Transition dipole moment(a.u.):
 #  GS->ES: (X 0.000000, Y 0.000000, Z -0.622534)
 #  ES->GS: (X 0.000000, Y 0.000000, Z -0.649058)
+#   Amplitude    Transitions between orbitals
+#  -0.5624       4 (A) A                   ->    6 (A) A
+#  -0.5624       4 (A) B                   ->    6 (A) B
+#  -0.2618       4 (A) A                   ->    10 (A) A
+#  -0.2618       4 (A) B                   ->    10 (A) B
+#  -0.2321       4 (A) A                   ->    8 (A) A
+#  -0.2321       4 (A) B                   ->    8 (A) B
+#  -0.1207       5 (A) A                   ->    9 (A) A
+#  -0.1207       5 (A) B                   ->    9 (A) B
+#   0.1129       4 (A) A                   ->    18 (A) A
+#   0.1129       4 (A) B                   ->    18 (A) B
 #
 #  EOMEE transition 4/A
 #  Total energy = -75.93639427 a.u.  Excitation energy = 10.8104 eV. 
 #  Transition dipole moment(a.u.):
 #  GS->ES: (X 0.000000, Y -0.092803, Z 0.0000000)
 #  ES->GS: (X 0.000000, Y -0.097482, Z 0.0000000)
+#   Amplitude    Transitions between orbitals
+#   -0.5859       5 (A) A                   ->    8 (A) A
+#  -0.5859       5 (A) B                   ->    8 (A) B
+#   0.2410       5 (A) A                   ->    6 (A) A
+#   0.2410       5 (A) B                   ->    6 (A) B
+#   0.1682       5 (A) A                   ->    16 (A) A
+#   0.1682       5 (A) B                   ->    16 (A) B
+#   0.1656       5 (A) A                   ->    10 (A) A
+#   0.1656       5 (A) B                   ->    10 (A) B
 #
 #  CVS-EOMEE transition 1/A1
 #  Total energy = -56.67790457 a.u.  Excitation energy = 534.8605 eV. 
 #  Transition dipole moment(a.u.):
 #  GS->ES: (X 0.000000, Y 0.000000, Z 0.030970)
 #  ES->GS: (X 0.000000, Y 0.000000, Z 0.031222)
+#   Amplitude    Transitions between orbitals
+#  -0.4703       1 (A) A                   ->    6 (A) A
+#  -0.4703       1 (A) B                   ->    6 (A) B
+#  -0.3000       1 (A) A                   ->    8 (A) A
+#  -0.3000       1 (A) B                   ->    8 (A) B
+#  -0.2595       1 (A) A                   ->    10 (A) A
+#  -0.2595       1 (A) B                   ->    10 (A) B
+#   0.1825       1 (A) A                   ->    18 (A) A
+#   0.1825       1 (A) B                   ->    18 (A) B
 #
 # ------------------------------------------------------------------------
 #
-# todo: MOM transition matrix
-# todo: check para_factor
+# todo: MOM calculation
 # todo: L equations not implemented in PySCF for EE-EOM
-#
-# Tested:
-# - GHF, GCCSD, Vext
 #
 ###################################################################
 
@@ -71,9 +105,9 @@ from pyscf import scf, gto, cc, dft, tddft
 class Gexp:
   def __init__(self, mol, method):
     '''
-    Returns the rdm1 in AOs basis from a GHF, GCCSD or GCCSD(T) calculation with distorded geometry and/or addition
+    Returns the rdm1 in AOs basis from a GHF, GCCSD or GCCSD(T) calculation with distorded geometry and/or additional
     external static field
-    --> called exp_rdm1 (simulated exp rdm1)
+    --> called 'experimental' rdm1 (or 'target' rdm1)
     
     :param mol: PySCF mol object
     :param mf: PySCF HF object
@@ -233,223 +267,226 @@ class Gexp:
 ##############################
 
 class ESexp:
-  def __init__(self, mol, Vext=None, nbr_of_states=(1,0)):
-    '''
-    Class to build ES rdm and tdm
-    Contains:
-       - MOM method: with tr_rdm1 GS->ES core/valence transition
-       - EOM method: with rdm1 and tr_rdm1 for GS,ES and Gs->ES valence transition
+    def __init__(self, mol, Vext=None, nbr_of_states=(1,0)):
+        '''
+        Class to build ES rdm and tdm
+        Contains:
+           - MOM method: with tr_rdm1 GS->ES core/valence transition
+           - EOM method: with rdm1 and tr_rdm1 for GS,ES and Gs->ES valence transition
 
-    :param mol: PySCF mol object
-    :param Vext: External static potential Vext=(vx,vy,vz)
-    :param nbr_of_states: number of valence and core excited states (n_v,n_c)
+        :param mol: PySCF mol object
+        :param Vext: External static potential Vext=(vx,vy,vz)
+        :param nbr_of_states: number of valence and core excited states (n_v,n_c)
 
-    '''
+        '''
 
-    self.mf = scf.RHF(mol)
-    self.mol = mol
-    
-    self.nbr_of_states = nbr_of_states
-    # list of rdm1 in AOs for all excited states
-    self.gamma_ao = []
-    # list of the transition rdm1 in AOs for all excited states
-    self.gamma_tr_ao = []
-    # rdm1 for the GS
-    self.gamma_ao_gs = None
-    # list of excitation energies
-    self.DEn = []
+        self.mf = scf.RHF(mol)
+        self.mol = mol
 
-    # list of initial r1 vectors
-    self.ini_r = []
-    # list of initial l1 vectors
-    self.ini_l = []
+        self.nbr_of_states = nbr_of_states
+        # list of rdm1 in AOs for all excited states
+        self.gamma_ao = []
+        # list of the transition rdm1 in AOs for all excited states
+        self.gamma_tr_ao = []
+        # rdm1 for the GS
+        self.gamma_ao_gs = None
 
-    # Apply external static field
-    if Vext is not None:
-      self.mol.set_common_orig([0, 0, 0])
+        # Apply external static field
+        if Vext is not None:
+            self.mol.set_common_orig([0, 0, 0])
 
-      h_def = (self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph')  # Ekin_e + Ve-n
-               + np.einsum('x,xij->ij', Vext,
-                           self.mol.intor('cint1e_r_sph', comp=3)))  # <psi|E.r|psi> dipole int.
-      # make h1e in G format
-      #h_def = scipy.linalg.block_diag(h_def, h_def)
-      self.mf.get_hcore = lambda *args: h_def  # pass the new one electron hamiltonian
-      self.mol.incore_anyway = True            # force to use new h1e even when memory is not enough
+            h_def = (self.mol.intor('cint1e_kin_sph') + self.mol.intor('cint1e_nuc_sph')  # Ekin_e + Ve-n
+                   + np.einsum('x,xij->ij', Vext, self.mol.intor('cint1e_r_sph', comp=3)))  # <psi|E.r|psi> dipole int.
+            # make h1e in G format
+            #h_def = scipy.linalg.block_diag(h_def, h_def)
+            self.mf.get_hcore = lambda *args: h_def  # pass the new one electron hamiltonian
+            #self.mol.incore_anyway = True            # force to use new h1e even when memory is not enough
 
-    self.mf.kernel()
-    self.mo_coeff = mf.mo_coeff
-    self.nocc = self.mo_coeff[:, self.mf.mo_occ > 0].shape[1]
-    self.nvir = self.mo_coeff[:, self.mf.mo_occ == 0].shape[1]
-    self.Eexp = self.mf.e_tot
+        self.mf.kernel()
+        self.mo_coeff = self.mf.mo_coeff
+        mo_occ = self.mf.mo_occ
+        mocc = self.mo_coeff[:, mo_occ > 0]
+        mvir = self.mo_coeff[:, mo_occ == 0]
+        self.nocc = mocc.shape[1]
+        self.nvir = mvir.shape[1]
+        self.Eexp_GS = self.mf.e_tot
+        self.DE_exp = []
 
-  def MOM(self,ES_type):
+        # list of initial r1 vectors and related excitation energies
+        self.ini_r = [np.zeros((self.nocc,self.nvir))]*sum(nbr_of_states)
 
-    # !!!!!!!!
-    # MOM method not implemented for GHF/RHF
-    # Use UHF format
-    # !!!!!!!!
+    def MOM(self):
 
-    nao = self.mol.nao
-    homo = self.mol.nelectron//2
-    lumo = homo + 1
-    # mo_coeff in UHF format
-    mo_coeff = np.asarray([np.zeros((nao, nao)), np.zeros((nao, nao))])
-    mo_coeff[0, :, :] = self.mo_coeff[::2, ::2]
-    mo_coeff[1, :, :] = self.mo_coeff[1::2, 1::2]
+        # !!!!!!!!
+        # MOM method not implemented for GHF/RHF
+        # Use UHF format
+        # !!!!!!!!
 
-    # MOM calculation
-    # ------------------
+        nao = (self.nvir+self.nocc)
+        homo = self.mol.nelectron//2 -1
+        lumo = homo+1
+        # mo_coeff in UHF format
+        mo_coeff = np.asarray([np.zeros((nao, nao)), np.zeros((nao, nao))])
+        mo_coeff[0, :, :] = self.mo_coeff[:, :]
+        mo_coeff[1, :, :] = self.mo_coeff[:, :]
 
-    # build ES mo_occ
-    # mo_occ in UHF format
-    moc = np.zeros((2, nao))
-    moc[0, :self.mol.nelec[0]] = 1
-    moc[1, :self.mol.nelec[1]] = 1
+        # MOM calculation
+        # ------------------
 
-    # loop over valence excited states
-    for v in range(self.nbr_of_states[0]):
+        # build GS mo_occ
+        # mo_occ in UHF format
+        moc = np.zeros((2, nao))
+        moc[0, :self.mol.nelec[0]] = 1.
+        moc[1, :self.mol.nelec[1]] = 1.
 
-        moc[0,homo] = 0.0
-        moc[0,lumo+v] = 1.0
-        self.ini_r[v,homo,lumo+v] = 1.0
+        # loop over valence excited states
+        for v in range(self.nbr_of_states[0]):
+            # todo: problem with MOM calculation
 
-        # ES initial density matrix in UHF format
-        dm = scf.uhf.make_rdm1(mo_coeff,moc)
-        es_mf = scf.UHF(mol)
+            moc = np.zeros((2, nao))
+            moc[0, :self.mol.nelec[0]] = 1
+            moc[1, :self.mol.nelec[1]] = 1
 
-        # Apply MOM algorithm
-        scf.addons.mom_occ(es_mf, mo_coeff, moc)
+            moc[0,homo] = 0.0
+            moc[0,lumo+v] = 1.0
+            # store initial r vector for the transition
+            self.ini_r[v][homo, v] = 1.0
 
-        # Start new SCF with new density matrix
-        es_mf.scf(dm)
+            # ES initial density matrix in UHF format
+            es_mf = scf.UHF(self.mol)
+            dm = es_mf.make_rdm1(mo_coeff,moc)
 
-        # store new mo coeff and excitation energies
-        es_mo_coeff = es_mf.mo_coeff
-        self.DEn.append(es_mf.e_tot-self.Eexp)
+            # Apply MOM algorithm
+            scf.addons.mom_occ(es_mf, mo_coeff, moc)
 
-        # Calculate rdm1
-        # -----------------
+            # Start new SCF with new density matrix
+            es_mf.scf(dm)
 
-        # uhf rdm1
-        uhf_ao = es_mf.make_rdm1(es_mo_coeff)
+            # store new mo coeff and excitation energies
+            es_mo_coeff = es_mf.mo_coeff
+            self.DE_exp.append(es_mf.e_tot - self.Eexp_GS)
 
-        # convert to GHF dm1
-        ghf_ao = utilities.convert_u_to_g_rdm1(uhf_ao)
-        self.gamma_ao.append(['val',ghf_ao])
+            # Calculate rdm1
+            # -----------------
 
-        # Calculate transition density matrix
-        # -------------------------------------
+            # uhf rdm1
+            uhf_ao = es_mf.make_rdm1(es_mo_coeff)
 
-        # orthogonalize state n with GS
-        c_gs, c_es = utilities.tdm_slater(self.mol,es_mo_coeff,self.mo_coeff)
+            # convert to GHF dm1
+            ghf_ao = utilities.convert_u_to_g_rdm1(uhf_ao)
+            self.gamma_ao.append(['val',ghf_ao])
 
-        # calculate tdm in orthogonalized MOs basis
-        tdm = utilities.tdm_slater()
+            # Calculate transition density matrix
+            # -------------------------------------
 
-        # transform into AOs
-        tdm = utilities.mo_to_ao(tdm,)
+            # orthogonalize state n with GS
+            TcL, TcR = utilities.ortho(self.mol,es_mo_coeff,self.mo_coeff)
 
-    # loop over core excited states
-    for c in range(self.nbr_of_states[1]):
+            # express tdm in canonical MOs basis
+            tdm = utilities.tdm_slater(TcL, TcR, moc)
+            self.gamma_tr_ao.append(['val', tdm])
 
-        moc[0,0] = 0.0
-        moc[0,lumo+c] = 1.0
-        self.ini_r[c,homo,lumo+v] = 1.0
+      # loop over core excited states
+        for c in range(self.nbr_of_states[1]):
 
-        # ES initial density matrix in UHF format
-        dm = scf.uhf.make_rdm1(mo_coeff,moc)
-        es_mf = scf.UHF(mol)
+            moc = np.zeros((2, nao))
 
-        # Apply MOM algorithm
-        scf.addons.mom_occ(es_mf, mo_coeff, moc)
+            moc[0,0] = 0.0
+            moc[0,lumo+c] = 1.0
+            self.ini_r[self.nbr_of_states[0]+c][0,c] = 1.0
 
-        # Start new SCF with new density matrix
-        es_mf.scf(dm)
+            # ES initial density matrix in UHF format
+            dm = scf.uhf.make_rdm1(mo_coeff,moc)
+            es_mf = scf.UHF(mol)
 
-        # store new mo coeff and excitation energies
-        es_mo_coeff = es_mf.mo_coeff
-        self.DEn.append(es_mf.e_tot-self.Eexp)
+            # Apply MOM algorithm
+            scf.addons.mom_occ(es_mf, mo_coeff, moc)
 
-        # Calculate rdm1
-        # -----------------
+            # Start new SCF with new density matrix
+            es_mf.scf(dm)
 
-        # uhf rdm1
-        uhf_ao = es_mf.make_rdm1(es_mo_coeff)
+            # store new mo coeff and excitation energies
+            es_mo_coeff = es_mf.mo_coeff
+            self.DE_exp.append(es_mf.e_tot - self.Eexp_GS)
 
-        # convert to GHF dm1
-        ghf_ao = utilities.convert_u_to_g_rdm1(uhf_ao)
-        self.gamma_ao.append(ghf_ao)
+            # Calculate rdm1
+            # -----------------
 
-        # express new density matrix in original MO basis
-        #self.gamma_exp.append(np.einsum('pi,ij,qj->pq', self.mo_coeff_inv, ghf_ao, self.mo_coeff_inv.conj()))
+            # uhf rdm1
+            uhf_ao = es_mf.make_rdm1(es_mo_coeff)
 
-        # Calculate transition density matrix
-        # -------------------------------------
+            # convert to GHF dm1
+            ghf_ao = utilities.convert_u_to_g_rdm1(uhf_ao)
+            self.gamma_ao.append(['core', ghf_ao])
 
-        # orthogonalize state n with GS
-        c_gs, c_es = utilities.tdm_slater(self.mol,es_mo_coeff,self.mo_coeff)
+            # express new density matrix in original MO basis
+            #self.gamma_exp.append(np.einsum('pi,ij,qj->pq', self.mo_coeff_inv, ghf_ao, self.mo_coeff_inv.conj()))
 
-        # calculate tdm in orthogonalized basis
-        tdm = utilities.tdm_slater()
+            # Calculate transition density matrix
+            # -------------------------------------
 
-        # transform tdm in canonical MOs basis
+            # orthogonalize state n with GS
+            TcL, TcR = utilities.ortho(self.mol,es_mo_coeff,self.mo_coeff)
 
+            # express tdm in canonical MOs basis
+            tdm = utilities.tdm_slater(TcL, TcR, moc)
+            self.gamma_tr_ao.append(['core', tdm])
 
-  def EOM(self):
-    '''
-    PySCF RCCSD-EOM calculation
-    Stores the rdm1 for each states in G format
-    Stores the transition density matrices wrt the ground state for each state in G format
+    def EOM(self):
+      '''
+      PySCF RCCSD-EOM calculation
+      Stores the rdm1 for each states in G format
+      Stores the transition density matrices wrt the ground state for each state in G format
 
-    '''
+      '''
 
-    import CCSD
-    from pyscf import cc
+      import CCSD
+      from pyscf import cc
 
-    # Do RCCSD calculation using self.mf
-    mycc = cc.RCCSD(self.mf)
-    E, t1, t2 = mycc.kernel()
-    # convert t into amplitudes
-    #t1, t2 = mycc.vector_to_amplitudes(t)
-    # convert into G format
-    t1 = cc.addons.spatial2spin(t1)
-    t2 = cc.addons.spatial2spin(t2)
+      # Do RCCSD calculation using self.mf
+      mycc = cc.RCCSD(self.mf)
+      E, t1, t2 = mycc.kernel()
+      # convert t into amplitudes
+      #t1, t2 = mycc.vector_to_amplitudes(t)
+      # convert into G format
+      t1 = cc.addons.spatial2spin(t1)
+      t2 = cc.addons.spatial2spin(t2)
 
-    nroots = self.nbr_of_states[0]
-    myeom = cc.eom_rccsd.EOMEESinglet(mycc)
+      nroots = self.nbr_of_states[0]
+      myeom = cc.eom_rccsd.EOMEESinglet(mycc)
 
-    # Do singlet excitation EOM(2,2) and store excitation energies and r amplitudes
-    DE_r, rn = myeom.kernel() #mycc.eomee_ccsd_singlet(nroots=nroots)
+      # Do singlet excitation EOM(2,2) and store excitation energies and r amplitudes
+      DE_r, rn = myeom.kernel() #mycc.eomee_ccsd_singlet(nroots=nroots)
 
-    # Solve the L equations
-    # DE_l, ln = mycc.eomee_ccsd_singlet(nroots=nroots,left=True)
+      # Solve the L equations
+      # DE_l, ln = mycc.eomee_ccsd_singlet(nroots=nroots,left=True)
 
-    # store GS rdm1
-    tmp = mycc.make_rdm1()  # in deformed MOs basis
-    self.gamma_ao_gs = utilities.mo_to_ao(tmp,self.mo_coeff) # in AOs
+      # store GS rdm1
+      tmp = mycc.make_rdm1()  # in deformed MOs basis
+      self.gamma_ao_gs = utilities.mo_to_ao(tmp,self.mo_coeff) # in AOs
 
-    for i in range(len(rn)):
+      for i in range(len(rn)):
 
-      # Convert vector to amplitudes
-      #r1, r2 = mycc.vector_to_amplitudes(rn[i])
-      #l1, l2 = mycc.vector_to_amplitudes(ln[i])
+        # Convert vector to amplitudes
+        #r1, r2 = mycc.vector_to_amplitudes(rn[i])
+        #l1, l2 = mycc.vector_to_amplitudes(ln[i])
 
-      # Convert amplitudes in G format
-      #r1 = cc.addons.spatial2spin(r1)
-      l1 = cc.addons.spatial2spin(l1)
-      #r2 = cc.addons.spatial2spin(r2)
-      l2 = cc.addons.spatial2spin(l2)
+        # Convert amplitudes in G format
+        #r1 = cc.addons.spatial2spin(r1)
+        l1 = cc.addons.spatial2spin(l1)
+        #r2 = cc.addons.spatial2spin(r2)
+        l2 = cc.addons.spatial2spin(l2)
 
-      # calculate tdm <ES||GS> in deformed MOs basis
-      r1 = np.zeros_like(l1)
-      r2 = np.zeros_like(l2)
-      r0 = 1.
-      inter   = CCSD.tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0)
-      rdm1 = CCSD.tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter)
+        # calculate tdm <ES||GS> in deformed MOs basis
+        r1 = np.zeros_like(l1)
+        r2 = np.zeros_like(l2)
+        r0 = 1.
+        inter   = CCSD.tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0)
+        rdm1 = CCSD.tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter)
 
-      # Convert in AOs basis
-      rdm1 = utilities.mo_to_ao(rdm1,self.mo_coeff)
-      self.gamma_ao.append(rdm1)
+        # Convert in AOs basis
+        rdm1 = utilities.mo_to_ao(rdm1,self.mo_coeff)
+        self.gamma_ao.append(rdm1)
 
 
 
@@ -462,7 +499,7 @@ if __name__ == "__main__":
       [8 , (0. , 0.     , 0.)],
       [1 , (0. , -0.757 , 0.587)],
       [1 , (0. , 0.757  , 0.587)]]
-  mol.basis = '6-31g*'
+  mol.basis = 'sto3g'
   mol.spin = 0
   mol.build()
 
@@ -478,20 +515,18 @@ if __name__ == "__main__":
   mf.kernel()
   
   # convert to GHF
-  
   mfg = scf.addons.convert_to_ghf(mf)
-  
+
+  # GHF gamma_mo
   gamma_pred_ao = mfg.make_rdm1()
   mo_coeff = mfg.mo_coeff
   gamma_pred = utilities.ao_to_mo(gamma_pred_ao,mo_coeff)
   
-  
+  # GS gamma_exp
   gexp = Gexp(mol,'HF')
   field = [0.05,0.02,0.]
   gexp.Vext(field)
   gexp.build()
-
-  # exp rdm1 in AOs
   gamma_exp_ao = gexp.gamma_ao
   # exp rdm1 in canonical MOs
   gamma_exp_mo = utilities.ao_to_mo(gamma_exp_ao,mo_coeff)
@@ -517,9 +552,8 @@ if __name__ == "__main__":
   print('#  ES exp  ')
   print('###########')
   print()
-  print(' EOM ')
-  es_exp = ESexp(mol, nbr_of_states=(3,0), Vext=(0.05,0.01,0.))
-  es_exp.EOM()
-  print('')
   print(' MOM ')
 
+  # two valence and one core ES
+  es_exp = ESexp(mol, nbr_of_states=(2,1))
+  es_exp.MOM()

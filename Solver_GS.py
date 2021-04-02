@@ -181,7 +181,7 @@ class Solver_CCS:
             if alpha is None:
                 ls = mycc.lsupdate(ts, ls, L1inter)
             else:
-                ls = mycc.lsupdate_L1(ts, ls, L1inter, alpha)
+                ls = mycc.lsupdate_L1(ls, L1inter, alpha)
             # apply DIIS
             if 'l' in diis:
                 ls_vec = np.ravel(ls)
@@ -792,18 +792,18 @@ if __name__ == "__main__":
     lsini = np.zeros((gnocc,gnvir))
 
     # convergence options
-    maxiter = 80
     conv_thres = 10 ** -6
-    diis = ('')  # must be tuple
+    diis = ('rdm1')  # must be tuple
 
     # initialise Solver_CCS Class
     Solver_CCS = Solver_CCS(mccsg, VXexp,'tl',conv_thres, tsini=tsini, lsini=lsini, diis=diis, CCS_grad=mygrad)
 
     # Solve for L = 0
-    L = 0
+    L = 0.01
     Results = Solver_CCS.SCF(L)
     #Results = Solver_CCS.Gradient(L,method='newton', alpha=0.5)
     print(Results[0])
+    print('X2= ', Results[2][-1])
     print()
     print('Ep')
     print(Results[1])
@@ -836,7 +836,7 @@ if __name__ == "__main__":
 
     # convergence options
     maxiter = 20
-    conv_thres = 10 ** -8
+    conv_thres = 10 ** -6
     diis = ('')  # must be tuple
 
     # initialise Solver_CCS Class
@@ -844,7 +844,7 @@ if __name__ == "__main__":
 
     # Solve for L
     L = 0
-    Results = Solver.SCF(L,alpha=0.1)
+    Results = Solver.SCF(L,alpha=0.)
     print(Results[0])
     print()
     print('conv')
@@ -854,75 +854,3 @@ if __name__ == "__main__":
     print('PySCF ECCSD difference=', mygcc.kernel()[0]-Results[1][-1])
     print()
     
-    ## Solve for L = 0.05
-    #L = 0.05
-    #Results = Solver.SCF(L)
-    #print(Results[0])
-    #print()
-    #print('conv')
-    #print(Results[3])
-    #print()
-
-    #print('PySCF ECCSD difference=', mygcc.kernel()[0]-Results[1][-1])
-    #print()
-
-    ## Solve for L = 0.
-    #L = 0
-    #Results = Solver.SCF(L, alpha=0.01)
-    #print(Results[0])
-    #print()
-    #print('conv')
-    #print(Results[3])
-    #print()
-
-    #print('PySCF ECCSD difference=', mygcc.kernel()[0] - Results[1][-1])
-    #print()
-
-   #print('#####################')
-   #print('# Test L1 algorithm  ')
-   #print('#####################')
-
-    ## CHECK
-    ## L1_grad
-    ## - lambda=0,   alpha=0,   random initial ts/ls, chi=0.5, conv=10-6 --> 'tl' converges in 8 it --> OK
-    ## - lambda=0,   alpha=0.1, random initial ts/ls, chi=0.5, conv=10-6 --> 'tl' converges in 3 it --> OK
-    ## SCF+L1
-    ## - lambda=0, alpha=0,   random initial ts/ls, conv=10-6 --> 'tl' converges in 17 it --> OK
-    ## - lambda=0, alpha=0.1, random initial ts/ls, conv=10-6 --> 'tl' converges in 5 it  --> OK
-
-
-    #mccsd = CCS.Gccs(geris)
-
-    ## Vexp object
-    #VXexp = exp_pot.Exp(exp,mol,mgf.mo_coeff)
-
-    ## convergence options
-    #maxiter = 20
-    #conv_thres = 10 ** -6
-    #diis = ('')  # ('rdm')  # must be tuple
-
-    ## initial ts and ls
-    ##tsini = np.random.rand(gnocc, gnvir) * 0.01
-    ##lsini = np.random.rand(gnocc, gnvir) * 0.01
-    #tsini = np.zeros((gnocc,gnvir))
-    #lsini = np.zeros((gnocc,gnvir))
-
-    ## initialise Solver_CCS Class
-    #Solver = Solver_CCS(mccsd, VXexp, 'tl', conv_thres, diis=diis, maxiter=maxiter, maxdiis=20, tsini=tsini, lsini=lsini)
-
-    ## Solve
-    #alpha = 0.
-    #L = 0.
-    #chi = 0.5
-    ## L1 in paper
-    #Results = Solver.L1_grad(L, alpha, chi=chi, diis=diis)
-    ## L1+SCF
-    ##Results = Solver.SCF(L,ts=tsini,ls=lsini,diis=diis,alpha=alpha)
-
-    #print(Results[0])
-    #print()
-    #print('tl_conv')
-    #print(Results[3])
-    #print()
-    #print('X2 vmax')
-    #print(Results[2][-1])
