@@ -642,11 +642,13 @@ if __name__ == '__main__':
 
     # Build molecules and basis
     ecw = ECW(molecule, basis)
-    # Build GS exp data
-    ecw.Build_GS_exp('HF', field=[0.05, 0.01, 0.1])
+    # Build GS exp data from HF+field
+    ecw.Build_GS_exp('HF', field=[0.05, 0.01, 0.])
+    # Build exp data from given 1e prop (Ek from CCSD+[0.05, 0.01, 0.]+6-311+g**)
+    #ecw.exp_data[0,0] = ['Ek', 70.4 ]
 
-    # Solve ECW-CC equations using SCF algorithm
-    #ecw.CCS_GS(Larray,graph=True, alpha=0.)
+    # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
+    #Results, plot = ecw.CCS_GS(Larray,graph=True, alpha=0.)
     Results, plot = ecw.CCSD_GS(Larray,graph=True, alpha=0.1)
     plot.show()
 
