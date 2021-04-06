@@ -1,22 +1,20 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-###################################################################
+#####################################################################
 #
-# ECW-CCS v1
+# ECW-CC
 # -----------
-# Experimentaly constrained wave function coupled cluster single
+# Experimentally constrained wave function coupled cluster
 # ---------------------------------------------------------------
 #
-# Solver_CCS for SCF and Newton's method
+# Solver_CCS for SCF and Gradient (Newton's method, steepest descend)
 
-###################################################################
+######################################################################
 
 import numpy as np
-import utilities
+from . import utilities
 from pyscf import lib
-
-
 
 class Solver_CCS:
     def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=tuple(),

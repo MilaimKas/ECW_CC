@@ -98,7 +98,7 @@
 
 import numpy as np
 import scipy
-import utilities
+from . import utilities
 
 from pyscf import scf, gto, cc, dft, tddft
 

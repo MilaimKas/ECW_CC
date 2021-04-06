@@ -3,9 +3,9 @@
 
 ###################################################################
 #
-# ECW-CCS v1
+# ECW-CC
 # -----------
-# Experimentaly constrained wave function coupled cluster single
+# Experimentally constrained wave function coupled cluster
 # ---------------------------------------------------------------
 #
 # SCF Solver_CCS for coupled T, 0L, R and L equations
@@ -14,8 +14,7 @@
 
 import numpy as np
 from pyscf import lib
-import exp_pot
-import utilities
+from . import utilities
 
 
 class Solver_ES:
@@ -200,7 +199,7 @@ class Solver_ES:
                 
         while Dconv > self.conv_thres:
 
-
+            # nbr_states = nbr of excited states
             fsp = [None] * (nbr_states+1)
             rdm1 = [None]*(nbr_states+1)
             tr_rdm1 = [None]*(nbr_states)
@@ -214,14 +213,14 @@ class Solver_ES:
             # -------------------------------------------------
             # GS
             if exp_data[0,0] is not None:
-               rdm1[1] = mycc.gamma(ts, ls)
+               rdm1[0] = mycc.gamma(ts, ls)
             # ES
             for n in range(nbr_states):
                 # calculate rdm1 for state n
-                if exp_data[n,n] is not None:
+                if exp_data[n+1,n+1] is not None:
                    rdm1[n+1] = mycc.gamma_es(ts, ln[n], rn[n], r0n[n], l0n[n])
                 # calculate tr_rdm1 
-                if exp_data[0,1] is not None:
+                if exp_data[0,n+1] is not None:
                    # <Psi_k||Psi_n>
                    tr_1 = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
                    # <Psi_n||Psi_k> 
@@ -406,7 +405,7 @@ if __name__ == "__main__":
     H 0 0 0
     H 0 0 1.
     '''
-    mol.basis = 'sto3g'
+    mol.basis = '6-31g'
     mol.spin = 0
     mol.build()
 
@@ -442,18 +441,17 @@ if __name__ == "__main__":
     exp_data = np.full((3, 3), None)
     exp_data[0, 0] = ['mat', GS_exp_ao]
     # todo: add QChem transition dipole moment
-    exp_data[0, 1] = ['dip', []]
-    exp_data[0, 2] = ['dip', []]
+    exp_data[0, 1] = ['dip', [0.000000, 0.523742, 0.0000]]     # DE = 0.28 au
+    exp_data[0, 2] = ['dip', [0.000000, 0.000000, -0.622534]]  # DE = 0.37 au
 
     # Vexp object
     VXexp = exp_pot.Exp(exp_data,mol,mgf.mo_coeff)
 
     # initial rn, r0n and ln, l0n list
-    #noise = np.random.random((gnocc,gnvir))*0.001
-    rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,2) #[rn+noise]
-    lnini = [i * 1 for i in rnini] #[ln-noise]
-    r0ini = utilities.EOM_r0(DE,np.zeros((gnocc,gnvir)),rnini,gfs,geris.oovv)#[r0+0.001]
-    l0ini = [i * 0 for i in r0ini] #[l0-0.001]
+    rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,nstates=2)
+    lnini = [i * 1 for i in rnini]
+    r0ini = utilities.EOM_r0(DE,np.zeros((gnocc,gnvir)),rnini,gfs,geris.oovv)
+    l0ini = [i * 0 for i in r0ini]
 
     # convergence options
     maxiter = 40

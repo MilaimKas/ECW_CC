@@ -388,6 +388,8 @@ def koopman_init_guess(mo_energy,mo_occ,nstates=1):
     e_ia = mo_energy[viridx] - mo_energy[occidx, None]
 
     nov = e_ia.size
+    if nstates > nov:
+        raise Warning('The size of the basis is smaller than the number of requested states')
     nroot = min(nstates, nov)
     x0 = [] # np.zeros((nroot, nov))
     DE = []

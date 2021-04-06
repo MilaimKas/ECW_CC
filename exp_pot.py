@@ -10,15 +10,12 @@
 # Calculate Vexp potential and X2 statistic from either rdm1_exp or
 # one electron properties
 #
-# todo: so far exp_pot is compatible with Solver_CCS and exp_pot_old, however Chi2 function is obsolete
-# todo: implement list of exp
 # todo: V_Ek is store even if rdm1 is compared
-#
 #
 ###################################################################
 
 import numpy as np
-import utilities
+from . import utilities
 
 class Exp:
     def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None):
@@ -167,7 +164,6 @@ if __name__ == "__main__":
 
   from pyscf import gto,scf,cc
   import gamma_exp
-  import CCS
 
   mol = gto.Mole()
   mol.atom = [

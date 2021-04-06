@@ -19,7 +19,7 @@
 ###################################################################
 
 import numpy as np
-import utilities
+from . import utilities
 
 np.random.seed(2)
 

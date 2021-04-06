@@ -17,18 +17,12 @@ import numpy as np
 # PySCF
 from pyscf import gto, scf, cc
 
-# CC functions
-import CCS, CCSD
-# Vexp functions
-import exp_pot
-# gamma exp
-import gamma_exp
-# Solver for ECW GS equations
-import Solver_GS
-# additional functions
-import utilities
-# PySCF two electron integrals
-import Eris
+# Import ECW modules
+from . import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
+
+# Global float format for print
+# ------------------------------
+format_float = '{:10.5e}'
 
 # Creating new molecule object
 # ------------------------------
@@ -192,11 +186,7 @@ class ECW:
         self.Eexp_GS = None
         self.Eexp_ES = [] # excitation energies
         
-        print()
-        print('--------------')
-        print('Molecule build')
-        print('--------------')
-        print()
+        print('*** Molecule build ***')
 
     def Build_GS_exp(self, posthf='HF', field=None, para_factor=None):
         '''
@@ -230,7 +220,7 @@ class ECW:
             fout = self.out_dir+'/target_GS.cube'
             utilities.cube(self.exp_data[0, 0][1], self.mo_coeff, self.mol, fout)
             
-        print('GS data stored ')
+        print('*** GS data stored ***')
 
     def Build_ES_exp_MOM(self,nbr_of_es=(1,0), field=None):
         '''
@@ -438,12 +428,12 @@ class ECW:
                 X2_Ek.append(VXexp.X2_Ek_GS)
 
         print("FINAL RESULTS")
-        print("Ep   = ", Ep)
-        print("X2   = ", X2)
-        print("DEk  = ", X2_Ek[-1])
+        print("Ep   = "+format_float.format(Ep+self.EHF))
+        print("X2   = "+format_float.format(X2))
+        print("DEk  = "+format_float.format(VXexp.X2_Ek_GS))
         print()
-        print("EHF    = ", self.EHF)
-        print("Eexp   = ", self.Eexp_GS+self.EHF)
+        print("EHF    = "+format_float.format(self.EHF))
+        print("Eexp   = "+format_float.format(self.Eexp_GS))
 
         plot=None
         if graph:
@@ -575,7 +565,7 @@ class ECW:
         print("FINAL RESULTS")
         print("Ep   = ", Ep)
         print("X2   = ", X2)
-        print("DEk  = ", X2_Ek[-1])
+        print("DEk  = ", VXexp.X2_Ek_GS)
         print()
         print("EHF    = ", self.EHF)
         print("Eexp   = ", self.Eexp_GS)
@@ -635,9 +625,9 @@ if __name__ == '__main__':
     basis = '6-31g'
 
     # Choose lambda array
-    lambi = 0  # weight for Vexp, initial value
-    lambf = 0.8  # lambda final
-    lambn = 5  # number of Lambda value
+    lambi = 0.5  # weight for Vexp, initial value
+    lambf = 0.5  # lambda final
+    lambn = 1  # number of Lambda value
     Larray = np.linspace(lambi, lambf, num=lambn)
 
     # Build molecules and basis
@@ -648,9 +638,9 @@ if __name__ == '__main__':
     #ecw.exp_data[0,0] = ['Ek', 70.4 ]
 
     # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
-    #Results, plot = ecw.CCS_GS(Larray,graph=True, alpha=0.)
-    Results, plot = ecw.CCSD_GS(Larray,graph=True, alpha=0.1)
-    plot.show()
+    #Results, plot = ecw.CCSD_GS(Larray, graph=True, alpha=0.01, method='scf')
+    Results, plot = ecw.CCS_GS(Larray,graph=False, alpha=0.01)
+    #plot.show()
 
 
 
