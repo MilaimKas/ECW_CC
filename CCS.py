@@ -676,7 +676,7 @@ class Gccs:
         Zji = foo.copy()
         Zji += np.einsum('jkik->ji', self.eris.oooo)
         Zji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
-        tmp = np.einsum('ic,jkbc->ijkb', ts, self.eris.ooov)
+        tmp = np.einsum('ic,jkbc->ijkb', ts, self.eris.oovv)
         Zji -= np.einsum('kb,ijkb->ji', ts, tmp)
         del tmp
 
@@ -935,7 +935,7 @@ class Gccs:
         Fij += np.einsum('kb,jc,kibc->ij', ts, ts, self.eris.oovv)
 
         # Wbija: equation (32)
-        W = self.eris.ovvo.copy()
+        W = self.eris.voov.copy()
         W -= np.einsum('kb,kija->bija', ts, self.eris.ooov)
         W += np.einsum('jc,bica->bija', ts, self.eris.vovv)
         W -= np.einsum('jc,kb,kica->bija', ts, ts, self.eris.oovv)
@@ -1027,7 +1027,7 @@ class Gccs:
         # Lia = lia*En' matrix
         Lia  = np.einsum('ib,ba->ia', ls, Fba)
         Lia -= np.einsum('ja,ij->ia', ls, Fij)
-        Lia += np.einsum('jb,ibaj->ia', ls, W)
+        Lia += np.einsum('jb,bija->ia', ls, W)
         Lov = Lia[o,v]
         del Lia
 

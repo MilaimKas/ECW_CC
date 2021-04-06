@@ -368,6 +368,7 @@ def check_ortho(ln, rn, l0n, r0n, thres_ortho=10**-2,S_AO=None):
     return C_norm
 
 def koopman_init_guess(mo_energy,mo_occ,nstates=1):
+    # todo: implement core excitation
     '''
     Generates list of koopman guesses for r1 vectors in G format
     The guess is obtained in the r format to avoid breaking symmetry

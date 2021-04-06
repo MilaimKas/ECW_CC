@@ -15,7 +15,10 @@
 import numpy as np
 from pyscf import lib
 from . import utilities
+from tabulate import tabulate
 
+# print float format
+format_float = '{:.4e}'
 
 class Solver_ES:
     def __init__(self, mycc, Vexp_class, rn_ini, r0n_ini, ln_ini=None, l0n_ini=None, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
@@ -163,7 +166,7 @@ class Solver_ES:
 
         # initialize X2 and Ep array
         X2 = np.zeros((nbr_states + 1, nbr_states + 1))
-        Ep = np.zeros((nbr_states + 1, nbr_states + 1))
+        Ep = np.zeros((nbr_states+1,2))
         
         # initialize loop vectors and printed infos
         conv = 0.
@@ -191,12 +194,12 @@ class Solver_ES:
                 ldiis.space = self.maxdiis
                 ldiis.min_space = 2
 
-        # First line
-        print('ite', '        ', self.conv_var, '        ', end="")
+        table = []
+        # First line of printed table
+        headers = ['ite',str(self.conv_var)]
         for i in range(nbr_states):
-            print('State {}'.format(i),'->','rk lk norm', '        ', 'Ortho wrt state 0', end="")
-        print()
-                
+            headers.extend(['State {} -> norm'.format(i), 'Ortho wrt state 0'])
+
         while Dconv > self.conv_thres:
 
             # nbr_states = nbr of excited states
@@ -212,15 +215,15 @@ class Solver_ES:
             # calculate needed rdm1 tr_rdm1 for all states
             # -------------------------------------------------
             # GS
-            if exp_data[0,0] is not None:
+            if Vexp_class.exp_data[0,0] is not None:
                rdm1[0] = mycc.gamma(ts, ls)
             # ES
             for n in range(nbr_states):
                 # calculate rdm1 for state n
-                if exp_data[n+1,n+1] is not None:
+                if Vexp_class.exp_data[n+1,n+1] is not None:
                    rdm1[n+1] = mycc.gamma_es(ts, ln[n], rn[n], r0n[n], l0n[n])
                 # calculate tr_rdm1 
-                if exp_data[0,n+1] is not None:
+                if Vexp_class.exp_data[0,n+1] is not None:
                    # <Psi_k||Psi_n>
                    tr_1 = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
                    # <Psi_n||Psi_k> 
@@ -282,7 +285,7 @@ class Solver_ES:
                 ls = ldiis.update(ls_vec).reshape((nocc, nvir))
 
             # Update En_r/En_l and r, r0, l and l0 amplitudes for each ES
-            # -------------------------------------------------------
+            # ------------------------------------------------------------
 
             for i in range(nbr_states):
 
@@ -338,14 +341,15 @@ class Solver_ES:
 
                 # Store excited states energies Ep = (En_r,En_l)
                 # -----------------------------------------------
-                Ep[i+1] = (En_r,En_l)
+                Ep[i+1][0] = En_r
+                Ep[i+1][1] = En_l
 
             #del Rinter, R0inter, Linter, L0inter, vexp
-            
+
             # Store GS energies Ep
             # --------------------------------------------
             vexp = [-L[1:i,1:i]*Vexp_class.Vexp[1:i,1:i] for i in range(nbr_states)]
-            Ep[0] = mycc.energy_ccs(ts, fsp[0], rs=rn, vnn=vexp)
+            Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rs=rn, vnn=vexp)
             Ep_ite.append(Ep)
 
             # checking convergence
@@ -359,25 +363,30 @@ class Solver_ES:
 
             # print convergence infos
             # --------------------------------------------
-            print(ite,'        ','{:.4e}'.format(Dconv),'          ',end="")
+            tmp = [ite, format_float.format(Dconv)]
             for i in range(nbr_states):
-                print('{:.4e}'.format(C_norm[i,i]), '                 ', '{:.4e}'.format(C_norm[0,i]), end="")
+                tmp.extend([format_float.format(C_norm[i, i]),format_float.format(C_norm[0, i])])
+            table.append(tmp)
+
             print()
 
             if ite >= self.maxiter:
                 Conv_text = 'Max iteration reached'
                 print()
                 print(Conv_text)
+                print(tabulate(table, headers, tablefmt="rst"))
                 break
             if Dconv > 3.:
                 Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L.flatten(), ite)
                 print()
                 print(Conv_text)
+                print(tabulate(table, headers, tablefmt="rst"))
                 break
 
             ite += 1
 
         else:
+            print(tabulate(table, headers, tablefmt="rst"))
             print()
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L.flatten(), ite)
             print(Conv_text)
@@ -392,7 +401,6 @@ if __name__ == "__main__":
     from pyscf import gto, scf, cc, tdscf
     import CCS
     import exp_pot
-    import gamma_exp
     import Eris
 
     # build molecule

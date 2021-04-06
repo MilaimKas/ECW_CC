@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 
 # Python
 import numpy as np
+from tabulate import tabulate
 
 # PySCF
 from pyscf import gto, scf, cc
@@ -409,11 +410,13 @@ class ECW:
 
             if print_ite_info:
                 print('Iteration steps')
-                print('ite', '      ', 'Ep', '         ', conv, '          ', 'X2')
+                headers = ['ite','Ep',str(conv),'X2']
+                table = []
                 for i in range(len(Result[1])):
-                    print(i, '  ', "{:.4e}".format(Result[1][i]), '  ', "{:.4e}".format(Result[3][i]), '  ',
-                          "{:.4e}".format(Result[2][i][0]))
-            
+                    table.append([i, '{:.4e}'.format(Result[1][i]), "{:.4e}".format(Result[3][i]),
+                          "{:.4e}".format(Result[2][i][0])])
+                print(tabulate(table, headers, tablefmt="rst"))
+
             # print convergence text
             print(Result[0])
             print()
@@ -544,10 +547,12 @@ class ECW:
 
             if print_ite_info:
                 print('Iteration steps')
-                print('ite', '      ', 'Ep', '         ', conv, '          ', 'X2')
+                headers = ['ite','Ep',str(conv),'X2']
+                table = []
                 for i in range(len(Result[1])):
-                    print(i, '  ', "{:.4e}".format(Result[1][i]), '  ', "{:.4e}".format(Result[3][i]), '  ',
-                          "{:.4e}".format(Result[2][i][0]))
+                    table.append([i, '{:.4e}'.format(Result[1][i]), "{:.4e}".format(Result[3][i]),
+                          "{:.4e}".format(Result[2][i][0])])
+                print(tabulate(table, headers, tablefmt="rst"))
 
             # print convergence text
             print(Result[0])
@@ -573,7 +578,7 @@ class ECW:
 
         plot=None
         if graph:
-            plot=plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek)
+            plot = plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek)
 
         return Result, plot
 
