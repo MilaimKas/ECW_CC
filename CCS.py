@@ -20,6 +20,7 @@
 
 import numpy as np
 from . import utilities
+#import utilities
 
 np.random.seed(2)
 
@@ -636,7 +637,9 @@ class Gccs:
         
         # Fab: equation (14)
         Fab = fvv.copy()
+        print('fvv= ',Fab[0,0])
         Fab += np.einsum('akbk->ab', self.eris.vovo)
+        print('Fab_1 = ', Fab[0,0])
         Fab -= np.einsum('ja,jb->ab', ts, fov)
         Fab += np.einsum('jc,jacb->ab', ts, self.eris.ovvv)
         Fab -= np.einsum('ja,jkbk->ab', ts, self.eris.oovo)
@@ -644,6 +647,7 @@ class Gccs:
 
         # Fji: equation (15)
         Fji = foo.copy()
+        print('foo= ', Fji[8,8])
         Fji += np.einsum('jkik->ji', self.eris.oooo)
         Fji += np.einsum('ib,jb->ji', ts, fov)
         Fji += np.einsum('ib,jkbk->ji', ts, self.eris.oovo)
@@ -703,7 +707,7 @@ class Gccs:
 
         return Fab, Fji, W, F, Zia, Pia
     
-    def R0inter(self,ts,fsp,vm):
+    def R0inter(self,ts, fsp, vm):
         '''
         Calculates the one and two particles intermediates for state m as well as the Vexp intermediate
         for the R0 equations
@@ -767,7 +771,10 @@ class Gccs:
         Ria += np.einsum('akic,kc->ia', W, rs)
         Rov = Ria[o,v]
         del Ria
-
+        print(o,v)
+        print("Fab= ", Fab[v,v])
+        print("Fji= ", Fji[o,o])
+        print('rov=', rs[o,v])
         Rov += rs[o,v] * F
         Rov += r0 * Zia[o,v]
         Rov += Pia[o,v]
@@ -1632,6 +1639,26 @@ if __name__ == "__main__":
     print(np.subtract(mccsg.R1eq(rs,r0,Rinter),mccsg.es_L1eq(ls,l0,Linter)))
     print('raw equations')
     print(np.subtract(CC_raw_equations.R1eq(ts,rs,r0,geris),CC_raw_equations.es_L1eq(ts,ls,l0,geris)))
+
+    print()
+    print('Difference between R0 and L0 equations for t=0 and l0=r0 (should be zero)')
+    print('-------------------------------------------------------------------------')
+    r1 = np.random.random((gnocc,gnvir))*0.1
+    l1 = r1.copy()
+    tmp = np.zeros_like(t1)
+    # build symmetrized random fock matrix
+    f = np.random.random((gfs.shape[0]//2, gfs.shape[1]//2))
+    f = f + f.T - np.diag(f.diagonal())
+    f = utilities.convert_r_to_g_rdm1(f)
+    En = 0.5
+    print('raw equations')
+    print(np.subtract(mccsg.R0eq(En, tmp, r1, f),mccsg.L0eq(En, tmp, l1, f)))
+    print('r0 and l0 update')
+    v = np.zeros_like(f)
+    R0inter = mccsg.R0inter(tmp, f, v)
+    L0inter = mccsg.L0inter(tmp, f, v)
+    r0 = l0 = 0.5
+    print(np.subtract(mccsg.r0update(r1, r0, En, R0inter), mccsg.l0update(l1, l0, En, L0inter)))
 
     print()
     print('Difference between inter and raw equations for t=0')

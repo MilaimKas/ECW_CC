@@ -299,13 +299,14 @@ class ECW:
                 self.DE.append(self.fock[a, a] - self.fock[i, i])
 
 
-    def CCS_GS(self, Larray ,alpha=None, method='scf', graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
+    def CCS_GS(self, Larray ,alpha=None, Alpha=None, method='scf', graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
                beta=None, diis_max=15, conv='tl', conv_thres=10**-6, maxiter=40):
         '''
         Call CCS solver for the ground state using SCF+DIIS or gradient (steepest descend/Newton) method
         
         :param Larray: array of L value for which the CCS equations have to be solved
-        :param alpha: L1 reg term
+        :param alpha: L1 reg term applied at micro-iteration
+        :param Alpha: L1 reg term applied at macro-iteration
         :param method: SCF, newton, gradient or L1_grad
         :param beta: iteration step for the L1_grad method
         :param graph: True if a final plot X2(L) is shown
@@ -401,6 +402,13 @@ class ECW:
             else:
                 raise ValueError('method not recognize')
             ts, ls = Result[5]
+            # apply L1 at macro-iteration
+            if Alpha is not None:
+                inter = myccs.T1inter(ts, Result[4])
+                ts = myccs.tsupdate(ts, inter)
+                inter = myccs.L1inter(ts, Result[4])
+                ls = myccs.lsupdate(ts, ls, inter)
+                del inter
 
             # print cube file for L listed in L_print in dir_cube path
             if self.out_dir:
@@ -444,15 +452,14 @@ class ECW:
             
         return Result, plot
 
-    def CCSD_GS(self, Larray , alpha=None, method='SCF', graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
-                beta=None, diis_max=15, conv='tl', conv_thres=10**-6, maxiter=40):
+    def CCSD_GS(self, Larray , alpha=None, Alpha=None, graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
+                diis_max=15, conv='tl', conv_thres=10**-6, maxiter=40):
         '''
         Call CCSD solver for the ground state using SCF+DIIS method
         
         :param Larray: array of L value for which the CCS equations have to be solved
-        :param alpha: L1 reg term
-        :param method: SCF, newton, gradient or L1_grad
-        :param beta: iteration step for the L1_grad method
+        :param alpha: L1 reg term applied at each micro-iteration
+        :param Alpha: L1 reg term applied at each macro-iteration
         :param graph: True if a final plot X2(L) is shown
         :param diis: apply diis to rdm1 ('rdm1'), t amplitudes ('t'), l amplitudes ('l') or both ('tl')
         :param diis_max: max diis space
@@ -502,10 +509,10 @@ class ECW:
         # Vexp class
         VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff)
         # CCSD class
-        myccs = CCSD.GCC(self.eris)
+        myccd = CCSD.GCC(self.eris)
 
         # CCS_GS solver
-        Solve = Solver_GS.Solver_CCSD(myccs, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
+        Solve = Solver_GS.Solver_CCSD(myccd, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
                                      diis=diis, maxdiis=diis_max, maxiter=maxiter)
         # initialize plot
         if graph:
@@ -538,7 +545,11 @@ class ECW:
             Result = Solve.SCF(L, ts=ts, ls=ls, td=td, ld=ld, alpha=alpha)
             # Use previous amplitudes as initial guess
             ts, ls, td, ld = Result[5]
-            
+            # Apply L1 here
+            if Alpha is not None:
+                ts, td = myccd.tupdate(ts, td, alpha=Alpha)
+                ls, ld = myccd.lupdate(ts, td, ls, ld, alpha=Alpha)
+
             # print cube file for L listed in L_print in out_dir path
             if self.out_dir:
                 if L in L_print:

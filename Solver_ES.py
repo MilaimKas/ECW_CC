@@ -198,7 +198,7 @@ class Solver_ES:
         # First line of printed table
         headers = ['ite',str(self.conv_var)]
         for i in range(nbr_states):
-            headers.extend(['State {} -> norm'.format(i), 'Ortho wrt state 0'])
+            headers.extend(['ES {} -> norm'.format(i+1), 'r0', 'l0','Er', 'El', 'Ortho wrt ES 1'])
 
         while Dconv > self.conv_thres:
 
@@ -210,7 +210,7 @@ class Solver_ES:
 
             # check for orthonormality
             # ------------------------------
-            C_norm = utilities.check_ortho(ln, rn, r0n, l0n, S_AO=S_AO)
+            C_norm = utilities.check_ortho(ln, rn, r0n, l0n, S_AO=S_AO)*2 # factor 2 for G format
 
             # calculate needed rdm1 tr_rdm1 for all states
             # -------------------------------------------------
@@ -311,7 +311,7 @@ class Solver_ES:
 
                 # Get missing r ampl
                 # -------------------------
-                if rn[0].shape[0]**2 > 4:
+                if rn[0].shape[0]**2 > 4: # if more than 2 basis functions
                     rn[i][o,v] = mycc.get_rov(ln[i], l0n[i], rn[i], r0n[i], [o,v])
                     rn[i][o+1,v+1] = rn[i][o,v] # G format
 
@@ -335,7 +335,7 @@ class Solver_ES:
 
                 # Get missing l amp
                 # ------------------------
-                if ln[0].shape[0] ** 2 > 4:
+                if ln[0].shape[0] ** 2 > 4: # if more than 2 basis functions
                     ln[i][o, v] = mycc.get_rov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
                     ln[i][o + 1, v + 1] = ln[i][o, v]  # G format
 
@@ -365,10 +365,8 @@ class Solver_ES:
             # --------------------------------------------
             tmp = [ite, format_float.format(Dconv)]
             for i in range(nbr_states):
-                tmp.extend([format_float.format(C_norm[i, i]),format_float.format(C_norm[0, i])])
+                tmp.extend([format_float.format(C_norm[i, i]), r0n[i], l0n[i], Ep[i+1][0], Ep[i+1][1], format_float.format(C_norm[0, i])])
             table.append(tmp)
-
-            print()
 
             if ite >= self.maxiter:
                 Conv_text = 'Max iteration reached'

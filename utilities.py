@@ -18,7 +18,7 @@
 ###################################################################
 
 import pyscf
-from pyscf import scf, gto, tdscf,cc
+from pyscf import scf, gto, tdscf, cc, lib
 from pyscf.tools import cubegen
 from pyscf.tools import molden
 import scipy
@@ -73,7 +73,7 @@ def subdiff(eq,var,alpha,thres=10**-8, R_format=False):
         dW = convert_r_to_g_amp(dW)
 
     return dW
-
+    
 def prox_l1(x_J, alpha):
     '''
     proximal point mapping method of the L1 regularization approach
@@ -358,7 +358,7 @@ def check_ortho(ln, rn, l0n, r0n, thres_ortho=10**-2,S_AO=None):
     for k in range(nbr_of_states):
         for l in range(nbr_of_states):
             C_norm[k, l] = get_norm(rn[k], ln[l], r0=r0n[k], l0=l0n[l])
-            # otthogonalize vectors
+            # orthogonalize vectors
             # todo: here a set of vectors have to be orthogonalize! Not MOs
             #if l != k and C_norm[k, l] > thres_ortho:
             #    if S_AO is not None:
@@ -367,15 +367,15 @@ def check_ortho(ln, rn, l0n, r0n, thres_ortho=10**-2,S_AO=None):
 
     return C_norm
 
-def koopman_init_guess(mo_energy,mo_occ,nstates=1):
-    # todo: implement core excitation
+def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
     '''
     Generates list of koopman guesses for r1 vectors in G format
     The guess is obtained in the r format to avoid breaking symmetry
 
     :param mo_energy: MOs energies
     :param: mo_occ: occupation array
-    :param nstates: number of states
+    :param nstates: number of states valence and core excited states
+    :param core_ene_thresh: energy threshold for the definition of core
     :return: list of r_ini and koopman's excitation
     '''
 
@@ -386,24 +386,41 @@ def koopman_init_guess(mo_energy,mo_occ,nstates=1):
     viridx = np.where(mo_occ == 0)[0]
     nocc = occidx.shape[0]
     nvir = viridx.shape[0]
+    ncore = np.where(abs(mo_energy[:nocc]) > core_ene_thresh)[0].shape[0]
     e_ia = mo_energy[viridx] - mo_energy[occidx, None]
 
-    nov = e_ia.size
-    if nstates > nov:
-        raise Warning('The size of the basis is smaller than the number of requested states')
-    nroot = min(nstates, nov)
     x0 = [] # np.zeros((nroot, nov))
     DE = []
-    e_ia = e_ia.ravel()
-    idx = np.argsort(e_ia)
+    eia_val = e_ia[ncore:,:].ravel()
+    eia_core = e_ia[:ncore,:].ravel()
+    if nstates[0] > eia_val.size or nstates[1] > eia_core.size :
+        raise Warning('The size of the basis is smaller than the number of requested states')
 
+    # Valence
+    nroot = min(nstates[0], eia_val.size)
+    idx = np.argsort(eia_val)
+    nocc_val = nocc-ncore
     for i in range(nroot):
-        tmp = np.zeros(nov)
+        tmp = np.zeros(eia_val.size)
         tmp[idx[i]]   = 1
-        tmp = tmp.reshape((nocc,nvir))
+        tmp = tmp.reshape((nocc_val,nvir))
+        tmp = np.vstack((np.zeros((ncore, nvir)), tmp))
         tmp = convert_r_to_g_amp(tmp)*0.5
         x0.append(tmp)  # Koopmans' excitations
-        DE.append(e_ia[idx[i]])
+        DE.append(eia_val[idx[i]])
+
+    # Core
+    # Valence
+    nroot = min(nstates[1], eia_core.size)
+    idx = np.argsort(eia_core)
+    for i in range(nroot):
+        tmp = np.zeros(eia_core.size)
+        tmp[idx[i]]   = 1
+        tmp = tmp.reshape((ncore,nvir))
+        tmp = np.vstack((tmp, np.zeros((nocc_val, nvir))))
+        tmp = convert_r_to_g_amp(tmp)*0.5
+        x0.append(tmp)  # Koopmans' excitations
+        DE.append(eia_core[idx[i]])
 
     return x0, DE
 
@@ -733,7 +750,6 @@ if __name__ == '__main__':
     print('########################')
     print()
 
-    import CCS
     from pyscf import cc
     import Eris
 
@@ -797,6 +813,9 @@ if __name__ == '__main__':
     print('# Test Koopman\'s guess         ')
     print('################################')
     print()
-    c0, DE = koopman_init_guess(mfg.mo_energy,mfg.mo_occ,1)
-    print(DE)
-    print(c0[0])
+
+    c0, DE = koopman_init_guess(mfg.mo_energy, mfg.mo_occ, nstates=(2,2))
+    print('DE valence= ', DE[:2])
+    print('DE core = ', DE[2:])
+    print('r1 valence= ', c0[0])
+    print('r1 core= ', c0[2])
