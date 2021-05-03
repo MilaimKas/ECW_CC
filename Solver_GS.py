@@ -249,7 +249,7 @@ class Solver_CCS:
         if ts is None:
             ts = self.tsini
             ls = self.lsini
-        rdm1 = self.mycc.gamma(ts, ls)
+        rdm1 = self.mycc.gamma_CCS(ts, ls)
 
         nocc = self.nocc
         nvir = self.nvir
@@ -306,7 +306,7 @@ class Solver_CCS:
 
             # calculated rdm1 from ts and ls
             # --------------------------------
-            rdm1 = self.mycc.gamma(ts, ls)
+            rdm1 = self.mycc.gamma_CCS(ts, ls)
             # apply DIIS
             if 'rdm1' in diis:
                 rdm1_vec = np.ravel(rdm1)
@@ -369,7 +369,7 @@ class Solver_CCS:
         if ts is None:
             ts = self.tsini
             ls = self.lsini
-        rdm1 = self.mycc.gamma(ts, ls)
+        rdm1 = self.mycc.gamma_CCSD(ts, ls)
 
         # get parameters from self
         nocc = self.nocc
@@ -455,7 +455,7 @@ class Solver_CCS:
 
             # Update rdm1 from ts and ls
             # --------------------------------
-            rdm1 = self.mycc.gamma(ts, ls)
+            rdm1 = self.mycc.gamma_CCSD(ts, ls)
             # apply DIIS
             if 'rdm1' in diis:
                 rdm1_vec = np.ravel(rdm1)
@@ -528,7 +528,7 @@ class Solver_CCSD:
         if lsini is None:
             lsini = np.zeros((self.nocc, self.nvir))
 
-        # td and ld initial
+        # td and ld initial from mp2
         if tdini is None:
             mo_e = np.diagonal(self.fock)
             fia = mo_e[:self.nocc, None] - mo_e[None, self.nocc:]
@@ -851,4 +851,3 @@ if __name__ == "__main__":
 
     print('PySCF ECCSD difference=', mygcc.kernel()[0]-Results[1][-1])
     print()
-    

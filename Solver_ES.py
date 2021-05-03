@@ -13,23 +13,27 @@
 ###################################################################
 
 import numpy as np
+import copy
 from pyscf import lib
 from . import utilities
 from tabulate import tabulate
+import slepc4py
+from petsc4py import PETSc
+from slepc4py import SLEPc
 
 # print float format
 format_float = '{:.4e}'
 
 class Solver_ES:
-    def __init__(self, mycc, Vexp_class, rn_ini, r0n_ini, ln_ini=None, l0n_ini=None, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
-                 maxiter=80, maxdiis=20):
+    def __init__(self, mycc, Vexp_class, rn_ini, ln_ini=None, r0_ini=None, l0_ini=None, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
+                 maxiter=80, maxdiis=20, tablefmt='rst'):
         '''
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
         -> only state properties and GS-ES transition properties
 
         :param mycc: ECW.CCS object containing T, Lambda,R and L equations
         :param Vexp_class: ECW.Vexp_class, class containing the exp data
-        :param ini: t and lambda initial values for the GS and r,l,r0,l0 initial values for all needed states
+        :param tsini: t and lambda initial values for the GS and r,l,r0,l0 initial values for all needed states
                   --> list of matrix (for r and l) and float for r0 and l0
                   --> must be numpy array
         :param conv_var: convergence criteria: 'Ep', 'l' or 'tl'
@@ -39,7 +43,11 @@ class Solver_ES:
         :param diis: tuple containing the variables on which to apply diis: rdm1, t, L, r, l
         :param maxiter: max number of SCF iteration
         :param maxdiis: diis space
+        :param tablefmt: format for table printed using tabulate package (eg: 'rst' or 'latex')
         '''
+
+        # tabulate format
+        self.tablefmt = tablefmt
 
         # check length
         if len(rn_ini) != len(Vexp_class.exp_data)-1:
@@ -54,18 +62,22 @@ class Solver_ES:
             tsini = np.zeros((self.nocc, self.nvir))
         if lsini is None:
             lsini = np.zeros((self.nocc, self.nvir))
-
-        # ln and l0 initial
-        if ln_ini is None:
-            ln_ini = [i * -1 for i in r0ini]
-            l0n_ini = list([0]*len(r0ini))
-
-        self.rn_ini = rn_ini
-        self.ln_ini = ln_ini
-        self.r0n_ini= r0n_ini
-        self.l0n_ini= l0n_ini
         self.tsini = tsini
         self.lsini = lsini
+
+        # l and r initial
+        if ln_ini is None:
+            ln_ini = copy.deepcopy(rn_ini)
+        self.rn_ini = rn_ini
+        self.ln_ini = ln_ini
+
+        # r0 and l0 initial
+        if r0_ini is None:
+            r0_ini = list([0] * len(rn_ini))
+        if l0_ini is None:
+            l0_ini = list([0] * len(rn_ini))
+        self.r0_ini = r0_ini
+        self.l0_ini = l0_ini
 
         self.nbr_states = len(rn_ini)
 
@@ -90,9 +102,8 @@ class Solver_ES:
             self.Conv_check = self.tl_check
         else:
             raise ValueError('Accepted convergence parameter is Ep, tl or rl')
-        self.conv_var =conv_var
+        self.conv_var = conv_var
 
-        self.fock = mycc.fock
         self.nocc, self.nvir = tsini.shape
 
     #####################
@@ -108,14 +119,14 @@ class Solver_ES:
     def tl_check(self, dic):
         ls = dic.get('ls')
         ts = dic.get('ts')
-        return (abs(ts) + abs(ls))
+        return ts + ls
 
     def rl_check(self, dic):
         rn = dic.get('rn')
         ln = dic.get('ln')
         ans = np.zeros_like(rn[0])
-        for r,l in zip(rn,ln):
-            ans += (abs(r)+abs(l))
+        for r, l in zip(rn, ln):
+            ans += (r*l)
         return ans
 
     #############
@@ -124,10 +135,14 @@ class Solver_ES:
 
     def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None, S_AO=None):
         '''
+        !!!
+        SCF rough solver for Rand L equations: takes care of the spin symmetry but
+        only works when no spatial symmetry is present
+        !!!
 
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
-            -> typically L would be the same for prop obtained from the same exp
+            -> typically L would be the same for properties obtained from the same experiment
         :param ts, ls, rn, ln, r0n, l0n: amplitudes
             -> ln,rn,l0 and r0 are list with length = nbr of excited states
         :param diis:
@@ -138,18 +153,24 @@ class Solver_ES:
         Vexp_class = self.Vexp_class
         nbr_states = self.nbr_states
 
-        # initialize
+        # initialize r and l vectors
         if ts is None:
             ts = self.tsini
             ls = self.lsini
         if rn is None:
-            rn    = self.rn_ini
+            rn = self.rn_ini
             ln = self.ln_ini
-            r0n = self.r0n_ini
-            l0n = self.l0n_ini
-        if r0n is None or l0n is None:
-            raise ValueError('if r and l initial vectors are given, r0 and l0 values must also be given')
+        if r0n is None:
+            r0n = self.r0_ini
+            l0n = self.l0_ini
+        rnew = [None] * self.nbr_states
+        lnew = [None] * self.nbr_states
+        r0new = [None] * self.nbr_states
+        l0new = [None] * self.nbr_states
 
+        # initialize total spin list
+        Spin = np.zeros(nbr_states)
+        
         # check length
         if L.shape != Vexp_class.Vexp.shape:
             raise ValueError('Shape of weight factor must be equal to shape of Vexp vectors:', Vexp_class.Vexp.shape)
@@ -162,13 +183,12 @@ class Solver_ES:
         nvir = self.nvir
         dim = nocc + nvir
         mycc = self.mycc
-        fock = self.fock
 
         # initialize X2 and Ep array
         X2 = np.zeros((nbr_states + 1, nbr_states + 1))
         Ep = np.zeros((nbr_states+1,2))
         
-        # initialize loop vectors and printed infos
+        # initialize loop vectors and printed information
         conv = 0.
         Dconv = 1.
         ite = 0
@@ -176,222 +196,748 @@ class Solver_ES:
         Ep_ite = []
         conv_ite = []
 
-        # initialze diis for ts,ls, rdm1
-        if diis:
-            if 'rdm1' in diis:
-                adiis = []
-                for n in range(self.nbr_states+1):
-                  tmp = lib.diis.DIIS()
-                  tmp.space = self.maxdiis
-                  tmp.min_space = 2
-                  adiis.append(tmp)
-            if 't' in diis:
-                tdiis = lib.diis.DIIS()
-                tdiis.space = self.maxdiis
-                tdiis.min_space = 2
-            if 'l' in diis:
-                ldiis = lib.diis.DIIS()
-                ldiis.space = self.maxdiis
-                ldiis.min_space = 2
+        # initialize diis for ts, lam, rs, ls and rdm1
+        if 'rdm1' in diis:
+            dm_diis = []
+            tr_diis = []
+            for n in range(self.nbr_states+1):
+                tmp = lib.diis.DIIS()
+                tmp.space = self.maxdiis
+                tmp.min_space = 2
+                dm_diis.append(tmp)
+                tmp = lib.diis.DIIS()
+                tmp.space = self.maxdiis
+                tmp.min_space = 2
+                tr_diis.append(tmp)
+        if 't' in diis:
+            tdiis = lib.diis.DIIS()
+            tdiis.space = self.maxdiis
+            tdiis.min_space = 2
+        if 'lam' in diis:
+            lamdiis = lib.diis.DIIS()
+            lamdiis.space = self.maxdiis
+            lamdiis.min_space = 2
+        if 'r' in diis:
+            rdiis = []
+            for i in range(nbr_states):
+                rdiis.append(lib.diis.DIIS())
+                rdiis[i].space = self.maxdiis
+                rdiis[i].min_space = 2
+        if 'l' in diis:
+            ldiis = []
+            for i in range(nbr_states):
+                ldiis.append(lib.diis.DIIS())
+                ldiis[i].space = self.maxdiis
+                ldiis[i].min_space = 2
 
         table = []
         # First line of printed table
         headers = ['ite',str(self.conv_var)]
         for i in range(nbr_states):
-            headers.extend(['ES {} -> norm'.format(i+1), 'r0', 'l0','Er', 'El', 'Ortho wrt ES 1'])
+            if i == 0:
+                headers.extend(['ES {}'.format(i+1), 'norm', '2S+1', 'r0', 'l0','Er', 'El'])
+            else:
+                headers.extend(['ES {}'.format(i + 1), 'norm', '2S+1', 'r0', 'l0', 'Er', 'El', 'Ortho wrt ES 1'])
 
         while Dconv > self.conv_thres:
 
+            #
+            # Initialize
+            # ---------------------------------------
+
+            # todo: initialize needed dm outside of loop according to exp_data
             # nbr_states = nbr of excited states
             fsp = [None] * (nbr_states+1)
             rdm1 = [None]*(nbr_states+1)
-            tr_rdm1 = [None]*(nbr_states)
+            tr_rdm1 = [None]*nbr_states
             conv_old = conv
 
-            # check for orthonormality
-            # ------------------------------
-            C_norm = utilities.check_ortho(ln, rn, r0n, l0n, S_AO=S_AO)*2 # factor 2 for G format
-
-            # calculate needed rdm1 tr_rdm1 for all states
+            #
+            # calculate needed rdm1 and tr_rdm1 for all states
             # -------------------------------------------------
+
             # GS
             if Vexp_class.exp_data[0,0] is not None:
                rdm1[0] = mycc.gamma(ts, ls)
+
             # ES
             for n in range(nbr_states):
-                # calculate rdm1 for state n
-                if Vexp_class.exp_data[n+1,n+1] is not None:
-                   rdm1[n+1] = mycc.gamma_es(ts, ln[n], rn[n], r0n[n], l0n[n])
-                # calculate tr_rdm1 
-                if Vexp_class.exp_data[0,n+1] is not None:
-                   # <Psi_k||Psi_n>
-                   tr_1 = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
-                   # <Psi_n||Psi_k> 
-                   tr_2 = mycc.gamma_tr(ts, 0, rn[n], r0n[n], 1)
-                   tr_rdm1[n] = (tr_1,tr_2)
-                del tr_1, tr_2
+                
+                # calculate rdm1 for state n if diagonal exp data are present
+                if Vexp_class.exp_data[n+1, n+1] is not None:
+                    rdm1[n+1] = mycc.gamma_es(ts, ln[n], rn[n], r0n[n], l0n[n])
+                    
+                # calculate tr_rdm1 if transition exp data are present
+                if Vexp_class.exp_data[0, n+1] is not None:
+                    # right dm1 <Psi_k|aa|Psi_n>
+                    tr_r = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
+                    # left dm1 <Psi_n|aa|Psi_k>
+                    tr_l = mycc.gamma_tr(ts, 0, rn[n], r0n[n], 1)
+                    tr_rdm1[n] = list((tr_r, tr_l))
+
             # apply DIIS on rdm1
-            # todo: apply DIIS on tr_rdm1 (left or right) ?
             if 'rdm1' in diis:
                 for n in range(nbr_states+1):
-                  rdm_vec = np.ravel(rdm1[n])
-                  rdm1[n] = adiis[n].update(rdm_vec).reshape((dim, dim))
-
+                    if rdm1[n] is not None:
+                        rdm_vec = rdm1[n].flatten()
+                        rdm_vec = dm_diis[n].update(rdm_vec)
+                        rdm1[n] = rdm_vec.reshape((dim, dim))
+                    if tr_rdm1[n-1] is not None:
+                        tr_vec_r = np.asarray(tr_rdm1[n-1][0])
+                        tr_vec_r = tr_vec_r.flatten()
+                        tr_vec_l = np.asarray(tr_rdm1[n-1][1])
+                        tr_vec_l = tr_vec_l.flatten()
+                        tr_vec = np.concatenate((tr_vec_r, tr_vec_l))
+                        tr_vec = tr_diis[n-1].update(tr_vec)
+                        tr_rdm1[n-1] = list((tr_vec[:dim*dim].reshape(dim, dim), tr_vec[dim*dim:].reshape(dim, dim)))
+                        
+            #
             # Update Vexp, calculate effective fock matrices and store X2,vmax
             # ------------------------------------------------------------------
+
             # GS
             if rdm1[0] is not None:
-                V,x2,vmax = Vexp_class.Vexp_update(rdm1[0],L[0,0],(0,0))
-                fsp[0] = np.subtract(fock,V)
-                X2[0,0] = x2
-            else:
-                fsp[0] = fock.copy()
+                V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], L[0, 0], (0, 0))
+                fsp[0] = np.subtract(mycc.fock,V)
+                X2[0, 0] = x2
+            #else:
+            #    fsp[0] = fock.copy()
+
             # ES
             for j in range(nbr_states):
-                i = j+1
-                if rdm1[i] is not None:
-                    V,x2,vmax = Vexp_class.Vexp_update(rdm1[i],L[j,j],(i,i))
-                    fsp[i] = np.subtract(fock,V)
-                    X2[i,i] = x2
-                else:
-                    fsp[i] = fock.copy()
+                n = j+1
+
+                if rdm1[n] is not None:
+                    V, x2, vmax = Vexp_class.Vexp_update(rdm1[n], L[j, j], (n, n))
+                    fsp[n] = np.subtract(mycc.fock, V)
+                    X2[n, n] = x2
+                #else:
+                #    fsp[n] = fock.copy()
+
                 if tr_rdm1[j] is not None:
-                    V,X2[i,0],vmax = Vexp_class.Vexp_update(tr_rdm1[j][0],L[0,j],(i,0))
-                    V,X2[0,i],vmax = Vexp_class.Vexp_update(tr_rdm1[j][1],L[0,j],(0,i))
-            del V
+                    v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], L[0, j], (n, 0))
+                    v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], L[0, j], (0, n))
+            del v
+
             X2_ite.append(X2)
 
             # CARREFUL WITH THE SIGN OF Vexp !
             # for transition case vn = -Vexp
             # CARREFUL: the Vexp elements are not scaled with lambda
-            
+
+            #
             # update t amplitudes
             # ---------------------------------------------------
-            vexp = -L[0,1:]*Vexp_class.Vexp[0,1:]
-            T1inter = mycc.T1inter(ts,fsp[0])
+
+            vexp = -L[0, 1:]*Vexp_class.Vexp[0, 1:]
+            T1inter = mycc.T1inter(ts, fsp[0])
             ts = mycc.tsupdate(ts, T1inter, rsn=rn, r0n=r0n, vn=vexp)
             # apply DIIS
+
             if 't' in diis:
                 ts_vec = np.ravel(ts)
                 ts = tdiis.update(ts_vec).reshape((nocc, nvir))
 
+            del T1inter
+
+            #
             # update l (Lambda) amplitudes for the GS
             # ----------------------------------------
+
             L1inter = mycc.L1inter(ts, fsp[0])
+            vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
             # apply DIIS
-            if 'l' in diis:
-                ls_vec = np.ravel(ls)
-                ls = ldiis.update(ls_vec).reshape((nocc, nvir))
 
+            if 'lam' in diis:
+                ls_vec = np.ravel(ls)
+                ls = lamdiis.update(ls_vec).reshape((nocc, nvir))
+
+            del vexp, L1inter
+
+            #
             # Update En_r/En_l and r, r0, l and l0 amplitudes for each ES
             # ------------------------------------------------------------
+            print()
+            print('-------------------')
+            print('START, ite ', ite)
+            print('-------------------')
 
             for i in range(nbr_states):
+                print()
+                print('State ', i)
+                print('initial r')
+                print(rn[i])
+                print('initial l')
+                print(ln[i])
+                print('initial t')
+                print(ts)
+                print('initial lambda')
+                print(ls)
+                print('initial r0 and l0')
+                print(r0n[i], l0n[i])
+                print()
 
-                # todo= most element in Rinter dot not depend on Vexp -> calculate ones for all states
+                # todo= most element in Rinter and Linter dot not depend on Vexp -> calculate ones for all states
 
+                #
                 # R and R0 intermediates
                 # ------------------------
-                vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1] # V0n
-                Rinter  = mycc.R1inter(ts, fsp[i], vexp)
-                R0inter = mycc.R0inter(ts, fsp[i], vexp)
 
+                vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1] # V0n
+                Rinter  = mycc.R1inter(ts, fsp[i+1], vexp)
+                #R0inter = mycc.R0inter(ts, fsp[i+1], vexp)
+                del vexp
+
+                #
                 # update En_r
                 # ------------------------
-                En_r, o,v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
 
+                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
+                print('Update E')
+                print(En_r)
+                print('o,v: ', o, v)
+
+                #
                 # update r0
                 # ------------------------
-                r0n[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
 
+                #r0new[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
+                r0new[i] = mycc.R0eq(En_r, ts, rn[i], fsp=fsp[i+1])
+                #del R0inter
+                print()
+                print('update r0')
+                print(r0new[i])
+                #
                 # Update r
                 # -------------------------
-                rn[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r)
 
+                rnew[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r, idx=[o, v])
+                del Rinter
+                print()
+                print('UPDATE r')
+                print('rnew')
+                print(rnew[i])
+                #
                 # Get missing r ampl
                 # -------------------------
-                if rn[0].shape[0]**2 > 4: # if more than 2 basis functions
-                    rn[i][o,v] = mycc.get_rov(ln[i], l0n[i], rn[i], r0n[i], [o,v])
-                    rn[i][o+1,v+1] = rn[i][o,v] # G format
+                print()
+                print('UPDATE rov')
+                rnew[i][o, v] = mycc.get_ov(ln[i], l0n[i], rn[i], r0n[i], [o, v])
 
+                print('rnew')
+                print(rnew[i])
+                
+                #
                 # L and L0 inter
                 # ------------------------
-                vexp = -L[i+1,0]*Vexp_class.Vexp[i+1,0] # Vn0
-                Linter = mycc.es_L1inter(ts, fsp[i], vexp )
-                L0inter = mycc.L0inter(ts, fsp[i], vexp)
 
+                vexp = -L[i+1,0]*Vexp_class.Vexp[i+1,0] # Vn0
+                Linter = mycc.es_L1inter(ts, fsp[i+1], vexp )
+                #L0inter = mycc.L0inter(ts, fsp[i+1], vexp)
+                del vexp
+
+                #
                 # Update En_l
                 # ------------------------
+
                 En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
 
+                #
                 # Update l0
                 # ------------------------
-                l0n[i] = mycc.l0update(ln[i], l0n[i], En_l, L0inter)
 
+                #l0new[i] = mycc.l0update(ln[i], l0n[i], En_l, L0inter)
+                l0new[i] = mycc.L0eq(En_l, ts, ln[i], fsp=fsp[i + 1])
+                #del L0inter
+                print()
+                print('update l0')
+                print(l0new[i])
+
+                #
                 # Update l
                 # ------------------------
-                ln[i] = mycc.es_lsupdate(ln[i], l0n[i], En_l, Linter)
 
+                lnew[i] = mycc.es_lsupdate(ln[i], l0n[i], En_l, Linter, idx=[o, v])
+                del Linter
+                print()
+                print('UPDATE l')
+                print('lnew')
+                print(lnew[i])
+                #
                 # Get missing l amp
                 # ------------------------
-                if ln[0].shape[0] ** 2 > 4: # if more than 2 basis functions
-                    ln[i][o, v] = mycc.get_rov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
-                    ln[i][o + 1, v + 1] = ln[i][o, v]  # G format
+                print()
+                print('UPDATE lov')
+                lnew[i][o, v] = mycc.get_ov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
 
+                print('lnew')
+                print(lnew[i])
+                #
                 # Store excited states energies Ep = (En_r,En_l)
                 # -----------------------------------------------
+
                 Ep[i+1][0] = En_r
                 Ep[i+1][1] = En_l
 
+                #
+                # Apply DIIS
+                # ---------------------------------------
+                if 'l' in diis:
+                    ln_vec = np.ravel(lnew[i])
+                    lnew[i] = ldiis[i].update(ln_vec).reshape((nocc, nvir))
+
+                if 'r' in diis:
+                    rn_vec = np.ravel(rnew[i])
+                    rnew[i] = rdiis[i].update(rn_vec).reshape((nocc, nvir))
+
             #del Rinter, R0inter, Linter, L0inter, vexp
 
+            #
+            # Check orthonormality and spin, re-normalize vectors if norm > threshold
+            # -------------------------------------------------------------------------
+            #
+
+            C_norm = utilities.check_ortho(lnew, rnew, r0new, l0new, S_AO=S_AO)
+            for i in range(nbr_states):
+                if 0.9 > C_norm[i, i] > 1.1:
+                    lnew[i] = lnew[i] / C_norm[i, i]
+                    l0new[i] = l0new[i] / C_norm[i, i]
+                Spin[i] = utilities.check_spin(rnew[i], lnew[i])
+
+            #
+            # Store new vectors
+            # -------------------------
+
+            rn = copy.deepcopy(rnew)
+            ln = copy.deepcopy(lnew)
+            r0n = copy.deepcopy(r0new)
+            l0n = copy.deepcopy(l0new)
+
+            #
             # Store GS energies Ep
             # --------------------------------------------
-            vexp = [-L[1:i,1:i]*Vexp_class.Vexp[1:i,1:i] for i in range(nbr_states)]
-            Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rs=rn, vnn=vexp)
+
+            vexp = [-L[0, i + 1] * Vexp_class.Vexp[0, i + 1] for i in range(nbr_states)]
+            Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rsn=rn, r0n=r0n, vn=vexp)
             Ep_ite.append(Ep)
 
+            #
             # checking convergence
             # --------------------------------------------
+
             dic = {'ts':ts, 'ls':ls, 'rn':rn, 'ln':ln}
             conv = self.Conv_check(dic)
             conv_ite.append(conv)
+
             if ite > 0:
                 Dconv = np.linalg.norm(conv - conv_old)
+
             conv_ite.append(Dconv)
 
+            #
             # print convergence infos
             # --------------------------------------------
+
             tmp = [ite, format_float.format(Dconv)]
+
             for i in range(nbr_states):
-                tmp.extend([format_float.format(C_norm[i, i]), r0n[i], l0n[i], Ep[i+1][0], Ep[i+1][1], format_float.format(C_norm[0, i])])
+
+                if i == 0:
+                    tmp.extend(['',format_float.format(C_norm[i, i]), 2*Spin[i]+1, r0n[i], l0n[i], Ep[i + 1][0], Ep[i + 1][1]])
+                else:
+                    C_norm_av = (C_norm[0,i]+C_norm[i,0])/2
+                    tmp.extend(['',format_float.format(C_norm[i, i]), 2*Spin[i]+1, r0n[i], l0n[i], Ep[i+1][0], Ep[i+1][1], format_float.format(C_norm_av)])
+
             table.append(tmp)
 
             if ite >= self.maxiter:
+
                 Conv_text = 'Max iteration reached'
                 print()
                 print(Conv_text)
-                print(tabulate(table, headers, tablefmt="rst"))
+                print(tabulate(table, headers, tablefmt=self.tablefmt))
                 break
-            if Dconv > 3.:
+
+            if Dconv > 300.:
+
                 Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L.flatten(), ite)
                 print()
                 print(Conv_text)
-                print(tabulate(table, headers, tablefmt="rst"))
+                print(tabulate(table, headers, tablefmt=self.tablefmt))
                 break
 
             ite += 1
 
         else:
-            print(tabulate(table, headers, tablefmt="rst"))
+            print(tabulate(table, headers, tablefmt=self.tablefmt))
             print()
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L.flatten(), ite)
             print(Conv_text)
             print()
             print('Final energies: ', Ep_ite[-1])
              
-        #return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite),dic
+        return Conv_text, dic
+
+    #############################################
+    # SCF method with iterative diagonalization
+    #############################################
+
+    def SCF_davidson(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, max_space=10):
+        '''
+        SCF + davidson solver for the coupled T,Lam,R and L equations
+        Diagonalizes the effective similarly transformed Hamiltonian at each iteration for each excited states and
+        extract the target eigenvector and eigenvalue
+
+        :param L: matrix of experimental weight
+            -> shape(L)[0] = total number of states (GS+ES)
+            -> typically L would be the same for properties obtained from the same experiment
+        :param ts, ls, rn, ln, r0n, l0n: amplitudes
+            -> ln,rn,l0 and r0 are list with length = nbr of excited states
+        :param max_space: maximum size of the subspace used for the Davidson algorithm
+        :return:
+        '''
+
+        Vexp_class = self.Vexp_class
+        nbr_states = self.nbr_states
+
+        # initialize r and l vectors
+        if ts is None:
+            ts = self.tsini
+            ls = self.lsini
+        if rn is None:
+            rn = self.rn_ini
+            ln = self.ln_ini
+        if r0n is None:
+            r0n = self.r0_ini
+            l0n = self.l0_ini
+
+        # initialize spin
+        Spin = np.zeros(nbr_states)
+
+        # check length
+        if L.shape != Vexp_class.Vexp.shape:
+            raise ValueError('Shape of weight factor must be equal to shape of Vexp vectors:', Vexp_class.Vexp.shape)
+
+        nocc = self.nocc
+        nvir = self.nvir
+        mycc = self.mycc
+
+        # initialize X2 and Ep array
+        X2 = np.zeros((nbr_states + 1, nbr_states + 1))
+        Ep = np.zeros((nbr_states + 1, 2))
+
+        # initialize loop vectors and printed information
+        conv = 0.
+        Dconv = 1.
+        ite = 0
+        X2_ite = []
+        Ep_ite = []
+        conv_ite = []
+
+        table = []
+        # First line of printed table
+        headers = ['ite', str(self.conv_var)]
+        for i in range(nbr_states):
+            if i == 0:
+                headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El'])
+            else:
+                headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0',
+                                'l0', 'Er', 'El', 'Ortho wrt ES 1'])
+
+        while Dconv > self.conv_thres:
+
+            #
+            # Initialize
+            # ---------------------------------------
+
+            # nbr_states = nbr of excited states
+            fsp = [None]*(nbr_states+1)
+            rdm1 = [None]*(nbr_states+1)
+            tr_rdm1 = [None] * nbr_states
+            conv_old = conv
+
+            #
+            # calculate needed rdm1 and tr_rdm1 for all states
+            # -------------------------------------------------
+
+            # GS
+            if Vexp_class.exp_data[0, 0] is not None:
+                rdm1[0] = mycc.gamma(ts, ls)
+
+            # ES
+            for n in range(nbr_states):
+
+                # calculate rdm1 for state n if diagonal exp data are present
+                if Vexp_class.exp_data[n+1,n+1] is not None:
+                   rdm1[n+1] = mycc.gamma_es(ts, ln[n], rn[n], r0n[n], l0n[n])
+
+                # calculate tr_rdm1 if transition exp data are present
+                if Vexp_class.exp_data[0, n + 1] is not None:
+                    # right dm1 <Psi_k|aa|Psi_n>
+                    tr_1 = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
+                    # left dm1 <Psi_n|aa|Psi_k>
+                    tr_2 = mycc.gamma_tr(ts, 0, rn[n], r0n[n], 1)
+                    tr_rdm1[n] = list((tr_1, tr_2))
+
+                del tr_1, tr_2
+
+            #
+            # Update Vexp, calculate effective fock matrices and store X2,vmax
+            # ------------------------------------------------------------------
+
+            # GS
+            if rdm1[0] is not None:
+                V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], L[0, 0], (0, 0))
+                fsp[0] = np.subtract(mycc.fock, V)
+                X2[0, 0] = x2
+            # else:
+            #    fsp[0] = fock.copy()
+
+            # ES
+            for j in range(nbr_states):
+                n = j+1
+
+                if rdm1[n] is not None:
+                    V, x2, vmax = Vexp_class.Vexp_update(rdm1[n], L[j, j], (n, n))
+                    fsp[n] = np.subtract(mycc.fock, V)
+                    X2[n, n] = x2
+                #else:
+                #    fsp[n] = fock.copy()
+
+                if tr_rdm1[j] is not None:
+                    V, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], L[0, j], (n, 0))
+                    V, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], L[0, j], (0, n))
+
+            del V
+
+            X2_ite.append(X2)
+
+            # CARREFUL WITH THE SIGN OF Vexp !
+            # for transition case vn = -Vexp
+            # CARREFUL: the Vexp elements are not scaled with lambda
+
+            #
+            # update t amplitudes
+            # ---------------------------------------------------
+
+            vexp = -L[0, 1:] * Vexp_class.Vexp[0, 1:]
+            T1inter = mycc.T1inter(ts, fsp[0])
+            ts = mycc.tsupdate(ts, T1inter, rsn=rn, r0n=r0n, vn=vexp)
+
+            del T1inter
+
+            #
+            # update l (Lambda) amplitudes for the GS
+            # ----------------------------------------
+
+            L1inter = mycc.L1inter(ts, fsp[0])
+            vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]
+            ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
+
+            del vexp, L1inter
+
+            #
+            # Build guess r and l vector
+            # ---------------------------
+
+            vec_r = np.zeros((nbr_states, nocc*nvir))
+            vec_l = np.zeros_like(vec_r)
+            for i in range(nbr_states):
+                vec_r[i, :] = rn[i].flatten()
+                vec_l[i, :] = ln[i].flatten()
+
+            for i in range(nbr_states):
+
+                #
+                # Right Vexp
+                # ----------------------------------------------------
+                vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1]  # V0n
+
+                #
+                # make H_i right matrix and diag terms
+                # ----------------------------------------------
+
+                Rinter = mycc.R1inter(ts, fsp[i+1], vexp)
+                del vexp
+
+                diag = np.zeros((nocc, nvir))
+                for j in range(nocc):
+                    for b in range(nvir):
+                        diag[j, b] = Rinter[0][b, b] - Rinter[1][j, j] + Rinter[2][b, j, j, b] \
+                                     + Rinter[3] + Rinter[5][i, b]
+
+                # function to create H matrix from Ria and ria
+                matvec = lambda xs: [mycc.R1eq(x.reshape(nocc, nvir), r0n[i], Rinter).flatten() for x in xs]
+                # needed function for diagonal term of H
+                precond = lambda r, e, r0: r / (e-diag.flatten()+1e-12)
+
+                #
+                # Apply Davidson using PySCF library
+                # ------------------------------------------
+
+                conv, de, rvec = lib.davidson_nosym1(matvec, vec_r, precond, max_space=max_space, nroots=nbr_states)
+
+                for j in range(len(conv)):
+                    if not conv[j]:
+                        print('Davidson algorithm did not converged for {}th right eigenvectors '
+                          'at iteration {}'.format(j+1, ite))
+
+                # store results
+                print('E_R = ', de)
+                print('rn eigenvectors')
+                En_r = de[i]
+                rn[i] = rvec[i].reshape((nocc, nvir))
+                print(rn[i])  #rn[i][0, 0])
+                #rn[i][1, 1])
+                print()
+
+                #
+                # Update r0
+                # ----------------------------------------------
+
+                r0n[i] = mycc.R0eq(En_r, ts, rn[i], fsp=fsp[i+1])
+
+                #
+                # Left Vexp
+                # ---------------------------------------------
+                vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
+
+                #
+                # make H_i left matrix and diag terms
+                # ----------------------------------------------
+
+                Linter = mycc.es_L1inter(ts, fsp[i+1], vexp)
+                del vexp
+
+                diag = np.zeros((nocc, nvir))
+                for j in range(nocc):
+                    for b in range(nvir):
+                        diag[j, b] = Linter[0][b, b] - Linter[1][j, j] + Linter[2][b, j, j, b] \
+                                     + Linter[3] + Linter[5][i, b]
+
+                # function to create H matrix from Lia and lia
+                matvec = lambda xs: [mycc.es_L1eq(x.reshape(nocc, nvir), l0n[i], Linter).flatten() for x in xs]
+                # needed function for diagonal term of H
+                precond = lambda l, e, l0: l / (e-diag.flatten()+1e-12)
+
+                #
+                # Apply Davidson using PySCF library
+                # ------------------------------------------
+
+                conv, de, lvec = lib.davidson_nosym1(matvec, vec_l, precond, max_space=max_space, nroots=nbr_states)
+
+                for j in range(len(conv)):
+                    if not conv[j]:
+                        print('Davidson algorithm did not converged for {}th left eigenvectors '
+                          'at iteration {}'.format(j+1, ite))
+
+                # store results
+                En_l = de[i]
+                ln[i] = lvec[i].reshape((nocc, nvir))
+
+                #
+                # Update l0
+                # ----------------------------------------------
+                l0n[i] = mycc.L0eq(En_l, ts, ln[i], fsp=fsp[i+1])
+
+                #
+                # Update Energies
+                # ----------------------------------------------
+
+                Ep[i + 1][0] = En_r
+                Ep[i + 1][1] = En_l
+
+            # del Rinter, R0inter, Linter, L0inter, vexp
+
+            #
+            # Check orthonormality and spin, re-normalize vectors if norm > threshold
+            # -------------------------------------------------------------------------
+            #
+
+            C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
+            print('C_norm')
+            print(C_norm)
+            print()
+            #ortho = False
+            #for i in range(nbr_states):
+            #    if 0.99 > C_norm[i, i] > 1.01:
+            #        ln[i] = ln[i] / C_norm[i, i]
+            #        l0n[i] = l0n[i] / C_norm[i, i]
+            #    for j in range(nbr_states):
+            #        if C_norm[i, j] > 0.01:
+            #            ortho = True
+
+            #if ortho:
+            #    rn, ln, r0n, l0n = utilities.ortho_es(rn, ln, r0n, l0n)
+
+            for i in range(nbr_states):
+                Spin[i] = utilities.check_spin(rn[i], ln[i])
+
+            #
+            # Store GS energies Ep
+            # --------------------------------------------
+
+            vexp = [-L[0, i + 1] * Vexp_class.Vexp[0, i + 1] for i in range(nbr_states)]
+            Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rsn=rn, r0n=r0n, vn=vexp)
+            Ep_ite.append(Ep)
+
+            #
+            # checking convergence
+            # --------------------------------------------
+
+            dic = {'ts': ts, 'ls': ls, 'rn': rn, 'ln': ln}
+            conv = self.Conv_check(dic)
+            conv_ite.append(conv)
+
+            if ite > 0:
+                Dconv = np.linalg.norm(conv - conv_old)
+
+            conv_ite.append(Dconv)
+
+            #
+            # print convergence infos
+            # --------------------------------------------
+
+            tmp = [ite, format_float.format(Dconv)]
+
+            for i in range(nbr_states):
+
+                if i == 0:
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i, 0], X2[i, i], 2*Spin[i]+1, r0n[i], l0n[i],
+                                Ep[i + 1][0], Ep[i + 1][1]])
+                else:
+                    C_norm_av = (C_norm[0, i] + C_norm[i, 0]) / 2
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i, 0], X2[0, i], 2*Spin[i]+1, r0n[i],
+                                l0n[i], Ep[i + 1][0], Ep[i + 1][1], format_float.format(C_norm_av)])
+
+            table.append(tmp)
+
+            if ite >= self.maxiter:
+                Conv_text = 'Max iteration reached'
+                print()
+                print(Conv_text)
+                print(tabulate(table, headers, tablefmt=self.tablefmt))
+                break
+
+            if Dconv > 30.:
+                Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L.flatten(), ite)
+                print()
+                print(Conv_text)
+                print(tabulate(table, headers, tablefmt=self.tablefmt))
+                break
+
+            ite += 1
+
+        else:
+            print(tabulate(table, headers, tablefmt=self.tablefmt))
+            print()
+            Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L.flatten(), ite)
+            print(Conv_text)
+            print()
+            print('Final energies: ', Ep_ite[-1])
+
+        return Conv_text, dic
 
 
 if __name__ == "__main__":
@@ -446,7 +992,6 @@ if __name__ == "__main__":
     # build exp list
     exp_data = np.full((3, 3), None)
     exp_data[0, 0] = ['mat', GS_exp_ao]
-    # todo: add QChem transition dipole moment
     exp_data[0, 1] = ['dip', [0.000000, 0.523742, 0.0000]]     # DE = 0.28 au
     exp_data[0, 2] = ['dip', [0.000000, 0.000000, -0.622534]]  # DE = 0.37 au
 
@@ -456,8 +1001,6 @@ if __name__ == "__main__":
     # initial rn, r0n and ln, l0n list
     rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,nstates=2)
     lnini = [i * 1 for i in rnini]
-    r0ini = utilities.EOM_r0(DE,np.zeros((gnocc,gnvir)),rnini,gfs,geris.oovv)
-    l0ini = [i * 0 for i in r0ini]
 
     # convergence options
     maxiter = 40
@@ -465,7 +1008,7 @@ if __name__ == "__main__":
     diis = ('',)  # must be tuple
 
     # initialise Solver_CCS Class
-    Solver = Solver_ES(mccsg, VXexp, rnini, r0ini, conv_var='rl', ln_ini=lnini, l0n_ini=l0ini, maxiter=maxiter, diis=diis)
+    Solver = Solver_ES(mccsg, VXexp, rnini, conv_var='rl', ln_ini=lnini, maxiter=maxiter, diis=diis)
 
     # CIS calc
     mrf = scf.RHF(mol).run()
@@ -479,7 +1022,6 @@ if __name__ == "__main__":
     print('initial guess')
     print('DE= ', DE)
     print('r1= ', rnini[0])
-    print('r0= ', r0ini[0])
     print()
 
     # Solve for L = 0

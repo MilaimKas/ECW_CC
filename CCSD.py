@@ -119,13 +119,14 @@ def tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter):
 
     return rdm1
 
-def gamma(t1, t2, l1, l2):
+def gamma_CCSD(t1, t2, l1, l2):
     '''
-    Construct CCSD reduced density matrix
+    Construct symetrized CCSD reduced density matrix
     PySCF GCCSD_rdm1 file
+    Give the same result has CCS.gamma_ccs with t2 and l2 = 0
 
-    :param t1:
-    :param t2:
+    :param t1: t1 amplitudes in G format (nocc, nvir)
+    :param t2: t2 amplitudes in G format (nocc, nocc, nvir, nvir)
     :param l1:
     :param l2:
     :return:
@@ -178,7 +179,7 @@ class GCC:
 #######
 
     def gamma(self, t1, t2, l1, l2):
-        return gamma(t1,t2,l1,l2)
+        return gamma_CCSD(t1, t2, l1, l2)
 
     def gamma_inter(self, t1, t2, l1, l2):
         return gamma_inter(t1,t2,l1,l2)

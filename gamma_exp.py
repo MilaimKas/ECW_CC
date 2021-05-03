@@ -95,171 +95,206 @@
 # todo: L equations not implemented in PySCF for EE-EOM
 #
 ###################################################################
+import copy
 
 import numpy as np
 import scipy
-from . import utilities
+#from . import utilities
+import utilities
 
 from pyscf import scf, gto, cc, dft, tddft
 
 class Gexp:
-  def __init__(self, mol, method):
-    '''
-    Returns the rdm1 in AOs basis from a GHF, GCCSD or GCCSD(T) calculation with distorded geometry and/or additional
-    external static field
-    --> called 'experimental' rdm1 (or 'target' rdm1)
+    def __init__(self, mol, method, g_format=False):
+        '''
+        Returns the rdm1 in AOs basis from a GHF, GCCSD or GCCSD(T) calculation with deformed geometry and/or additional
+        external static field
+        --> called 'experimental' rdm1 (or 'target' rdm1)
+
+        :param mol: PySCF mol object
+        :param mf: PySCF HF object
+        :param method: string: 'HF', 'CCSD' or 'CCSD(T)'
+        '''
+
+        self.g_format = g_format
+
+        # deformed HF object
+        self.mol_def = copy.deepcopy(mol)
+        if g_format:
+            self.mf_def = scf.GHF(mol)
+        else:
+            mf_def = scf.RHF(mol)
+            self.mf_def = scf.addons.convert_to_ghf(mf_def)
+        self.mo_coeff_def = None
+        self.nocc = None
+        self.nvir = None
+
+        # Exp rdm1
+        self.gamma_ao = None  # in AOs basis
+
+        self.method = method
+        self.mycc = None
     
-    :param mol: PySCF mol object
-    :param mf: PySCF HF object
-    :param method: string: 'HF', 'CCSD' or 'CCSD(T)'
-    '''
+        # energies
+        self.EHF_def = 0
+        self.ECCSD_def = 0
+        self.ECCSD_t_def = 0
+        self.Eexp = 0
 
-    # deformed GHF object
-    self.mol_def = mol
-    self.mf_def = scf.GHF(mol)
-    self.mo_coeff_def = None
-    self.nocc = None
-    self.nvir = None
+    def deform(self, def_max):
+        '''
+        Apply a geometry deformation on the molecule and update mol_def object
 
-    # Exp rdm1
-    self.gamma_ao = None  # in AOs basis
+        :param def_max: max value of a deformed bond length
+        '''
 
-    self.method = method
-    self.mycc = None
-    
-    # energies
-    self.EHF_def = 0
-    self.ECCSD_def = 0
-    self.ECCSD_t_def =0
-    self.Eexp = 0
+        autoang = 0.529177
 
-  def deform(self,def_max):
-    '''
-    Todo: Problem ! When geometry is deformed AOs basis set is not the same anymore ...
-    
-    Apply a geometry deformation on the molecule
+        natm = self.mol_def.natm
+        dq = (np.random.random_sample(natm*3)*2-1)*def_max
+        new_coord = np.zeros((natm, 3))
 
-    :param def_max: max value of a deformed bond length
-    '''
+        atom_name = []
+        for i in range(natm):
+            atom_name.append(mol._atom[i][0])
+            for j in range(3):
+                new_coord[i, j] = autoang*(self.mol_def.atom_coords()[i, j]+dq[i+j])
 
-    autoang = 0.529177
-    natm = self.mol_def.natm
-    dq = (np.random.random_sample(natm*3)*2-1)*def_max
-    new_coord = np.zeros((natm,3))
-    atom_name=[]
-    for i in range(natm):
-      atom_name.append(mol._atom[i][0])
-      for j in range(3):
-        new_coord[i,j] = autoang*(self.mol_def.atom_coords()[i,j]+dq[i+j])
-    # parse new coordinates to mol_def object
-    self.mol_def.atom=[]
-    for i in range(natm):
-      self.mol_def.atom.append([atom_name[i][0],[new_coord[i,0],new_coord[i,1],new_coord[i,2]]])
-    self.mol_def.build()
+        # parse new coordinates to mol_def object
+        self.mol_def.atom = []
+        for i in range(natm):
+            self.mol_def.atom.append([atom_name[i][0], [new_coord[i, 0],new_coord[i, 1], new_coord[i, 2]]])
 
-  def Vext(self,field):
-    '''
-    Add an external static electric field on the one-electron operator
+        # rebuild integral
+        self.mol_def.build()
+
+        # re-initialize mf object
+        if self.g_format:
+            self.mf_def = scf.GHF(self.mol_def)
+        else:
+            mf_def = scf.RHF(self.mol_def)
+            self.mf_def = scf.addons.convert_to_ghf(mf_def)
+
+
+    def Vext(self, field):
+        '''
+        Add an external static electric field on the one-electron operator
      
-    :param field: (x,y,z) 3 componenets of the field in au 
-    '''
+        :param field: (x,y,z) 3 components of the field in au
+        '''
 
-    self.mol_def.set_common_orig([0, 0, 0])
+        self.mol_def.set_common_orig([0, 0, 0])
 
-    # set the origin of the dipole at center of charge
-    # --> check center of charge, is it a general expression ?
-    #charges = self.mol_def.atom_charges()
-    #coords = self.mol_def.atom_coords()
-    #nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
-    #self.mol_def.set_common_orig_(nuc_charge_center)
+        # set the origin of the dipole at center of charge
+        # --> check center of charge, is it a general expression ?
+        #charges = self.mol_def.atom_charges()
+        #coords = self.mol_def.atom_coords()
+        #nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
+        #self.mol_def.set_common_orig_(nuc_charge_center)
 
-    h_def =(self.mol_def.intor('cint1e_kin_sph') + self.mol_def.intor('cint1e_nuc_sph')     # Ekin_e + Ve-n
-    + np.einsum('x,xij->ij', field,self.mol_def.intor('cint1e_r_sph',comp=3)))  # <psi|E.r|psi> dipole int.(comp ?)
-    h_def = scipy.linalg.block_diag(h_def, h_def) # make hcore in SO basis
-    self.mf_def.get_hcore = lambda *args: h_def   # pass the new one electron hamiltonian
-    self.mol_def.incore_anyway = True # force to use new h1e even when memory is not enough
+        h_def =(self.mol_def.intor('cint1e_kin_sph') + self.mol_def.intor('cint1e_nuc_sph')     # Ekin_e + Ve-n
+        + np.einsum('x,xij->ij', field,self.mol_def.intor('cint1e_r_sph',comp=3)))  # <psi|E.r|psi> dipole int.(comp ?)
+        h_def = scipy.linalg.block_diag(h_def, h_def) # make hcore in SO basis
+        self.mf_def.get_hcore = lambda *args: h_def   # pass the new one electron hamiltonian
+        self.mol_def.incore_anyway = True # force to use new h1e even when memory is not enough
 
-  def build(self):
-    '''
-    Perform HF,CCSD or CCSD(T) calculation on mol_def
-    '''
+    def build(self, basis=None):
+        '''
+        Perform HF,CCSD or CCSD(T) calculation on mol_def
+        '''
 
-    # HF calculation with new mol_def object
-    self.mf_def.conv_tol = 1e-09  # energy tolerence
-    self.mf_def.conv_tol_grad = np.sqrt(1e-09)  # gradient tolerence
-    self.mf_def.direct_scf_tol = 10e-13  # tolerence in discarding integrals
-    self.mf_def.max_cycle = 100
-    self.mf_def.max_memory = 1000
+        # rebuild mol_def
+        if basis is not None:
+            self.mol_def.basis = basis
+            self.mol_def.build()
+
+        # re-initialize mf object
+            if self.g_format:
+                self.mf_def = scf.GHF(self.mol_def)
+            else:
+                mf_def = scf.RHF(self.mol_def)
+                self.mf_def = scf.addons.convert_to_ghf(mf_def)
+
+
+        # HF calculation with new mol_def object
+        self.mf_def.conv_tol = 1e-09  # energy tolerence
+        self.mf_def.conv_tol_grad = np.sqrt(1e-09)  # gradient tolerence
+        self.mf_def.direct_scf_tol = 10e-13  # tolerence in discarding integrals
+        self.mf_def.max_cycle = 100
+        self.mf_def.max_memory = 1000
     
-    # update mf_def
-    self.mf_def.kernel()
-    self.mo_coeff_def = self.mf_def.mo_coeff
-    self.nocc = np.count_nonzero(self.mf_def.mo_occ > 0)
-    self.nvir = np.count_nonzero(self.mf_def.mo_occ == 0)
-    self.EHF_def = self.mf_def.e_tot
-    self.Eexp = self.EHF_def
+        # update mf_def
+        self.mf_def.kernel()
+        self.mo_coeff_def = self.mf_def.mo_coeff
+        self.nocc = np.count_nonzero(self.mf_def.mo_occ > 0)
+        self.nvir = np.count_nonzero(self.mf_def.mo_occ == 0)
+        self.EHF_def = self.mf_def.e_tot
+        self.Eexp = self.EHF_def
 
-    # rdm1 in AOs
-    self.gamma_ao = self.mf_def.make_rdm1()
+        # rdm1 in AOs
+        self.gamma_ao = self.mf_def.make_rdm1()
     
-    # CCSD calculation  
-    if self.method == 'CCSD':
+        # CCSD calculation
+        if self.method == 'CCSD':
 
-      moc = self.mf_def.mo_coeff
+            moc = self.mf_def.mo_coeff
 
-      mycc = cc.GCCSD(self.mf_def)
-      mycc.set(max_cycle = 100)
-      mycc.set(diis_space = 10)
-      self.ECCSD_def = mycc.kernel()[0]
-      self.Eexp = self.ECCSD_def+self.EHF_def
+            mycc = cc.GCCSD(self.mf_def)
+            mycc.set(max_cycle=100)
+            mycc.set(diis_space=10)
+            self.ECCSD_def = mycc.kernel()[0]
+            self.Eexp = self.ECCSD_def+self.EHF_def
 
-      tmp = mycc.make_rdm1() # in deformed MOs basis
-      self.gamma_ao = utilities.mo_to_ao(tmp,moc) # in AOs
+            tmp = mycc.make_rdm1()  # in deformed MOs basis
+            self.gamma_ao = utilities.mo_to_ao(tmp, moc)  # in AOs
   
-    # CCSD(T) calculation
-    elif self.method == 'CCSD(T)':
+        # CCSD(T) calculation
+        elif self.method == 'CCSD(T)':
       
-      from pyscf.cc import gccsd_t_rdm
-      from pyscf.cc import gccsd_t_lambda
+            from pyscf.cc import gccsd_t_rdm
+            from pyscf.cc import gccsd_t_lambda
       
-      moc = self.mf_def.mo_coeff
+            moc = self.mf_def.mo_coeff
       
-      # CCSD calc
-      mycc = cc.GCCSD(self.mf_def)
-      mycc.set(max_cycle = 100)
-      mycc.set(diis_space = 15)
-      self.ECCSD_def, t1, t2 = mycc.kernel()
-      eris = mycc.ao2mo()
-      self.ECCSD_t_def = self.ECCSD_def + mycc.ccsd_t()
-      self.Eexp = self.ECCSD_t_def+self.EHF_def
+            # CCSD calc
+            mycc = cc.GCCSD(self.mf_def)
+            mycc.set(max_cycle=100)
+            mycc.set(diis_space=15)
+            self.ECCSD_def, t1, t2 = mycc.kernel()
+            eris = mycc.ao2mo()
+            self.ECCSD_t_def = self.ECCSD_def + mycc.ccsd_t()
+            self.Eexp = self.ECCSD_t_def+self.EHF_def
       
-      # Solve Lambda
-      l1, l2 = gccsd_t_lambda.kernel(mycc, eris, t1, t2)[1:]
+            # Solve Lambda
+            l1, l2 = gccsd_t_lambda.kernel(mycc, eris, t1, t2)[1:]
       
-      # get rdm1
-      tmp = gccsd_t_rdm.make_rdm1(mycc, t1, t2, l1, l2, eris=eris) # in def MOs
-      self.gamma_ao = utilities.mo_to_ao(tmp,self.mo_coeff_def) # in AOs
+            # get rdm1
+            tmp = gccsd_t_rdm.make_rdm1(mycc, t1, t2, l1, l2, eris=eris)  # in def MOs
+            self.gamma_ao = utilities.mo_to_ao(tmp, self.mo_coeff_def)  # in AOs
+
+        elif self.method != 'HF':
+            raise ValueError('Method not recognized')
 
 
-  def underfit(self,para_factor):
-    '''
-    Update gamma_ao
-    Randomly distributed 0 elements --> under fitting n_exp is the final number of experimental parameters
-    the number of optimized parameters is nocc*nvir*2 (t1+l1)
+    def underfit(self, para_factor):
+        '''
+        Update gamma_ao
+        Randomly distributed 0 elements --> under fitting n_exp is the final number of experimental parameters
+        the number of optimized parameters is nocc*nvir*2 (t1+l1)
 
-    :param para_factor: ratio between given exp elements in rdm1_exp and rdm1
-    '''
+        :param para_factor: ratio between given exp elements in rdm1_exp and rdm1
+        '''
 
-    import random
+        import random
 
-    dim = self.mo_coeff_def.shape[0]
+        dim = self.mo_coeff_def.shape[0]
 
-    n_exp = int(round(dim**2-(para_factor*(self.nocc*self.nvir*2))))
-    indice = random.sample(range(dim**2),n_exp)  # random indices fro the flattened gamma_ao matrix
-    self.gamma_ao = self.gamma_ao.flatten()
-    for i in indice:
-       self.gamma_ao[i] = 0
-    self.gamma_ao = np.reshape(self.gamma_ao,(dim,dim))
+        n_exp = int(round(dim ** 2 - (para_factor * (self.nocc * self.nvir * 2))))
+        indice = random.sample(range(dim ** 2), n_exp)  # random indices fro the flattened gamma_ao matrix
+        self.gamma_ao = self.gamma_ao.flatten()
+        for i in indice:
+            self.gamma_ao[i] = 0
+        self.gamma_ao = np.reshape(self.gamma_ao, (dim, dim))
 
 
 ##############################
@@ -267,7 +302,7 @@ class Gexp:
 ##############################
 
 class ESexp:
-    def __init__(self, mol, Vext=None, nbr_of_states=(1,0)):
+    def __init__(self, mol, Vext=None, nbr_of_states=(1, 0)):
         '''
         Class to build ES rdm and tdm
         Contains:
@@ -374,13 +409,13 @@ class ESexp:
 
             # convert to GHF dm1
             ghf_ao = utilities.convert_u_to_g_rdm1(uhf_ao)
-            self.gamma_ao.append(['val',ghf_ao])
+            self.gamma_ao.append(['val', ghf_ao])
 
             # Calculate transition density matrix
             # -------------------------------------
 
             # orthogonalize state n with GS
-            TcL, TcR = utilities.ortho(self.mol,es_mo_coeff,self.mo_coeff)
+            TcL, TcR = utilities.ortho_SVD(self.mol, es_mo_coeff, self.mo_coeff)
 
             # express tdm in canonical MOs basis
             tdm = utilities.tdm_slater(TcL, TcR, moc)
@@ -426,7 +461,7 @@ class ESexp:
             # -------------------------------------
 
             # orthogonalize state n with GS
-            TcL, TcR = utilities.ortho(self.mol,es_mo_coeff,self.mo_coeff)
+            TcL, TcR = utilities.ortho_SVD(self.mol, es_mo_coeff, self.mo_coeff)
 
             # express tdm in canonical MOs basis
             tdm = utilities.tdm_slater(TcL, TcR, moc)
@@ -439,6 +474,8 @@ class ESexp:
       Stores the transition density matrices wrt the ground state for each state in G format
 
       '''
+
+      raise NotImplementedError('EOM Vexp not implemented')
 
       import CCSD
       from pyscf import cc
@@ -492,68 +529,72 @@ class ESexp:
 
 if __name__ == "__main__":
 
-  # Define Water molecule
+    # Define Water molecule
 
-  mol = gto.Mole()
-  mol.atom = [
-      [8 , (0. , 0.     , 0.)],
-      [1 , (0. , -0.757 , 0.587)],
-      [1 , (0. , 0.757  , 0.587)]]
-  mol.basis = 'sto3g'
-  mol.spin = 0
-  mol.build()
+    mol = gto.Mole()
+    mol.atom = [
+        [8 , (0. , 0.     , 0.)],
+        [1 , (0. , -0.757 , 0.587)],
+        [1 , (0. , 0.757  , 0.587)]]
+    mol.basis = 'sto3g'
+    mol.spin = 0
+    mol.build()
 
-  # RHF calculation
+    # RHF calculation
   
-  mf = scf.RHF(mol)
-  mf.conv_tol=1e-09                     # energy tolerence
-  mf.conv_tol_grad=np.sqrt(mf.conv_tol) # gradient tolerence
-  mf.direct_scf_tol=1e-13               # tolerence in discarding integrals
-  mf.max_cycle=100
-  mf.max_memory=1000
+    mf = scf.RHF(mol)
+    mf.conv_tol=1e-09                     # energy tolerance
+    mf.conv_tol_grad=np.sqrt(mf.conv_tol) # gradient tolerance
+    mf.direct_scf_tol=1e-13               # tolerance in discarding integrals
+    mf.max_cycle=100
+    mf.max_memory=1000
 
-  mf.kernel()
+    mf.kernel()
   
-  # convert to GHF
-  mfg = scf.addons.convert_to_ghf(mf)
+    # convert to GHF
+    mfg = scf.addons.convert_to_ghf(mf)
 
-  # GHF gamma_mo
-  gamma_pred_ao = mfg.make_rdm1()
-  mo_coeff = mfg.mo_coeff
-  gamma_pred = utilities.ao_to_mo(gamma_pred_ao,mo_coeff)
+    # GHF gamma_mo
+    gamma_pred_ao = mfg.make_rdm1()
+    mo_coeff = mfg.mo_coeff
+    gamma_pred = utilities.ao_to_mo(gamma_pred_ao, mo_coeff)
   
-  # GS gamma_exp
-  gexp = Gexp(mol,'HF')
-  field = [0.05,0.02,0.]
-  gexp.Vext(field)
-  gexp.build()
-  gamma_exp_ao = gexp.gamma_ao
-  # exp rdm1 in canonical MOs
-  gamma_exp_mo = utilities.ao_to_mo(gamma_exp_ao,mo_coeff)
-  # apply underfitting
-  gexp.underfit(0.5)
-  gamma_exp_ao_under = gexp.gamma_ao      # underfitted exp rdm1 in AOs
-  gamma_exp_mo_under = utilities.ao_to_mo(gamma_exp_ao_under,mo_coeff) # underfitted exp rdm1 in MOs
+    # GS gamma_exp
+    gexp = Gexp(mol, 'CCSD(T)', g_format=True)
+    gexp.deform(0.05)
+    field = [0.05, 0.02, 0.]
+    gexp.Vext(field)
+    gexp.build(basis='6-31+g*')
+    gamma_exp_ao = gexp.gamma_ao
 
-  print('###########')
-  print('#  GS exp  ')
-  print('###########')
-  print()
-  print('method=', gexp.method, 'EHF=', mfg.e_tot, 'EHF_def=', gexp.EHF_def , 'ECCSD_def=', gexp.ECCSD_def)
-  print()
-  print("Test under fitting with rho = 0.5")
-  print("number of 0 elements in gamma_exp        = ", np.count_nonzero(gamma_exp_mo_under==0.0))
-  print("total number of elements in gamma_exp    = ", gamma_exp_mo_under.shape[0]**2)
-  print()
-  print('-------------------------------------')
-  print()
+    # exp rdm1 in canonical MOs --> only valid if basis_def = basis
+    #gamma_exp_mo = utilities.ao_to_mo(gamma_exp_ao, mo_coeff)
+
+    # apply underfitting
+    #gexp.underfit(0.5)
+    #gamma_exp_ao_under = gexp.gamma_ao      # underfitted exp rdm1 in AOs
+    #gamma_exp_mo_under = utilities.ao_to_mo(gamma_exp_ao_under,mo_coeff) # underfitted exp rdm1 in MOs
+
+    print('###########')
+    print('#  GS exp  ')
+    print('###########')
+    print()
+    print('method=', gexp.method,
+          'EHF=', mfg.e_tot, 'EHF_def=', gexp.EHF_def , 'Eexp=', gexp.Eexp)
+    #print()
+    #print("Test under fitting with rho = 0.5")
+    #print("number of 0 elements in gamma_exp        = ", np.count_nonzero(gamma_exp_mo_under==0.0))
+    #print("total number of elements in gamma_exp    = ", gamma_exp_mo_under.shape[0]**2)
+    #print()
+    #print('-------------------------------------')
+    #print()
   
-  print('###########')
-  print('#  ES exp  ')
-  print('###########')
-  print()
-  print(' MOM ')
+    print('###########')
+    print('#  ES exp  ')
+    print('###########')
+    print()
+    print(' MOM ')
 
-  # two valence and one core ES
-  es_exp = ESexp(mol, nbr_of_states=(2,1))
-  es_exp.MOM()
+    # two valence and one core ES
+    #es_exp = ESexp(mol, nbr_of_states=(2, 1))
+    #es_exp.MOM()
