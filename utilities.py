@@ -16,7 +16,9 @@
 # - convert G rdm1 into R and U
 #
 ###################################################################
+import copy
 
+import numpy
 from pyscf import scf, gto, tdscf, cc, lib
 from pyscf.gto import ft_ao
 from pyscf.tools import cubegen
@@ -441,15 +443,15 @@ def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
     nocc,nvir = r1[0].shape
 
     if r2 is None:
-        r2 = [np.zeros((nocc,nocc,nvir,nvir))]*nbr_of_states
+        r2 = [np.zeros((nocc, nocc, nvir, nvir))]*nbr_of_states
 
     Xia = fsp[:nocc, nocc:]
     Xia += np.einsum('me,imae->ia', t1, eris_oovv)
     r0n = []
 
     for n in range(nbr_of_states):
-       r0 = np.einsum('ld,ld',Xia,r1[n])
-       r0 += 0.25*np.einsum('lmde,lmde',eris_oovv,r2[n])
+       r0 = np.einsum('ld, ld', Xia, r1[n])
+       r0 += 0.25*np.einsum('lmde, lmde', eris_oovv, r2[n])
        r0 /= DE[n]
        r0n.append(r0)
 
@@ -526,7 +528,7 @@ def spin_square(rdm1, mo_coeff, ovlp=1):
 # linear algebra
 #################
 
-def get_norm(rs, ls, r0=0, l0=0):
+def get_norm(rs, ls, r0, l0):
     '''
     Return the linear product between two sets of amplitudes
     c = |<Psi_r|Psi_l>|**2
@@ -539,9 +541,7 @@ def get_norm(rs, ls, r0=0, l0=0):
     # check shape
     if rs.shape != ls.shape:
         raise ValueError('Shape of both set of amplitudes must be the same')
-    r0 = r0.conjugate()
-    rs = rs.conjugate()
-    c = l0*r0+np.sum(rs*ls)
+    c = l0*r0.conjugate()+np.sum(rs.conjugate()*ls)
 
     return c
 
@@ -549,7 +549,7 @@ def ortho_QR(Mvec):
     '''
     Use numpy QR factorisation to orthogonalize a set of vectors
     math: Mvec = Q.R
-    wher Q is as orthogonlized column vectors and R a a upper triangular matrix
+    wher Q has orthonormal column vectors and R is a a upper triangular matrix
 
     :param Mvec: NxM matrix where the columns are the vectors to orthogonalize
     :return:
@@ -629,7 +629,7 @@ def ortho_GS(U, eps=1e-12):
     return V.T
 
 
-def check_ortho(ln, rn, l0n, r0n):
+def check_ortho(rn, ln, r0n, l0n):
     '''
     Check the norm for a list of r and l vectors
 
@@ -651,9 +651,9 @@ def check_ortho(ln, rn, l0n, r0n):
 
     for k in range(nbr_of_states):
         for l in range(nbr_of_states):
-             c_l = get_norm(rn[k], ln[l], r0=r0n[k], l0=l0n[l])
-             c_r = get_norm(rn[l], ln[k], r0=r0n[l], l0=l0n[k])
-             C_norm[k, l] = c_l*c_r
+             c_l = get_norm(rn[k], ln[l], r0n[k], l0n[l])
+             c_r = get_norm(rn[l], ln[k], r0n[l], l0n[k])
+             C_norm[k, l] = (c_l+c_r)/2.
 
     return C_norm
 
@@ -668,18 +668,21 @@ def ortho_es(rn, ln, r0n, l0n):
     :return: orthogonalized (r0, rn) and (l0, ln)
     '''
 
+    nocc, nvir = rn[0].shape
     nbr_states = len(rn)
 
-    Matvec_r = np.zeros(nocc*nvir+1, nbr_states)
-    Matvec_l = np.zeros(nocc*nvir+1, nbr_states)
+    # matrix of r/l vectors as column
+    Matvec_r = np.zeros((nocc*nvir+1, nbr_states))
+    Matvec_l = np.zeros((nocc*nvir+1, nbr_states))
 
+    # amplitude to vector into Matvec matrix
     for j in range(nbr_states):
-        Matvec_r[1:, j] = rn[j].flatten()
+        Matvec_r[1:, j] = rn[j].flatten().copy()
         Matvec_l[0, j] = r0n[j]
-        Matvec_l[1:, j] = ln[j].flatten()
+        Matvec_l[1:, j] = ln[j].flatten().copy()
         Matvec_l[0, j] = l0n[j]
 
-    # right vectors
+    # right and left vectors
     new_Matvec_r = ortho_QR(Matvec_r)
     new_Matvec_l = ortho_QR(Matvec_l)
     ortho_r0n = []
@@ -687,13 +690,79 @@ def ortho_es(rn, ln, r0n, l0n):
     ortho_rn = []
     ortho_ln = []
 
+    # vector to amplitude
     for i in range(nbr_states):
-        ortho_ln.append(new_Matvec_l[1:, i])
-        ortho_rn.append(new_Matvec_r[1:, i])
+        ortho_ln.append(new_Matvec_l[1:, i].reshape(nocc, nvir))
+        ortho_rn.append(new_Matvec_r[1:, i].reshape(nocc, nvir))
         ortho_r0n.append(new_Matvec_r[0, i])
         ortho_l0n.append(new_Matvec_l[0, i])
 
     return ortho_rn, ortho_ln, ortho_r0n, ortho_l0n
+
+def biortho_es(r1, l1, r0, l0):
+    '''
+    Orthogonormalized rn with ln vectors to construct a bi-orthonormal set
+    math: <Psi_n|Psi_k> = 0
+
+    :param r1: r1 amplitudes for state k
+    :param l1: l1 amplitudes for state n
+    :param r0: r0 value for state k
+    :param l0: l0 value for state n
+    :return: orthogonalized (r0, rn) and (l0, ln)
+    '''
+
+    nocc, nvir = r1.shape
+
+    # decompose Matvec
+    Matvec = np.zeros((nocc*nvir+1, 2))
+    Matvec[1:, 0] = r1.flatten().copy()
+    Matvec[0, 0] = r0
+    Matvec[1:, 1] = l1.flatten().copy()
+    Matvec[0, 1] = l0
+
+    new_Matvec = ortho_QR(Matvec)
+
+    new_r = new_Matvec[1:, 0].reshape(nocc, nvir)
+    new_l = new_Matvec[1:, 1].reshape(nocc, nvir)
+    new_r0 = new_Matvec[0, 0]
+    new_l0 = new_Matvec[0, 1]
+
+    return new_r, new_l, new_r0, new_l0
+
+
+def ortho_norm(rn, ln, rn0, ln0):
+    '''
+    normalize vectors r and l
+    orthgonalize r and l if biorthogonal set (len(rn)=2)
+
+    math: <Psi_n|Psi_k> = dnk
+
+    :return:
+    '''
+
+    C_norm = check_ortho(rn, ln, rn0, ln0)
+
+    ln_new = copy.deepcopy(ln)
+    rn_new = copy.deepcopy(rn)
+    ln0_new = copy.deepcopy(ln0)
+    rn0_new = copy.deepcopy(rn0)
+
+    # check if orthogonal
+    if len(rn) == 2:
+        for c in np.tril(C_norm, -1).flatten():
+            if c > 0.001 or c < -0.001:
+                rn_new[0], ln_new[1], rn0_new[0], ln0_new[1] = \
+                    biortho_es(rn_new[0], ln_new[1], rn0_new[0], ln0_new[1])
+                C_norm = check_ortho(rn_new, ln_new, rn0_new, ln0_new)
+                break
+
+    # normalize
+    for i in range(len(ln)):
+        if 0.999 > C_norm[i, i] or C_norm[i, i] > 1.001:
+            ln_new[i] = ln_new[i] / C_norm[i, i]
+            ln0_new[i] = ln0_new[i] / C_norm[i, i]
+
+    return rn_new, ln_new, rn0_new, ln0_new
 
 #################################
 # Printing density and orbitals
@@ -900,10 +969,9 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     return ans
 
 
-def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None):
-    # todo: h input in ft_ao function
+def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None, a=10., b=10., c=10.):
     '''
-    Calculates the structure factor for a given rdm1 and list of Miller indices
+    Calculates the structure factors for a given rdm1 and list of Miller indices
 
     :param mol: PySCF mol object
     :param rdm1: one-particle reduced density matrix
@@ -911,7 +979,10 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
     :param aobasis: True if rdm1 given in AOs basis
     :param mo_coeff: MOs coefficients
     :param F_int: Fourier transform over AO basis
-    :return:
+    :param a: reciprocal lattice length
+    :param b: reciprocal lattice length
+    :param c: reciprocal lattice length
+    :return: array of structure factors F corresponding to Miller indices in h
 
     '''
 
@@ -925,43 +996,53 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
     if g:
         rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
 
+    # concert h in numpy array
+    h = np.asarray(h)
+
     if F_int is None:
-        F_int = gto.ft_ao.ft_aopair(mol, Gv, None, 's1', b, gxyz, gs)
+        F_int = FT_MO(mol, h, mo_coeff, a, b, c)[0]
 
     # contract rdm and Fint
     ans = np.einsum('hij,ji->h', F_int, rdm1)
 
+    return ans
 
-def FT_MO(mol, h, mo_coeff):
-    # todo: h input in ft_ao function
+
+def FT_MO(mol, h, mo_coeff, a=10., b=10., c=10.):
     '''
     Calculates the FT over AO, transforms it into MO basis in G format
 
     math: F_pq = <p|F(h)|q>
 
     :param mol: PySCF molecular object
-    :param h: Miller indices
+    :param h: Miller indices, list of triples [(h1x,h1y,h1z),(h2x,h2y,h2z), ...]
+    :param a: reciprocal lattice length
+    :param b: reciprocal lattice length
+    :param c: reciprocal lattice length
     :return: Fmo_pq and Fao_ij
     '''
 
-    # convert
+    # convert to spatial (R) basis
     if mo_coeff.shape[0] != mol.nbas:
         mo_coeff = convert_g_to_r_coeff(mo_coeff)
     mo_coeff_inv = np.linalg.inv(mo_coeff)
 
-    # define xyz grid
-    L = 5.
-    n = 20
-    a = np.diag([L, L, L])
-    b = scipy.linalg.inv(a)
-    gs = [n, n, n]
-    gxrange = list(range(gs[0]+1))+list(range(-gs[0], 0))
-    gyrange = list(range(gs[1]+1))+list(range(-gs[1], 0))
-    gzrange = list(range(gs[2]+1))+list(range(-gs[2], 0))
-    gxyz = lib.cartesian_prod((gxrange, gyrange, gzrange))
-    Gv = 2*np.pi * np.dot(gxyz, b)
+    # convert h to numpy array
+    if not isinstance(h, np.ndarray):
+        h = np.asarray(h)
 
-    ft_ao = gto.ft_ao.ft_aopair(mol, Gv, None, 's1', b, gxyz, gs)
+    # reciprocal lattice
+    rec_vec = np.diag([a, b, c])
+    print(rec_vec)
+    rec_vec = scipy.linalg.inv(rec_vec)
+
+    # build k-vectors
+    gv = 2*np.pi * np.dot(h, b)
+
+    # gs = number of h point in each directions
+    gs = None
+
+    ft_ao = gto.ft_ao.ft_aopair(mol, gv, None, 's1', rec_vec, h, gs)  # s1 = nosymm
     ft_mo = np.einsum('pi,hij,qj->hpq', mo_coeff_inv, ft_ao, mo_coeff_inv.conj())
 
     return ft_mo, ft_ao
@@ -1111,7 +1192,7 @@ if __name__ == '__main__':
 
     print('check orthogonality --> OK')
     print(np.einsum('mp,nq,mn->pq',cL,cR,S_AO))
-    print('norm=', get_norm(cL,cR))
+    print('norm=', get_norm(cL,cR, 0, 0))
 
     print()
     print('################################')
@@ -1174,3 +1255,49 @@ if __name__ == '__main__':
     print('norm = ', check_ortho([rs], [ls], [0], [0]))
     S2 = check_spin(rs, ls)
     print('2S+1= ', 2*S1+1, 2*S2+1)
+
+    print()
+    print('################################')
+    print('# Test ortho and norm           ')
+    print('################################')
+    print()
+
+    rs = []
+    ls = []
+    rs.append(np.random.random((3,4)))
+    rs.append(np.random.random((3,4)))
+    ls.append(np.random.random((3,4)))
+    ls.append(np.random.random((3,4)))
+    r0 = list([0.1, 0.2])
+    l0 = list([0.05, 0.07])
+
+    print('Initial ortho/nor')
+    print(check_ortho(rs, ls, r0, l0))
+    print()
+
+    print('orthogonalized rn and ln vectors')
+    rs, ls, r0, l0 = ortho_es(rs, ls, r0, l0)
+    print('rn vector ortho ? -> YES')
+    print(np.sum(rs[0].flatten()*rs[1].flatten())+r0[0]*r0[1])
+    print('ln vectors ortho ? -> YES')
+    print(np.sum(ls[0].flatten() * ls[1].flatten())+l0[0]*l0[1])
+    print('rn-lk ortho ? -> NO')
+    print(np.sum(rs[0].flatten() * ls[1].flatten())+r0[0]*l0[1])
+    print(np.sum(ls[0].flatten() * rs[1].flatten())+l0[0]*r0[1])
+    print()
+
+    print("bi-orthogonalize rn and lk")
+    rs[0], ls[1], r0[0], l0[1] = biortho_es(rs[0], ls[1], r0[0], l0[1])
+    print('rn vector ortho ? -> NO')
+    print(np.sum(rs[0].flatten()*rs[1].flatten())+r0[0]*r0[1])
+    print('ln vectors ortho ? -> NO')
+    print(np.sum(ls[0].flatten() * ls[1].flatten())+l0[0]*l0[1])
+    print('rn-lk ortho ? -> YES')
+    print(np.sum(rs[0].flatten() * ls[1].flatten())+r0[0]*l0[1])
+    print('rk-ln ortho ? -> NO')
+    print(np.sum(ls[0].flatten() * rs[1].flatten())+l0[0]*r0[1])
+    print()
+
+    print('ortho_norm function ')
+    rs, ls, r0, l0 = ortho_norm(rs, ls, r0, l0)
+    print(check_ortho(rs, ls, r0, l0))

@@ -14,18 +14,18 @@ class PySCF_geris():
         '''
 
         # convert to GHF
-        if not isinstance(gmf,scf.ghf.GHF):
+        if not isinstance(gmf, scf.ghf.GHF):
             gmf = scf.addons.convert_to_ghf(gmf)
 
         self.eris = cc.GCCSD(gmf).ao2mo(gmf.mo_coeff)
-
+     
 class geris():
     '''
     two electron integrals from PySCF ao2mo
     see pyscf.cc.gccsd._make_eris_incore function
     '''
 
-    def __init__(self, mycc, int_thresh=10 ** -10):
+    def __init__(self, mycc, int_thresh=10 ** -13, dir_cont=None):
         '''
         PySCF electron repulsion integrals in physics notation
         see cc.gccsd.eris
@@ -35,7 +35,6 @@ class geris():
         :param mycc: PySCF CC class
         :param int_thresh: threshold for the two electron integrals
         '''
-
         self.threshold = int_thresh
 
         # convert to GHF
@@ -45,35 +44,77 @@ class geris():
         eris = cc.gccsd._PhysicistsERIs()
         eris._common_init_(mycc)
         nocc = eris.nocc
-        nao, nmo = eris.mo_coeff.shape
+        nao, nmo = eris.mo_coeff.shape  # in GCC nao = nmo = nbr of spin orbitals
         assert (eris.mo_coeff.dtype == np.double)
+        # in GCC mo_coeff = [[mo_a],[mo_b]]
         mo_a = eris.mo_coeff[:nao // 2]
         mo_b = eris.mo_coeff[nao // 2:]
         orbspin = eris.orbspin
 
-        if orbspin is None:
-            eri = ao2mo.kernel(mycc._scf._eri, mo_a)
-            eri += ao2mo.kernel(mycc._scf._eri, mo_b)
-            eri1 = ao2mo.kernel(mycc._scf._eri, (mo_a, mo_a, mo_b, mo_b))
-            eri += eri1
-            eri += eri1.T
+        # Assumes RCC -> GCC orbspin format [1,0,1,0,1,0, ...]
+        if dir_cont is not None:
+            import utilities
+            # eri_ao.shape = (nao, nao, nao, nao) --> full two electron integrals
+            eri_ao = mycc.mol.intor('int2e', aosym='s1')
+            # convert to R format
+            mo = mo_a[:, ::2]
+            # direct contraction between eri_ao and mo
+            tmp1 = np.einsum('sd, abcd->sabc', mo, eri_ao)
+            tmp2 = np.einsum('rc, sabc->rsab', mo, tmp1)
+            tmp3 = np.einsum('qb, rsab->qrsa', mo.conj(), tmp2)
+            eri_R = np.einsum('pa, qrsa->pqrs', mo.conj(), tmp3)
+            del tmp1, tmp2, tmp3
+            self.orbspin = orbspin
+            # convert to G format
+            sym_forbid = np.zeros((nao, nao, nao, nao), dtype=bool)  # orbspin mask for full MO int (s1) = dpqdrs
+            for p in range(nao):
+                for q in range(nao):
+                    for r in range(nao):
+                        for s in range(nao):
+                            if p == q and r == s:
+                                sym_forbid[p,q,r,s] = True
+            eri = np.zeros_like(sym_forbid).ravel()
+            eri[sym_forbid.ravel()] = eri_ao.ravel()
+            eri = eri.reshape((nao, nao, nao, nao))
+
+            # make pqrs-pqsr
+            eri = eri.transpose(0, 2, 1, 3) - eri.transpose(0, 2, 3, 1)
+            low_values_flags = abs(eri) < self.threshold  # Where values are low
+            eri[low_values_flags] = 0  # All low values set to 0
+
+        # Construct MO integral in spin-orbital format
         else:
-            mo = mo_a + mo_b
-            eri = ao2mo.kernel(mycc._scf._eri, mo)
-            if eri.size == nmo ** 4:  # if mycc._scf._eri is a complex array
-                sym_forbid = (orbspin[:, None] != orbspin).ravel()
-            else:  # 4-fold symmetry
-                sym_forbid = (orbspin[:, None] != orbspin)[np.tril_indices(nmo)]
-            eri[sym_forbid, :] = 0
-            eri[:, sym_forbid] = 0
+            # mol.intor('int2e', aosym='s8') -> AO in spatial format
+            eri_ao = mycc._scf._eri
+            if orbspin is None:
+                eri = ao2mo.kernel(eri_ao, mo_a)   # alpha integral aa|aa
+                eri += ao2mo.kernel(eri_ao, mo_b)  # beta integral bb|bb
+                eri1 = ao2mo.kernel(eri_ao, (mo_a, mo_a, mo_b, mo_b))  # aa|bb integrals
+                eri += eri1
+                eri += eri1.T
+            else:
+                # mo_a.shape = (nao // 2, nao)
+                mo = mo_a + mo_b
+                # eri.shape = 2 (alpha and beta 2e int) -> contract mo_a and mo_b with eri
+                eri = ao2mo.full(eri_ao, mo)
+                # 8-fold symmetry
+                if eri.size == nmo ** 4:  # if mycc._scf._eri is a complex array
+                    sym_forbid = (orbspin[:, None] != orbspin).ravel()
+                else:  # 4-fold symmetry
+                    sym_forbid = (orbspin[:, None] != orbspin)[np.tril_indices(nmo)]
+                # make integrals between alpha and beta 0
+                eri[sym_forbid, :] = 0
+                eri[:, sym_forbid] = 0
+            self.orbspin = orbspin
 
-        if eri.dtype == np.double:
-            eri = ao2mo.restore(1, eri, nmo)
+            if eri.dtype == np.double:
+                eri = ao2mo.restore(1, eri, nmo)  # transform eri in s1 symmetry -> shape = 1
 
-        eri = eri.reshape(nmo, nmo, nmo, nmo)
-        eri = eri.transpose(0, 2, 1, 3) - eri.transpose(0, 2, 3, 1)
-        low_values_flags = abs(eri) < self.threshold  # Where values are low
-        eri[low_values_flags] = 0  # All low values set to 0
+            eri = eri.reshape(nmo, nmo, nmo, nmo)  # reshape into nmo (nbr of spin orb.)
+
+            eri = eri.transpose(0, 2, 1, 3) - eri.transpose(0, 2, 3, 1)  # make pqrs-pqsr
+            low_values_flags = abs(eri) < self.threshold  # Where values are low
+            eri[low_values_flags] = 0  # All low values set to 0
 
         self.fock = np.diag(eris.mo_energy)
         self.oooo = eri[:nocc, :nocc, :nocc, :nocc].copy()
@@ -92,11 +133,13 @@ class geris():
         self.vvvo = eri[nocc:, nocc:, nocc:, :nocc].copy()
         self.oovo = eri[:nocc, :nocc, nocc:, :nocc].copy()
         self.voov = eri[nocc:, :nocc, :nocc, nocc:].copy()
-        
         # additional
         self.ovoo = eri[:nocc, nocc:, :nocc, :nocc].copy()
+        self.eris = eri
         
         self.nocc = nocc
+
+
 
 if __name__ == "__main__":
 
@@ -107,12 +150,18 @@ if __name__ == "__main__":
         [8, (0., 0., 0.)],
         [1, (0., -0.757, 0.587)],
         [1, (0., 0.757, 0.587)]]
+    #mol.atom = '''
+    #H 0 0 0
+    #H 0 0 1.
+    #'''
 
     mol.basis = '6-31g'
     mol.spin = 0
     mol.build()
-    mf = scf.GHF(mol)
+    mf = scf.RHF(mol)
     mf.kernel()
+    mo = mf.mo_coeff
+    mf = scf.addons.convert_to_ghf(mf)
     mycc = cc.GCCSD(mf)
 
     print()
@@ -121,12 +170,46 @@ if __name__ == "__main__":
     print('----------------')
     print()
 
-    pyscf_eris = PySCF_geris(mf)
-    eris = geris(mycc)
+    eris_1 = geris(mycc)
+    eris_2 = geris(mycc, dir_cont=True)
 
-    print('oovv difference')
-    print(np.sum(np.subtract(pyscf_eris.eris.oovv,eris.oovv)))
-    print('oooo difference')
-    print(np.sum(np.subtract(pyscf_eris.eris.oooo, eris.oooo)))
-    print('ovvv difference')
-    print(np.sum(np.subtract(pyscf_eris.eris.ovvv, eris.ovvv)))
+    print('orbspin')
+    print(eris_1.orbspin)
+    print()
+
+    print('Some values for i -> a')
+    nocc = mycc.nocc
+    # beta -> beta transition
+    i = nocc-1
+    a = 1
+    print('ikik')
+    ikik = np.einsum('ikik->i', eris_1.oooo)[i]
+    print('eris 1', ikik)
+    print('eris 2', np.einsum('ikik->i', eris_2.oooo)[i])
+    print('akak')
+    akak = np.einsum('akak->a', eris_1.vovo)[a]
+    print('eris 1', akak)
+    print('eris 2', np.einsum('akak->a', eris_2.vovo)[a])
+    print('aiia')
+    aiia = eris_1.voov[a, i, i, a]
+    print('eris 1', aiia)
+    print('eris 2', eris_2.voov[a, i, i, a])
+    print('akik -> r0 term')
+    akik = np.einsum('akik->ia', eris_1.vooo)[i, a]
+    print('eris 1', akik)
+    print('eris 2', np.einsum('akik->ia', eris_2.vooo)[i, a])
+    print()
+    print('CIS excitation energy')
+    print(eris_1.fock[nocc+a, nocc+a]-eris_1.fock[i, i])
+    print(eris_1.fock[nocc+a, nocc+a]+akak-eris_1.fock[i, i]-ikik+aiia)
+
+    print('Additional tests')
+    print('mycc._scf._eri.shape')
+    print(mycc._scf._eri.shape)
+    print('apply ao2mo.restore --> into s1')
+    print(ao2mo.restore('s1', mycc._scf._eri, mol.nao).shape)
+    print('mol.intor s1')
+    print(mol.intor('int2e', aosym='s1').shape)
+    print('gto.getints s1')
+    print(gto.getints('int2e', mol._atm, mol._bas, mol._env, aosym='s1' ).shape)
+

@@ -13,7 +13,8 @@
 ######################################################################
 
 import numpy as np
-from . import utilities
+#from . import utilities
+import utilities
 from pyscf import lib
 
 class Solver_CCS:
@@ -747,8 +748,9 @@ if __name__ == "__main__":
     mol.build()
 
     # GHF calc
-    mgf = scf.GHF(mol)
+    mgf = scf.RHF(mol)
     mgf.kernel()
+    mgf = scf.addons.convert_to_ghf(mgf)
     mo_occ = mgf.mo_occ
     mocc = mgf.mo_coeff[:, mo_occ > 0]
     mvir = mgf.mo_coeff[:, mo_occ == 0]

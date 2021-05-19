@@ -15,17 +15,18 @@
 import numpy as np
 import copy
 from pyscf import lib
-from . import utilities
+#from . import utilities
+import utilities
 from tabulate import tabulate
-import slepc4py
-from petsc4py import PETSc
-from slepc4py import SLEPc
+#import slepc4py
+#from petsc4py import PETSc
+#from slepc4py import SLEPc
 
 # print float format
 format_float = '{:.4e}'
 
 class Solver_ES:
-    def __init__(self, mycc, Vexp_class, rn_ini, ln_ini=None, r0_ini=None, l0_ini=None, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
+    def __init__(self, mycc, Vexp_class, rn_ini, r0_ini, ln_ini, l0_ini, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
                  maxiter=80, maxdiis=20, tablefmt='rst'):
         '''
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
@@ -62,22 +63,18 @@ class Solver_ES:
             tsini = np.zeros((self.nocc, self.nvir))
         if lsini is None:
             lsini = np.zeros((self.nocc, self.nvir))
-        self.tsini = tsini
-        self.lsini = lsini
+        self.tsini = tsini.copy()
+        self.lsini = lsini.copy()
 
         # l and r initial
         if ln_ini is None:
             ln_ini = copy.deepcopy(rn_ini)
-        self.rn_ini = rn_ini
-        self.ln_ini = ln_ini
+        self.rn_ini = copy.deepcopy(rn_ini)
+        self.ln_ini = copy.deepcopy(ln_ini)
 
         # r0 and l0 initial
-        if r0_ini is None:
-            r0_ini = list([0] * len(rn_ini))
-        if l0_ini is None:
-            l0_ini = list([0] * len(rn_ini))
-        self.r0_ini = r0_ini
-        self.l0_ini = l0_ini
+        self.r0_ini = copy.deepcopy(r0_ini)
+        self.l0_ini = copy.deepcopy(l0_ini)
 
         self.nbr_states = len(rn_ini)
 
@@ -136,7 +133,7 @@ class Solver_ES:
     def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None, S_AO=None):
         '''
         !!!
-        SCF rough solver for Rand L equations: takes care of the spin symmetry but
+        SCF rough solver for R and L equations: takes care of the spin symmetry but
         only works when no spatial symmetry is present
         !!!
 
@@ -493,17 +490,20 @@ class Solver_ES:
 
             #del Rinter, R0inter, Linter, L0inter, vexp
 
+
             #
             # Check orthonormality and spin, re-normalize vectors if norm > threshold
             # -------------------------------------------------------------------------
             #
 
-            C_norm = utilities.check_ortho(lnew, rnew, r0new, l0new, S_AO=S_AO)
+            #ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
+            C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
+            print('C_norm')
+            print(C_norm)
+            print()
+
             for i in range(nbr_states):
-                if 0.9 > C_norm[i, i] > 1.1:
-                    lnew[i] = lnew[i] / C_norm[i, i]
-                    l0new[i] = l0new[i] / C_norm[i, i]
-                Spin[i] = utilities.check_spin(rnew[i], lnew[i])
+                Spin[i] = utilities.check_spin(rn[i], ln[i])
 
             #
             # Store new vectors

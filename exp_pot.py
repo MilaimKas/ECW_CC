@@ -19,7 +19,7 @@ import numpy as np
 import utilities
 
 class Exp:
-    def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None):
+    def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None, a=None, b=None, c=None):
         '''
         Class containing the experimental potentials Vnm
         math: Vexp = 2/M sum_i^{M} (Aexp_i-Acalc_i)/sig_i * Ai_pq
@@ -41,6 +41,9 @@ class Exp:
         :param mol: PySCF molecule object
         :param mo_coeff: "canonical" MOs coefficients
         :param mo_coeff_def: MOs coefficients for the exp rdm1 ("deformed" one)
+        :param a: reciprocal lattice length
+        :param b: reciprocal lattice length
+        :param c: reciprocal lattice length
         '''
 
         self.nbr_of_states = len(exp_data[0])  # total nbr of states: GS+ES
@@ -82,7 +85,7 @@ class Exp:
                 # structure factor
                 if 'F' in self.check[-1] and self.F_int is None:
                     self.h = n[1][:, 1]  # list of (hx, hy, hz)
-                    F_mo, self.F_int = utilities.FT_MO(mol, self.h, mo_coeff)
+                    F_mo, self.F_int = utilities.FT_MO(mol, self.h, mo_coeff, a=a, b=b, c=c)
                     self.dic_int['F'] = F_mo  # F_mo.shape = (nbr_h_pts, dim, dim)
                 
                 # dipole integrals

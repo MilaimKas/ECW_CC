@@ -17,6 +17,7 @@
 
 import numpy as np
 from pyscf import lib
+import utilities
 
 einsum = lib.einsum
 

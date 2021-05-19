@@ -13,14 +13,12 @@
 # - L1 and T1 intermediates 
 # - EXC-CCS Hessian
 #
-# TODO: factorize rdm1_es equations
-# TODO: factorize gradient terms
 #
 ###################################################################
 
 import numpy as np
-from . import utilities
-#import utilities
+#from . import utilities
+import utilities
 
 np.random.seed(2)
 
@@ -779,7 +777,9 @@ class Gccs:
         return Fjb, Z, P
 
     def Extract_Em_r(self, rs, r0, Rinter):
+        # todo: to avoid spin degeneracy, extract Em from the initial ria
         '''
+
         Extract Em from the largest r1 element
 
         :param rs: r1 amplitude of state m
@@ -807,6 +807,52 @@ class Gccs:
         Em = Rov/rs[o,v]
 
         return Em, o,v
+
+    def Extract_r0(self, r1, ts, fsp, vm):
+        '''
+        Use R1 and R0 equations to calculate r0 from given r1
+
+        :param r1: r1 amplitude vector
+        :return: r0
+        '''
+
+        if fsp is None:
+            f = self.fock
+        else:
+            f = fsp.copy()
+
+        Fab, Fji, W, F, Zia, Pia = self.R1inter(ts, f, vm)
+        Fjb, Z, P = self.R0inter(ts, f, vm)
+
+        R1 = np.einsum('ab, ib->ia', Fab, r1)
+        R1 -= np.einsum('ji, ja->ia', Fji, r1)
+        R1 += np.einsum('kc, akic->ia', r1, W)
+        R1 += r1*F
+        R1 += Pia
+        
+        c = -np.einsum('jb, jb', r1, Fjb)
+        c -= P
+
+        if c == 0.:
+            return 0
+        else:
+            # largest r1
+            i, j = np.unravel_index(np.argmax(abs(r1), axis=None), r1.shape)
+            a = Zia[i, j] / r1[i, j]
+            b = R1[i, j] / r1[i, j]
+            b -= Z
+
+            # solve quadratic equation using delta
+            # todo : which r0 solution to choose ?
+            r0_1 = (-b + np.sqrt((b**2)-(4*a*c))) / c
+            r0_2 = (-b - np.sqrt((b**2)-(4*a*c))) / c
+
+            if r0_1 > 0:
+                return r0_1
+            elif r0_2 > 0:
+                return r0_2
+            else:
+                raise ValueError('Both solution for r0 are negative')
 
     def rsupdate(self, rs, r0, Rinter, Em, idx=None):
         '''
@@ -1234,6 +1280,7 @@ class Gccs:
 
 #################################
 #   ECW-GCCS gradient equations #
+# todo: factorize gradient terms
 #################################
 
 class ccs_gradient:
@@ -1527,22 +1574,23 @@ if __name__ == "__main__":
     import Eris, CC_raw_equations
 
     mol = gto.Mole()
-    #mol.atom = [
-    #    [8 , (0. , 0.     , 0.)],
-    #    [1 , (0. , -0.757 , 0.587)],
-    #    [1 , (0. , 0.757  , 0.587)]]
-    mol.atom = """
-    H 0 0 0
-    H 0 0 1
-    """
+    mol.atom = [
+        [8 , (0. , 0.     , 0.)],
+        [1 , (0. , -0.757 , 0.587)],
+        [1 , (0. , 0.757  , 0.587)]]
+    #mol.atom = """
+    #H 0 0 0
+    #H 0 0 1
+    #"""
 
     mol.basis = 'sto3g'
     mol.spin = 0
     mol.build()
 
     # generalize HF and CC
-    mgf = scf.GHF(mol)
+    mgf = scf.RHF(mol)
     mgf.kernel()
+    mgf = scf.addons.convert_to_ghf(mgf)
     mo_occ = mgf.mo_occ
     mocc = mgf.mo_coeff[:, mo_occ > 0]
     mvir = mgf.mo_coeff[:, mo_occ == 0]
@@ -1616,7 +1664,7 @@ if __name__ == "__main__":
     conv = 1.
     ite = 1
     norm = 0.
-    while conv > 10**-6:
+    while conv > 10**-1:
         norm_old = norm
         tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0)
         ts_G = tsnew
@@ -1653,7 +1701,12 @@ if __name__ == "__main__":
     r1 = np.random.random((gnocc,gnvir))*0.1
     l1 = np.random.random((gnocc,gnvir))*0.1
     # orthogonalize r and l amp
-    ln,rk = utilities.ortho_SVD(mol, l1, r1)
+    Matvec = np.zeros((gnocc*gnvir, 2))
+    Matvec[:, 0] = np.ravel(r1)
+    Matvec[:, 1] = np.ravel(l1)
+    Matvec = utilities.ortho_QR(Matvec)
+    rk = Matvec[:, 0].reshape(gnocc, gnvir)
+    ln = Matvec[:, 1].reshape(gnocc, gnvir)
     # get r0 and l0
     r0k = mccsg.R0eq(0.1, t1, rk)
     l0n = mccsg.L0eq(0.1, t1, ln)
@@ -1698,9 +1751,9 @@ if __name__ == "__main__":
     print('Difference between R1 and L1 equations for t=0 and l1=r1 (should be zero)')
     print('-------------------------------------------------------------------------')
     print('with intermediates')
-    print(np.subtract(mccsg.R1eq(rs,r0,Rinter),mccsg.es_L1eq(ls,l0,Linter)))
+    print(np.sum(np.subtract(mccsg.R1eq(rs,r0,Rinter),mccsg.es_L1eq(ls,l0,Linter))))
     print('raw equations')
-    print(np.subtract(CC_raw_equations.R1eq(ts,rs,r0,geris),CC_raw_equations.es_L1eq(ts,ls,l0,geris)))
+    print(np.sum(np.subtract(CC_raw_equations.R1eq(ts,rs,r0,geris),CC_raw_equations.es_L1eq(ts,ls,l0,geris))))
 
     print()
     print('Difference between R0 and L0 equations for t=0 and l0=r0 (should be zero)')
@@ -1723,28 +1776,77 @@ if __name__ == "__main__":
     print(np.subtract(mccsg.r0update(r1, r0, En, R0inter), mccsg.l0update(l1, l0, En, L0inter)))
 
     print()
-    print('Difference between inter and raw equations for t=0')
-    print('--------------------------------------------------')
+    print('Difference between inter and raw equations for t=0 (should be zero)')
+    print('-------------------------------------------------------------------')
     print('R1 difference')
-    print(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris)))
+    print(np.sum(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris))))
     print('L1 difference')
-    print(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris)))
+    print(np.sum(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
 
     print()
-    print('Difference between inter and raw equations for t random')
-    print('-------------------------------------------------------')
-    rs = np.random.random((gnocc,gnvir))*0.1
+    print('Difference between inter and raw equations for t random (should be zero)')
+    print('------------------------------------------------------------------------')
+    rs = np.random.random((gnocc//2,gnvir//2))*0.1
+    rs = utilities.convert_r_to_g_amp(rs)
+    ls = np.random.random((gnocc//2,gnvir//2))*0.1
+    ls = utilities.convert_r_to_g_amp(ls)
     r0 = 0.1
-    l0 = 0.18
-    ts = np.random.random((gnocc,gnvir))*0.1
-    Rinter = mccsg.R1inter(ts, gfs, vn)
-    Linter = mccsg.es_L1inter(ts, gfs, vn)
+    l0 = 0.1
+    ts = np.random.random((gnocc//2,gnvir//2))*0.1
+    ts = utilities.convert_r_to_g_amp(ts)
+    Rinter = mccsg.R1inter(ts, geris.fock, np.zeros_like(gfs))
+    Linter = mccsg.es_L1inter(ts, geris.fock, np.zeros_like(gfs))
     print('R1 difference')
-    print(np.subtract(mccsg.R1eq(rs,r0,Rinter),CC_raw_equations.R1eq(ts,rs,r0,geris)))
+    print(np.sum(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris))))
     print('L1 difference')
-    print(np.subtract(mccsg.es_L1eq(ls,l0,Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris)))
+    print(np.sum(np.subtract(mccsg.es_L1eq(ls,l0,Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
+
+    print()
+    print('Energy from R1 and R0 equations')
+    print('-------------------------------------------------------')
+    print()
+
+    r1, DE = utilities.koopman_init_guess(mgf.mo_energy,mgf.mo_occ,(2, 0))
+    ts = np.zeros_like(r1[0])
+    vm = np.zeros_like(gfs)
+    print('State 1')
+    r0 = mccsg.Extract_r0(r1[0], ts, None, vm)
+    print('r0= ', r0)
+    Rinter = mccsg.R1inter(ts, gfs, vm)
+    print('Koopman DE= ', DE[0])
+    print('E= ', mccsg.Extract_Em_r(r1[0], r0[0], Rinter)[0])
+    print()
+    print('State 2')
+    r0 = mccsg.Extract_r0(r1[1], ts, None, vm)
+    print('r0= ', r0)
+    print('Koopman DE= ', DE[1])
+    print('E= ', mccsg.Extract_Em_r(r1[1], r0[0], Rinter)[0])
+    print('E= ', mccsg.Extract_Em_r(r1[1], r0[1], Rinter)[0])
+    print()
 
     # Note: R and L intermediates are the same for HF basis (f off diag = 0) --> lambda = 0
     #       except the Zia intermediates, which contracts with r0 and l0
     #       note anymore when lambda > 0
     # Fab, Fji, W, F, Zia, Pia
+
+    print("Eris test")
+    print('---------------------------------')
+    print()
+
+    rs, de = utilities.koopman_init_guess(mgf.mo_energy, mo_occ, (1,0))
+    rs = rs[0]
+    o, v = np.unravel_index(np.argmax(abs(rs), axis=None), rs.shape)
+    print(o, v)
+    print('r1')
+    print(rs)
+    print('DE= ', de)
+    print('faa-fii')
+    print(geris.fock[gnocc:, gnocc:][v,v]-geris.fock[:gnocc, :gnocc][o,o])
+    print('ajib')
+    print(-rs[o,v]*geris.voov[v,o,o,v])
+    print('jkik')
+    print(-rs[o,v]*np.einsum('ikik->i', geris.oooo)[o])
+    print('akbk')
+    print(rs[o,v]*np.einsum('akak->a', geris.vovo)[v])
+    print('akik')
+    print(np.einsum('akik->ia', geris.vooo)[o, v])

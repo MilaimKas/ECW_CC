@@ -7,7 +7,7 @@
  Calls the different Solver
  print results and plot X2(L)
 '''
-
+import copy
 
 import matplotlib.pyplot as plt
 
@@ -19,7 +19,8 @@ from tabulate import tabulate
 from pyscf import gto, scf, cc
 
 # Import ECW modules
-from . import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
+#from . import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
+import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
 
 # Global float format for print
 # ------------------------------
@@ -191,12 +192,6 @@ class ECW:
         # --------------------------
         self.exp_data = np.full((1, 1), None)
 
-        # initial value for DE and r1 amp
-        # ----------------------------------
-        self.r_ini = None
-        self.r0_ini = None
-        self.DE = None
-
         # Target energies
         # --------------------
         self.Eexp_GS = None
@@ -204,17 +199,18 @@ class ECW:
         
         print('*** Molecule build ***')
 
-    def Build_GS_exp(self, prop='mat', posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
+    def Build_GS_exp(self, prop, posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
         '''
         Build "experimental" or "target" data for the GS
 
         :param prop: property to include in exp_data
                      - 'mat': directly use calculated rdm1 as target
                      - 'Ek', 'v1e', 'dip'
-                     - ['F', h] for structure factor calculation where h=[h1,h2, ...] and hi=(hx,hy,hz)
+                     - ['F', h, (a, b, c)] for structure factor calculation where h=[h1,h2, ...] and hi=(hx,hy,hz)
+                                           and a,bc are the lattice vector length. If not given a=b=c=10
         :param posthf: method to calculate gamma_exp_GS
         :param field: external field ta calculate gamme_exp_GS
-        :param para_factor: underfitted coefficient
+        :param para_factor: under-fitting coefficient
         :param max_def: maximum bond length deformation in au
         :basis: basis used for the calculation of properties
         :return: update exp_data matrix
@@ -247,7 +243,7 @@ class ECW:
         self.Eexp_GS = gexp.Eexp
 
         # directly compare rdm1
-        if prop == 'mat':
+        if isinstance(prop, str) and prop == 'mat':
             # Update exp_data
             gamma_mo = utilities.ao_to_mo(gexp.gamma_ao, self.mo_coeff)
             self.exp_data[0, 0] = ['mat', gamma_mo]
@@ -259,10 +255,23 @@ class ECW:
 
                 # Structure Factor p=['F', F]
                 if isinstance(p, list):
-                    h = p[1]
-                    F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,
-                                                   aobasis=True, mo_coeff=gexp.mo_coeff_def)
-                    self.exp_data[0, 0].append(['F', F])
+                    if p[0] == 'F':
+                        h = p[1]
+                        if len(p) > 2:
+                            a = p[2][0]
+                            b = p[2][1]
+                            c = p[2][2]
+                        else:
+                            a=10.
+                            b=10.
+                            c=10.
+                        # calculate list of structure factors for each given set of Miller indices
+                        F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,
+                                                   aobasis=True, mo_coeff=gexp.mo_coeff_def, a=a, b=b, c=c)
+                        self.exp_data[0, 0].append(['F', F])
+                    else:
+                        raise SyntaxError('Input for prop must be list(prop1, prop2, ...) where prop is '
+                                          'either a string (Ek, v1e, dip) or a list ['F', h, [a,b,c]] ')
 
                 # Kinetic energy
                 if p == 'Ek':
@@ -326,7 +335,7 @@ class ECW:
 
             i += 1
 
-    def Build_ES_exp(self,dip_list, nbr_of_states, rini_list=None, DE_list=None):
+    def Build_ES_exp(self, dip_list, nbr_of_states, rini_list=None):
         '''
         Build excited states data from given transition properties
 
@@ -355,20 +364,27 @@ class ECW:
 
         # Koopman initial guess
         if rini_list is None:
-            r1,de = utilities.koopman_init_guess(np.diag(self.fock), self.mf.mo_occ, nbr_of_states)
-            r0ini = [self.myccs.R0eq(e, np.zeros_like(r), r) for r, e in zip(r1, de)]
-            self.DE = de
+            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mf.mo_occ, nbr_of_states)
+            r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
             self.r_ini = r1
+            self.l_ini = r1.copy()
             self.r0_ini = r0ini
+            self.l0_ini = r0ini.copy()
         else:
-            if DE_list is None:
-                raise ValueError('If initial r vectors are given, DE must also be given')
             if len(rini_list) != len(dip_list):
-                raise ValueError('The number of given one-electron excitations is not equal to the number of given transition dipole moments')
+                raise ValueError('The number of given initial r vectors is not '
+                                 'equal to the number of given transition dipole moments')
 
-            self.DE = DE_list
             self.r_ini = rini_list
-            self.r0_ini = [self.myccs.R0eq(e, np.zeros_like(r), r) for r, e in zip(rini_list, DE_list)]
+            self.r0_ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock))
+                           for r in rini_list]
+            self.l_ini = copy.deepcopy(self.r_ini)
+            self.l0_ini = copy.deepcopy(self.r0_ini)
+
+        # orthogonalize and normalize vectors
+        # NOTE: only a bi-orthogonal set can be constructed within CC theory -> only r[0] and l[1] will be ortho
+        self.r_ini, self.l_ini, self.r0_ini, self.l0_ini = \
+            utilities.ortho_norm(self.r_ini, self.l_ini, self.r0_ini, self.l0_ini)
 
 
     def CCS_GS(self, Larray ,alpha=None, Alpha=None, method='scf', graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
@@ -646,7 +662,7 @@ class ECW:
                 for i in range(len(Result[1])):
                     table.append([i, '{:.4e}'.format(Result[1][i]), "{:.4e}".format(Result[3][i]),
                           "{:.4e}".format(Result[2][i][0])])
-                print(tabulate(table, headers, tablefmt="rst"))
+                print(tabulate(table, headers, tablefmt=tablefmt))
 
             # print convergence text
             print(Result[0])
@@ -681,8 +697,8 @@ class ECW:
     def CCS_ES(self, L, exp_data=None, conv_thres=10**-6, maxiter=40, diis=('')):
         '''
 
-        :param L:
-        :param nbr_of_states:
+        :param L: matrix of lambda values (weigth of exp data)
+        :param exp_data: matrix of ex
         :return:
         '''
 
@@ -691,6 +707,11 @@ class ECW:
         if exp_data is None:
             raise ValueError('exp data matrix must be given')
 
+        # initial value for r1 and r0
+        # ----------------------------------
+        if self.r_ini is None:
+             raise ValueError('exp data must be created using ecw.Build_ES_exp')
+
         # CCS class
         if self.myccs is None:
             self.myccs = CCS.Gccs(self.eris)
@@ -698,7 +719,7 @@ class ECW:
         # Vexp class
         VXexp = exp_pot.Exp(exp_data, self.mol, self.mo_coeff)
 
-        Solver = Solver_ES.Solver_ES(self.myccs, VXexp, self.r_ini, r0_ini=self.r0_ini, conv_var='rl',
+        Solver = Solver_ES.Solver_ES(self.myccs, VXexp, self.r_ini, self.r0_ini, self.lnini, self.l0ini, conv_var='rl',
                                      conv_thres=conv_thres, maxiter=maxiter, diis=diis)
 
         Lambda = np.full(exp_data.shape, L)
@@ -758,14 +779,27 @@ if __name__ == '__main__':
 
     # Build molecules and basis
     ecw = ECW(molecule, basis)
+
     # Build GS exp data from HF+field
-    ecw.Build_GS_exp('mat', 'HF', field=[0.05, 0.01, 0.])
+    #ecw.Build_GS_exp('mat', 'HF', field=[0.05, 0.01, 0.])
     # Build exp data from given 1e prop (Ek from CCSD+[0.05, 0.01, 0.]+6-311+g**)
     #ecw.exp_data[0,0] = ['Ek', 70.4 ]
 
+    # Build list of structure factors from CCSD+field
+    prop_list = []
+    h = [[1,1,1],[0,1,1],[1,0,1],[1,2,0],[2,2,0]]
+    rec_vec = [5.,5.,5.]
+    F_info = list(['F',h,rec_vec])
+    prop_list.append('Ek')
+    prop_list.append('v1e')
+    prop_list.append(F_info)
+    print(prop_list)
+    ecw.Build_GS_exp(prop=prop_list, posthf='HF', field=[0.02, 0.01, 0])
+    print(ecw.exp_data)
+
     # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
-    #Results, plot = ecw.CCSD_GS(Larray, graph=True, alpha=0.01, method='scf')
-    Results, plot = ecw.CCS_GS(Larray,graph=False, alpha=0.01)
+    Results, plot = ecw.CCSD_GS(Larray, graph=False, alpha=0)
+    # Results, plot = ecw.CCS_GS(Larray,graph=False, alpha=0.01)
     #plot.show()
 
 
