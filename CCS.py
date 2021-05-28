@@ -18,6 +18,8 @@
 
 import numpy as np
 #from . import utilities
+import pyscf.cc.eom_gccsd
+
 import utilities
 
 np.random.seed(2)
@@ -658,21 +660,22 @@ class Gccs:
         fvo = fsp[nocc:,:nocc].copy()
 
         # r intermediates
+        # (commented lines are the additional terms if f=kin)
         # -----------------
         
         # Fab: equation (14)
         Fab = fvv.copy()
-        Fab += np.einsum('akbk->ab', self.eris.vovo)
+        #Fab += np.einsum('akbk->ab', self.eris.vovo)
         Fab -= np.einsum('ja,jb->ab', ts, fov)
         Fab += np.einsum('jc,jacb->ab', ts, self.eris.ovvv)
-        Fab -= np.einsum('ja,jkbk->ab', ts, self.eris.oovo)
+        #Fab -= np.einsum('ja,jkbk->ab', ts, self.eris.oovo)
         Fab -= np.einsum('jc,ka,jkcb->ab', ts, ts, self.eris.oovv)
 
         # Fji: equation (15)
         Fji = foo.copy()
-        Fji += np.einsum('jkik->ji', self.eris.oooo)
+        #Fji += np.einsum('jkik->ji', self.eris.oooo)
         Fji += np.einsum('ib,jb->ji', ts, fov)
-        Fji += np.einsum('ib,jkbk->ji', ts, self.eris.oovo)
+        #Fji += np.einsum('ib,jkbk->ji', ts, self.eris.oovo)
         Fji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
         Fji += np.einsum('kb,ic,kjbc->ji', ts, ts,self.eris.oovv)
         
@@ -695,8 +698,8 @@ class Gccs:
         # Zab: equation (18)
         Zab = fvv.copy()
         Zab -= np.einsum('ja,jb->ab', ts, fov)
-        Zab += np.einsum('akbk->ab', self.eris.vovo)
-        Zab -= np.einsum('ka,kjbj->ab', ts, self.eris.oovo)
+        #Zab += np.einsum('akbk->ab', self.eris.vovo)
+        #Zab -= np.einsum('ka,kjbj->ab', ts, self.eris.oovo)
         
         # Zji: equation (19)
         Zji = foo.copy()
@@ -752,8 +755,8 @@ class Gccs:
         
         # Fjb: equation (23)
         Fjb = fov.copy()
-        Fjb += np.einsum('jkbk->jb',self.eris.oovo)
-        tmp = Fjb.copy()
+        #Fjb += np.einsum('jkbk->jb',self.eris.oovo)
+        #tmp = Fjb.copy()
         Fjb += np.einsum('kc,kjcb->jb',ts,self.eris.oovv)
            
         # r0 intermediates
@@ -761,11 +764,11 @@ class Gccs:
         
         # Zjb: equation (25) --> Same as Fjb in R1inter
         # Zjb and ts are contracted here
-        Zjb = tmp.copy()
+        Zjb = fov.copy()
         Zjb += 0.5*np.einsum('kc,jkbc->jb',ts,self.eris.oovv)
         Z = np.einsum('jb,jb',ts,Zjb)
         del Zjb
-        del tmp
+        #del tmp
 
         # Vexp inter
         # -------------------
@@ -952,8 +955,8 @@ class Gccs:
         r = rs.copy()
         r[o, v] = 0
         rov = 1 - r0 * l0 - np.einsum('ia,ia', r, ls)
-        print('amp {} from normality condition'.format(ind))
-        print(rov)
+        #print('amp {} from normality condition'.format(ind))
+        #print(rov)
         rov /= ls[o,v]
 
         return rov
@@ -981,12 +984,12 @@ class Gccs:
         d = 0.
         d += En
         d -= np.einsum('jb,jb', t1, fov)
-        d -= np.einsum('jb,jkbk', t1, self.eris.oovo)
+        #d -= np.einsum('jb,jkbk', t1, self.eris.oovo)
         d -= 0.5 * np.einsum('jb,kc,jkbc', t1, t1, self.eris.oovv)
 
         r0 = 0.
         r0 += np.einsum('jb,jb', r1, fov)
-        r0 += np.einsum('jb,jkbk', r1, self.eris.oovo)
+        #r0 += np.einsum('jb,jkbk', t1, self.eris.oovo)
         r0 += np.einsum('kc,jb,jkbc', r1, t1, self.eris.oovv)
         r0 /= d
 
@@ -1018,22 +1021,23 @@ class Gccs:
             fvv = fsp[nocc:, nocc:].copy()
 
         # l intermediates
+        # (commented lines are additional term when f=kin)
         # -----------------
 
         # Fba: equation (30)
         Fba = fvv.copy()
-        Fba += np.einsum('bkak->ba', self.eris.vovo)
+        #Fba += np.einsum('bkak->ba', self.eris.vovo)
         Fba -= np.einsum('jb,ja->ba', ts, fov)
         Fba += np.einsum('jc,jbca->ba', ts, self.eris.ovvv)
-        Fba -= np.einsum('jb,jkak->ba', ts, self.eris.oovo)
+        #Fba -= np.einsum('jb,jkak->ba', ts, self.eris.oovo)
         Fba -= np.einsum('jc,kb,jkca->ba', ts, ts, self.eris.oovv)
 
         # Fij: equation (31)
         Fij = foo.copy()
-        Fij += np.einsum('ikjk->ij', self.eris.oooo)
+        #Fij += np.einsum('ikjk->ij', self.eris.oooo)
         Fij += np.einsum('jb,ib->ij', ts, fov)
         Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)
-        Fij += np.einsum('jb,ikbk->ji', ts, self.eris.oovo)
+        #Fij += np.einsum('jb,ikbk->ji', ts, self.eris.oovo)
         Fij += np.einsum('kb,jc,kibc->ij', ts, ts, self.eris.oovv)
 
         # Wbija: equation (32)
@@ -1053,7 +1057,7 @@ class Gccs:
         # ------------------
 
         Zia  = fov.copy()
-        Zia += np.einsum('ikak->ia',self.eris.oovo)
+        #Zia += np.einsum('ikak->ia',self.eris.oovo)
         Zia += np.einsum('jb,jiba->ia',ts,self.eris.oovv)
 
         # Vexp intermediate
@@ -1097,14 +1101,14 @@ class Gccs:
         tmp += np.einsum('jd,kbcd->kbcj', ts, self.eris.ovvv)
         Wjb = np.einsum('kc,kbcj->', ts, tmp)
         del tmp
-        Wjb -= np.einsum('kb,kljl->jb', ts, self.eris.oooo)
-        Wjb -= np.einsum('jv,kb,klcl->jb', ts, ts, self.eris.oovo)
-        Wjb += np.einsum('jc,bkck->jb', ts, self.eris.vovo)
-        Wjb += np.einsum('bkjk->jb', self.eris.vooo)
+        #Wjb -= np.einsum('kb,kljl->jb', ts, self.eris.oooo)
+        #Wjb -= np.einsum('jv,kb,klcl->jb', ts, ts, self.eris.oovo)
+        #Wjb += np.einsum('jc,bkck->jb', ts, self.eris.vovo)
+        #Wjb += np.einsum('bkjk->jb', self.eris.vooo)
 
         # Z: eq (38) --> same as Z in R0 equation --> R1inter
         Zjb = fov.copy()
-        Zjb += np.einsum('jkbk->jb', self.eris.oovo)
+        #Zjb += np.einsum('jkbk->jb', self.eris.oovo)
         Zjb += 0.5*np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
         Z = np.einsum('jb,jb', ts, Zjb)
         del Zjb
@@ -1249,17 +1253,17 @@ class Gccs:
         foo = fsp[:nocc, :nocc].copy()
 
         d = En
-        d -= np.einsum('jb,jkbk', t1, self.eris.oovo)
+        #d -= np.einsum('jb,jkbk', t1, self.eris.oovo)
         d -= 0.5 * np.einsum('jb,kc,jkbc', t1, t1, self.eris.oovv)
 
         l0 = np.einsum('jb,jb', l1, fov)
         l0 += np.einsum('jb,ab,ja', t1, fvv, l1)
         l0 -= np.einsum('jb,kb,kj', l1, t1, foo)
         l0 -= np.einsum('jc,kb,kc,jb', t1, t1, fov, l1)
-        l0 += np.einsum('jb,bkjk', l1, self.eris.vooo)
+        #l0 += np.einsum('jb,bkjk', l1, self.eris.vooo)
         l0 += np.einsum('jb,kc,kbcj', l1, t1, self.eris.ovvo)
-        l0 -= np.einsum('jb,kb,kljl', l1, t1, self.eris.oooo)
-        l0 += np.einsum('jb,jc,bkck', l1, t1, self.eris.vovo)
+        #l0 -= np.einsum('jb,kb,kljl', l1, t1, self.eris.oooo)
+        #l0 += np.einsum('jb,jc,bkck', l1, t1, self.eris.vovo)
         tmp = np.einsum('jb,jd->bd', l1, t1)
         l0 += np.einsum('bd,kb,lc,klcd', tmp, t1, t1, self.eris.oovv)
         del tmp
@@ -1270,8 +1274,8 @@ class Gccs:
         #l0 += np.einsum('bl,kc,kbcl', tmp, t1, self.eris.ovvo)
         tmp = np.einsum('jb,jd->bd', l1, t1)
         l0 += np.einsum('bd,kc,kbcd', tmp, t1, self.eris.ovvv)
-        tmp = np.einsum('jb,jc->bc', l1, t1)
-        l0 -= np.einsum('bc,kb,klcl', tmp, t1, self.eris.oovo)
+        #tmp = np.einsum('jb,jc->bc', l1, t1)
+        #l0 -= np.einsum('bc,kb,klcl', tmp, t1, self.eris.oovo)
         del tmp
 
         l0 /= d

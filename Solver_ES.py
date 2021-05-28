@@ -232,9 +232,9 @@ class Solver_ES:
         headers = ['ite',str(self.conv_var)]
         for i in range(nbr_states):
             if i == 0:
-                headers.extend(['ES {}'.format(i+1), 'norm', '2S+1', 'r0', 'l0','Er', 'El'])
+                headers.extend(['ES {}'.format(i+1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0','Er', 'El'])
             else:
-                headers.extend(['ES {}'.format(i + 1), 'norm', '2S+1', 'r0', 'l0', 'Er', 'El', 'Ortho wrt ES 1'])
+                headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El', 'Ortho wrt ES 1'])
 
         while Dconv > self.conv_thres:
 
@@ -544,10 +544,12 @@ class Solver_ES:
             for i in range(nbr_states):
 
                 if i == 0:
-                    tmp.extend(['',format_float.format(C_norm[i, i]), 2*Spin[i]+1, r0n[i], l0n[i], Ep[i + 1][0], Ep[i + 1][1]])
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i, 0], X2[i, i], 2*Spin[i]+1, r0n[i], l0n[i],
+                                Ep[i + 1][0], Ep[i + 1][1]])
                 else:
-                    C_norm_av = (C_norm[0,i]+C_norm[i,0])/2
-                    tmp.extend(['',format_float.format(C_norm[i, i]), 2*Spin[i]+1, r0n[i], l0n[i], Ep[i+1][0], Ep[i+1][1], format_float.format(C_norm_av)])
+                    C_norm_av = (C_norm[0, i] + C_norm[i, 0]) / 2
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i, 0], X2[0, i], 2*Spin[i]+1, r0n[i],
+                                l0n[i], Ep[i + 1][0], Ep[i + 1][1], format_float.format(C_norm_av)])
 
             table.append(tmp)
 
