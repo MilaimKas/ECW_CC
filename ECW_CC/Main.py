@@ -37,7 +37,7 @@ class ECW:
         :param molecule: string with name of molecule to be used
         :param basis: string with basis set to be used
         :param int_thresh: threshold for 2 electron integrals
-        :param out_dir: path to the cube file directory (string)
+        :param out_dir: path to the directory where the cube file are saved (string), if None do not print cube files
         :param G_format: if True, the spin-orbital basis are obtained from a GHF calculation,
                          if False, the spin-orbital are converted from a RHF calc (a and b SO are degenerate)
         '''
