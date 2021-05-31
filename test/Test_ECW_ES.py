@@ -77,7 +77,7 @@ exp_data[0, 2] = ['mat', ES_trrdm_2]
 VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 
 # convergence options
-maxiter = 50
+maxiter = 100
 conv_thres = 10 ** -5
 diis = ('r', 'l')  # must be tuple
 #diis = ('rdm1')
