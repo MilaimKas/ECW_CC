@@ -196,6 +196,11 @@ class ECW:
         # --------------------
         self.Eexp_GS = None
         self.Eexp_ES = [] # excitation energies
+
+        # Store list of Miller indices and unit=cell size
+        # ------------------------------------------------
+        self.h = None
+        self.rec_vec = None
         
         print('*** Molecule build ***')
 
@@ -257,6 +262,7 @@ class ECW:
                 if isinstance(p, list):
                     if p[0] == 'F':
                         h = p[1]
+                        self.h = h
                         if len(p) > 2:
                             a = p[2][0]
                             b = p[2][1]
@@ -265,9 +271,10 @@ class ECW:
                             a=10.
                             b=10.
                             c=10.
+                        self.rec_vec = np.asarray([a, b, c])
                         # calculate list of structure factors for each given set of Miller indices
                         F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,
-                                                   aobasis=True, mo_coeff=gexp.mo_coeff_def, a=a, b=b, c=c)
+                                                   aobasis=True, mo_coeff=gexp.mo_coeff_def, rec_vec=self.rec_vec)
                         self.exp_data[0, 0].append(['F', F])
                     else:
                         raise SyntaxError('Input for prop must be list(prop1, prop2, ...) where prop is '
@@ -339,7 +346,10 @@ class ECW:
         '''
         Build excited states data from given transition properties
 
-        :param dip_list: array with transition dipole moment values (x,y,z) for the target states
+        :param dip_list: list with transition dipole moment values np.array(x,y,z) for the target states
+                        dip_list = list([x1,y1,z1],[x2,y2,z2], ...)
+                     or dip_list =  list(list([x1r,y1r,z1r],[x1l,y1l,z1l]), list([x2r,y2r,z2r],[x2l,y2l,z2l])  ...)
+                     if both left and right values are given.
         :param DE_list: excitation energies for the target states
         :param nbr_of_states: number of valence and core excited states (nval,ncore)
         :param rini_list: initial i->a one-electron excitation for each target states
@@ -355,8 +365,20 @@ class ECW:
         i = self.exp_data.shape[0]
         for dip in dip_list:
             expand = self.exp_data.shape[0]
-            self.exp_data.resize((expand,expand))
-            self.exp_data[i,i] = ['dip', dip]
+            self.exp_data.resize((expand, expand))
+            # if left and right values are given
+            if isinstance(dip,list) and len(dip) == 2:
+                # left transition moment
+                self.exp_data[0, i] = ['dip', dip[1]]
+                # right transition moment
+                self.exp_data[i, 0] = ['dip', dip[0]]
+            elif isinstance(dip, np.array):
+                # left transition moment
+                self.exp_data[0, i] = ['dip', np.sqrt(dip)]
+                # right transition moment
+                self.exp_data[i, 0] = ['dip', np.sqrt(dip)]
+            else:
+                raise ValueError('Bad format for experimental transition dipole moment. Should be a list of np.array')
 
         # CCS class
         if self.myccs is None:
@@ -448,7 +470,7 @@ class ECW:
         L_print = Larray[idx]
 
         # Vexp class
-        VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff)
+        VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
 
         # CCS class
         if self.myccs is None:
@@ -604,7 +626,7 @@ class ECW:
         L_print = Larray[idx]
         
         # Vexp class
-        VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff)
+        VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
 
         # CCSD class
         if self.myccsd is None:
@@ -787,14 +809,17 @@ if __name__ == '__main__':
 
     # Build list of structure factors from CCSD+field
     prop_list = []
-    h = [[1,1,1],[0,1,1],[1,0,1],[1,2,0],[2,2,0]]
-    rec_vec = [5.,5.,5.]
-    F_info = list(['F',h,rec_vec])
+    h = [[1, 1, 1], [0, 1, 1], [1, 0, 1], [1, 2, 0], [2, 2, 0]]
+    rec_vec = [5., 5., 5.]
+    F_info = list(['F', h, rec_vec])
     prop_list.append('Ek')
     prop_list.append('v1e')
     prop_list.append(F_info)
-    print(prop_list)
-    ecw.Build_GS_exp(prop=prop_list, posthf='HF', field=[0.02, 0.01, 0])
+    print('GS propetries: ', prop_list)
+
+    ecw.Build_GS_exp(prop=prop_list, posthf='HF', field=[0.02, 0.01, 0], basis='6-31+g*')
+    print('Exp data: ')
+    print('length: ', len(ecw.exp_data))
     print(ecw.exp_data)
 
     # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha

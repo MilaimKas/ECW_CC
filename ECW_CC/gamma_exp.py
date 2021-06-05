@@ -105,26 +105,29 @@ import utilities
 from pyscf import scf, gto, cc, dft, tddft
 
 class Gexp:
-    def __init__(self, mol, method, g_format=False):
+    def __init__(self, mol, method, g_format=False, basis=None):
         '''
-        Returns the rdm1 in AOs basis from a GHF, GCCSD or GCCSD(T) calculation with deformed geometry and/or additional
+        Returns the rdm1 in AOs basis (G format) from a HF, GCCSD or GCCSD(T) calculation with deformed geometry and/or additional
         external static field
-        --> called 'experimental' rdm1 (or 'target' rdm1)
+        --> called 'experimental' rdm1 (or 'target' rdm1 or gamma)
 
         :param mol: PySCF mol object
-        :param mf: PySCF HF object
+        :param g_format: if True calculate GHF, if not convert RHF to GHF
+        :param basis: basis set for the calculation, if not given, uses mol.basis
         :param method: string: 'HF', 'CCSD' or 'CCSD(T)'
         '''
 
         self.g_format = g_format
 
         # deformed HF object
-        self.mol_def = copy.deepcopy(mol)
+        self.mol_def = gto.mole.copy(mol)
+        if isinstance(basis, str):
+            self.mol_def.basis = basis
+            self.mol_def.build()
         if g_format:
-            self.mf_def = scf.GHF(mol)
+            self.mf_def = scf.GHF(self.mol_def)
         else:
-            mf_def = scf.RHF(mol)
-            self.mf_def = scf.addons.convert_to_ghf(mf_def)
+            self.mf_def = scf.RHF(self.mol_def)
         self.mo_coeff_def = None
         self.nocc = None
         self.nvir = None
@@ -172,8 +175,7 @@ class Gexp:
         if self.g_format:
             self.mf_def = scf.GHF(self.mol_def)
         else:
-            mf_def = scf.RHF(self.mol_def)
-            self.mf_def = scf.addons.convert_to_ghf(mf_def)
+            self.mf_def = scf.RHF(self.mol_def)
 
 
     def Vext(self, field):
@@ -194,27 +196,15 @@ class Gexp:
 
         h_def =(self.mol_def.intor('cint1e_kin_sph') + self.mol_def.intor('cint1e_nuc_sph')     # Ekin_e + Ve-n
         + np.einsum('x,xij->ij', field,self.mol_def.intor('cint1e_r_sph',comp=3)))  # <psi|E.r|psi> dipole int.(comp ?)
-        h_def = scipy.linalg.block_diag(h_def, h_def) # make hcore in SO basis
+        if self.g_format:
+            h_def = scipy.linalg.block_diag(h_def, h_def) # make hcore in SO basis
         self.mf_def.get_hcore = lambda *args: h_def   # pass the new one electron hamiltonian
         self.mol_def.incore_anyway = True # force to use new h1e even when memory is not enough
 
-    def build(self, basis=None):
+    def build(self):
         '''
         Perform HF,CCSD or CCSD(T) calculation on mol_def
         '''
-
-        # rebuild mol_def
-        if basis is not None:
-            self.mol_def.basis = basis
-            self.mol_def.build()
-
-        # re-initialize mf object
-            if self.g_format:
-                self.mf_def = scf.GHF(self.mol_def)
-            else:
-                mf_def = scf.RHF(self.mol_def)
-                self.mf_def = scf.addons.convert_to_ghf(mf_def)
-
 
         # HF calculation with new mol_def object
         self.mf_def.conv_tol = 1e-09  # energy tolerence
@@ -225,6 +215,8 @@ class Gexp:
     
         # update mf_def
         self.mf_def.kernel()
+        if not self.g_format:
+            self.mf_def = scf.addons.convert_to_ghf(self.mf_def)
         self.mo_coeff_def = self.mf_def.mo_coeff
         self.nocc = np.count_nonzero(self.mf_def.mo_occ > 0)
         self.nvir = np.count_nonzero(self.mf_def.mo_occ == 0)

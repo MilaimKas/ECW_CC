@@ -676,8 +676,8 @@ class Solver_CCSD:
 
             # update fock matrix and store X2
             # ---------------------------------
-            V, X2, vmax = VXexp.Vexp_update(rdm1, L, (0,0))
-            fsp = np.subtract(self.fock, V)
+            V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))
+            fsp = np.subtract(self.fock, V*L)
             X2_ite.append((X2, vmax))
 
             # Store Ep energy

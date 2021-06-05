@@ -199,15 +199,12 @@ class Gccs:
         return dm1
 
     def gamma_tr(self, ts, ln, rk, r0k, l0n):
-        # todo: what about l0*r1 term ?
-
         '''
         CCS one-particle reduced transition density matrix between state n and k
         <Psi_n|apaq|Psi_k>
         if Psi_k = Psi_GS then r0=1 and rk=0
-        if Psi_n = Psi_GS then l0=1 and lk=0
+        if Psi_n = Psi_GS then l0=1 and lk=lam_k
         ln,l0 and rk,r0k must be orthogonal: sum(ln*rk)+(r0*l0) = 0
-        
 
         :param ts: t1 amplitude
         :param ln: l1 amplitudes for state n
@@ -219,31 +216,29 @@ class Gccs:
 
         nocc,nvir = ts.shape
 
-        # if Psi_k or Psi_l = GS
-        if isinstance(rk,float) or isinstance(rk,int):
-            if rk == 0:
-               rk = np.zeros_like(ln)
-               r0k = 1
-            else:
-                raise ValueError('r1 amplitudes must be either 0 or a matrix')
+        # if Psi_k = GS
+        if isinstance(rk, float) or isinstance(rk, int) or rk is None:
+            if rk != 0 and rk is not None:
+                print('Warning: wrong input for the r vector, assuming r=0')
+            rk = np.zeros_like(ln)
+            r0k = 1.
 
-        if isinstance(ln,float) or isinstance(ln,int):
-            if ln == 0:
-               ln = np.zeros_like(rk)
-               l0n = 1
-            else:
-                raise ValueError('l1 amplitudes must be either 0 or a matrix')
+        # if Psi_n = GS
+        if l0n == 0 or l0n is None:
+            l0n = 0
+
 
         doo = -r0k * np.einsum('ie,je->ij', ts, ln)
         doo -= np.einsum('ie,je->ij', rk, ln)
         dov = r0k * ln
         dvv = r0k * np.einsum('mb,ma->ab', ts, ln)
         dvv += np.einsum('mb,ma->ab', rk, ln)
-        dvo = r0k * np.einsum('ie,ma,me->ai', ts, ts, ln)
+        dvo = -r0k * np.einsum('ie,ma,me->ai', ts, ts, ln)
         dvo -= np.einsum('ma,ie,me->ai', ts, rk, ln)
         dvo -= np.einsum('ie,ma,me->ai', ts, rk, ln)
-        # dvo += ts.transpose() # this terms drops if k != n
-        dvo += l0n*rk.transpose()
+        dvo += l0n*r0k*ts.transpose()
+        dvo += np.einsum('jb,ia,jb->ai', ln, ts, rk)
+        dvo += l0n*rk.transpose()  # not present in Stanton
 
         dm = np.empty((nocc + nvir, nocc + nvir))
         dm[:nocc, :nocc] = doo
@@ -657,7 +652,7 @@ class Gccs:
         foo = fsp[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
-        fvo = fsp[nocc:,:nocc].copy()
+        fvo = fsp[nocc:, :nocc].copy()
 
         # r intermediates
         # (commented lines are the additional terms if f=kin)
@@ -665,17 +660,17 @@ class Gccs:
         
         # Fab: equation (14)
         Fab = fvv.copy()
-        #Fab += np.einsum('akbk->ab', self.eris.vovo)
+        #Fab += np.einsum('akbk->ab', self.eris.vovo)  ##
         Fab -= np.einsum('ja,jb->ab', ts, fov)
         Fab += np.einsum('jc,jacb->ab', ts, self.eris.ovvv)
-        #Fab -= np.einsum('ja,jkbk->ab', ts, self.eris.oovo)
+        #Fab -= np.einsum('ja,jkbk->ab', ts, self.eris.oovo)  ##
         Fab -= np.einsum('jc,ka,jkcb->ab', ts, ts, self.eris.oovv)
 
         # Fji: equation (15)
         Fji = foo.copy()
-        #Fji += np.einsum('jkik->ji', self.eris.oooo)
+        #Fji += np.einsum('jkik->ji', self.eris.oooo)  ##
         Fji += np.einsum('ib,jb->ji', ts, fov)
-        #Fji += np.einsum('ib,jkbk->ji', ts, self.eris.oovo)
+        #Fji += np.einsum('ib,jkbk->ji', ts, self.eris.oovo)  ##
         Fji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
         Fji += np.einsum('kb,ic,kjbc->ji', ts, ts,self.eris.oovv)
         
@@ -698,12 +693,12 @@ class Gccs:
         # Zab: equation (18)
         Zab = fvv.copy()
         Zab -= np.einsum('ja,jb->ab', ts, fov)
-        #Zab += np.einsum('akbk->ab', self.eris.vovo)
-        #Zab -= np.einsum('ka,kjbj->ab', ts, self.eris.oovo)
+        #Zab += np.einsum('akbk->ab', self.eris.vovo)  ##
+        #Zab -= np.einsum('ka,kjbj->ab', ts, self.eris.oovo)  ##
         
         # Zji: equation (19)
         Zji = foo.copy()
-        Zji += np.einsum('jkik->ji', self.eris.oooo)
+        #Zji += np.einsum('jkik->ji', self.eris.oooo)  ##
         Zji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
         tmp = np.einsum('ic,jkbc->ijkb', ts, self.eris.oovv)
         Zji -= np.einsum('kb,ijkb->ji', ts, tmp)
@@ -711,7 +706,7 @@ class Gccs:
 
         # Zai: equation (20)
         Zai = fvo.copy()
-        Zai += np.einsum('akik->ai', self.eris.vooo)
+        #Zai += np.einsum('akik->ai', self.eris.vooo)  ##
         Zai += np.einsum('jb,jabi->ai', ts, self.eris.ovvo)
         Zai += np.einsum('jb,ic,jabc->ai', ts, ts, self.eris.ovvv)
 
@@ -722,13 +717,13 @@ class Gccs:
         del Zab, Zji, Zai
 
         # Vexp intermediate P: equation (22)
-        v_vo = vm[nocc:,:nocc]
-        v_vv = vm[nocc:,nocc:]
-        v_oo = vm[:nocc,:nocc]
+        v_vo = vm[nocc:, :nocc]
+        v_vv = vm[nocc:, nocc:]
+        v_oo = vm[:nocc, :nocc]
         Pia = v_vo.copy()
-        Pia += np.einsum('ab,ib->ai',v_vv,ts)
-        Pia -= np.einsum('ii,ja,ib->ai',v_oo,ts,ts)
-        Pia = np.einsum('ai->ia',Pia)
+        Pia += np.einsum('ab,ib->ai', v_vv, ts)
+        Pia -= np.einsum('ii,ja,ib->ai', v_oo, ts, ts)
+        Pia = np.einsum('ai->ia', Pia)
 
         return Fab, Fji, W, F, Zia, Pia
     
@@ -779,7 +774,7 @@ class Gccs:
         
         return Fjb, Z, P
 
-    def Extract_Em_r(self, rs, r0, Rinter):
+    def Extract_Em_r(self, rs, r0, Rinter, ov=None):
         # todo: to avoid spin degeneracy, extract Em from the initial ria
         '''
 
@@ -794,22 +789,25 @@ class Gccs:
         Fab, Fji, W, F, Zia, Pia = Rinter
 
         # largest r1
-        o, v = np.unravel_index(np.argmax(abs(rs), axis=None), rs.shape)
+        if ov is None:
+            o, v = np.unravel_index(np.argmax(abs(rs), axis=None), rs.shape)
+        else:
+            o, v = ov
 
         # Ria = ria*En' matrix
         Ria = np.einsum('ab,ib->ia', Fab, rs)
         Ria -= np.einsum('ji,ja->ia', Fji, rs)
         Ria += np.einsum('akic,kc->ia', W, rs)
-        Rov = Ria[o,v]
+        Rov = Ria[o, v]
 
         del Ria
-        Rov += rs[o,v] * F
-        Rov += r0 * Zia[o,v]
-        Rov += Pia[o,v]
+        Rov += rs[o, v] * F
+        Rov += r0 * Zia[o, v]
+        Rov += Pia[o, v]
 
-        Em = Rov/rs[o,v]
+        Em = Rov/rs[o, v]
 
-        return Em, o,v
+        return Em, o, v
 
     def Extract_r0(self, r1, ts, fsp, vm):
         '''
@@ -1026,18 +1024,18 @@ class Gccs:
 
         # Fba: equation (30)
         Fba = fvv.copy()
-        #Fba += np.einsum('bkak->ba', self.eris.vovo)
+        #Fba += np.einsum('bkak->ba', self.eris.vovo)  ##
         Fba -= np.einsum('jb,ja->ba', ts, fov)
         Fba += np.einsum('jc,jbca->ba', ts, self.eris.ovvv)
-        #Fba -= np.einsum('jb,jkak->ba', ts, self.eris.oovo)
+        #Fba -= np.einsum('jb,jkak->ba', ts, self.eris.oovo)  ##
         Fba -= np.einsum('jc,kb,jkca->ba', ts, ts, self.eris.oovv)
 
         # Fij: equation (31)
         Fij = foo.copy()
-        #Fij += np.einsum('ikjk->ij', self.eris.oooo)
+        #Fij += np.einsum('ikjk->ij', self.eris.oooo)  ##
         Fij += np.einsum('jb,ib->ij', ts, fov)
-        Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)
-        #Fij += np.einsum('jb,ikbk->ji', ts, self.eris.oovo)
+        #Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)  ##
+        Fij += np.einsum('jb,ikbk->ij', ts, self.eris.oovo)
         Fij += np.einsum('kb,jc,kibc->ij', ts, ts, self.eris.oovv)
 
         # Wbija: equation (32)
@@ -1048,22 +1046,22 @@ class Gccs:
 
         # F: equation (33) --> same as for Rinter
         Fjb = fov.copy()
-        Fjb += np.einsum('jkbk->jb',self.eris.oovo)
-        Fjb += 0.5*np.einsum('kc,jkbc->jb',ts,self.eris.oovv)
-        F = np.einsum('jb,jb',ts,Fjb)
+        #Fjb += np.einsum('jkbk->jb',self.eris.oovo)  ##
+        Fjb += 0.5*np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
+        F = np.einsum('jb,jb', ts, Fjb)
         del Fjb
 
         # l0 intermediate
         # ------------------
 
         Zia  = fov.copy()
-        #Zia += np.einsum('ikak->ia',self.eris.oovo)
-        Zia += np.einsum('jb,jiba->ia',ts,self.eris.oovv)
+        #Zia += np.einsum('ikak->ia', self.eris.oovo)  ##
+        Zia += np.einsum('jb,jiba->ia', ts, self.eris.oovv)
 
         # Vexp intermediate
         # ---------------------
 
-        P = vm[:nocc,nocc:].copy()
+        P = vm[:nocc, nocc:].copy()
 
         return Fba, Fij, W, F, Zia, P
 
@@ -1086,7 +1084,7 @@ class Gccs:
         foo = fsp[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
-        fvo = fsp[nocc:,:nocc].copy()
+        fvo = fsp[nocc:, :nocc].copy()
 
         # Fbj: eq (36)
         Fbj  = fvo.copy()
@@ -1099,7 +1097,7 @@ class Gccs:
         tmp += np.einsum('lb,jd,lkcd->kbcj', ts, ts, self.eris.oovv)
         tmp -= np.einsum('lb,klcj->kbcj', ts, self.eris.oovo)
         tmp += np.einsum('jd,kbcd->kbcj', ts, self.eris.ovvv)
-        Wjb = np.einsum('kc,kbcj->', ts, tmp)
+        Wjb = np.einsum('kc,kbcj->jb', ts, tmp)
         del tmp
         #Wjb -= np.einsum('kb,kljl->jb', ts, self.eris.oooo)
         #Wjb -= np.einsum('jv,kb,klcl->jb', ts, ts, self.eris.oovo)
@@ -1114,12 +1112,12 @@ class Gccs:
         del Zjb
         
         # P: eq (39)
-        P  = np.einsum('ia,ia', ts, vm[:nocc,nocc:])
-        P += np.sum(np.diagonal(vm[:nocc,:nocc]))
+        P = np.einsum('ia,ia', ts, vm[:nocc, nocc:])
+        P += np.sum(np.diagonal(vm[:nocc, :nocc]))
 
         return Fbj, Wjb, Z, P
 
-    def Extract_Em_l(self, ls, l0, L1inter):
+    def Extract_Em_l(self, ls, l0, L1inter, ov=None):
         '''
         Extract Em from the largest l1 element
 
@@ -1132,7 +1130,10 @@ class Gccs:
         Fba, Fij, W, F, Zia, P = L1inter
         
         # largest r1
-        o, v = np.unravel_index(np.argmax(abs(ls), axis=None), ls.shape)
+        if ov is None:
+            o, v = np.unravel_index(np.argmax(abs(ls), axis=None), ls.shape)
+        else:
+            o, v = ov
 
         # Lia = lia*En' matrix
         Lia  = np.einsum('ib,ba->ia', ls, Fba)
@@ -1225,8 +1226,8 @@ class Gccs:
         '''
 
         Fjb, Wjb, Z, P = L0inter
-        F = np.einsum('jb,bj',ls,Fjb)
-        W = np.einsum('jb,jb',ls,Wjb)
+        F = np.einsum('jb,bj', ls, Fjb)
+        W = np.einsum('jb,jb', ls, Wjb)
         l0new = F+W+P+(l0*Z)
         l0new /= Em
 
@@ -1284,7 +1285,6 @@ class Gccs:
 
 #################################
 #   ECW-GCCS gradient equations #
-# todo: factorize gradient terms
 #################################
 
 class ccs_gradient:
@@ -1333,17 +1333,31 @@ class ccs_gradient:
         fvv = fsp[nocc:, nocc:].copy()
 
         # contractions
-        doidga = C - np.einsum('klcd,kc,la->a', self.eris.oovv, ts, ts)
+        doidga = C
+        tmp = np.einsum('klcd,kc->ld', self.eris.oovv, ts)
+        doidga += -np.einsum('ld,la->a', tmp, ts)
+
         doi1 = -np.einsum('ka,kg->ag', ts, fov)
         doi2 = -np.einsum('kc,kacg->ag', ts, self.eris.ovvv)
         doi3 = -C * np.einsum('ka,kg->ag', ts, ls)
         dga1 = -np.einsum('ie,oe->io', ts, fov)
-        dga2 = -np.einsum('kc,ia,kocd->aio', ts, ts, self.eris.oovv)
+
+        tmp = np.einsum('kc,kocd->o', ts, self.eris.oovv)
+        dga2 = -np.einsum('ia,o->aio', ts, tmp)
+
         dga3 = -np.einsum('kc,koci->oi', ts, self.eris.oovo)
-        int1 = np.einsum('ic,oa,mg,mc->ioag', ts, ts, ls, ts)
-        int2 = np.einsum('ig,ka,oe,ke->igao', ts, ts, ls, ts)
+
+        tmp = np.einsum('ic,oa->ioa', ts, ts)
+        int1 = np.einsum('ioa,mg,mc->ioag', tmp, ls, ts)
+
+        tmp = np.einsum('ig,ka->iga', ts, ts)
+        int2 = np.einsum('iga,oe,ke->igao', tmp, ls, ts)
+
         int3 = -np.einsum('id,oagd->oagi', ts, self.eris.ovvv)
-        int4 = -np.einsum('olgd,ia,la->ogia', self.eris.oovv, ts, ts)
+
+        tmp = np.einsum('olgd,la->oga', self.eris.oovv, ts)
+        int4 = -np.einsum('oga,ia->ogia', tmp, ts)
+
         int5 = -np.einsum('la,olgi->ogia', ts, self.eris.oovo)
 
         for p in range(0, nvir * nocc):
@@ -1387,7 +1401,9 @@ class ccs_gradient:
         # contractions
         int1 = np.einsum('ic,oc->io', ts, ts)
         int2 = -np.einsum('ka,kg->ag', ts, ts)
-        int3 = -np.einsum('ic,ka,oc,kg->iaog', ts, ts, ts, ts)
+
+        tmp = np.einsum('ic,ka->ia', ts, ts)
+        int3 = -np.einsum('ia,oc,kg->iaog', tmp, ts, ts)
 
         for p in range(0, nvir * nocc):
             for q in range(0, nocc * nvir):
@@ -1418,19 +1434,28 @@ class ccs_gradient:
         doi1 = -np.einsum('ma,mg->ag', ts, ls)
         doi2 = -np.einsum('ja,jg->ag', ls, ls)
         doi3 = -np.einsum('ja,jg->ag', ls, ts)
-        doi4 = np.einsum('ja,jb,mb,mg->ag', ls, ts, ts, ls)
+
+        tmp = np.einsum('ja,jb->a', ls, ts)
+        doi4 = np.einsum('a,mb,mg->ag', tmp, ts, ls)
+
         dag1 = -np.einsum('ie,oe->io', ts, ls)
         dag2 = np.einsum('ib,ob->io', ls, ls)
         dag3 = -np.einsum('ib,ob->io', ls, ts)
-        dag4 = np.einsum('ib,jb,je,oe->io', ls, ts, ts, ls)
+
+        tmp = np.einsum('ib,jb->i', ls, ts)
+        dag4 = np.einsum('i,je,oe->io', tmp, ts, ls)
 
         # ts and ls contractions
-        int1 = C * np.einsum('ib,ob,ma,mg->ogia', ls, ts, ts, ls)
-        int2 = C * np.einsum('ja,jg,ie,oe->ogia', ls, ts, ts, ls)
+        tmp = np.einsum('ib,ob->oi', ls, ts)
+        int1 = C * np.einsum('oi,ma,mg->ogia', tmp, ts, ls)
+
+        tmp = np.einsum('ja,jg->ga', ls, ts)
+        int2 = C * np.einsum('ga,ie,oe->ogia', tmp, ts, ls)
 
         # eris, ls, ts contractions
         int3 = -np.einsum('icga,oc->ogia', self.eris.ovvv, ls)
         int4 = np.einsum('ocga,ic->ogia', self.eris.ovvv, ls)
+
         int5 = np.einsum('okga,ic,kc->ogia', self.eris.oovv, ls, ts)
         int6 = np.einsum('ojab,ig,jb->ogia', self.eris.oovv, ls, ts)
         int7 = np.einsum('oigb,ja,jb->ogia', self.eris.oovv, ls, ts)
@@ -1475,19 +1500,29 @@ class ccs_gradient:
         # contraction involving dag and doi
         # dag1 = 2*C*np.einsum('ib,ob->oi',ls,ts)
         dag2 = -np.einsum('ib,ob->oi', fov, ts)
-        dag3 = np.einsum('kibc,kc,ob->oi', self.eris.oovv, ts, ts)
+
+        tmp = np.einsum('kibc,kc->ib', self.eris.oovv, ts)
+        dag3 = np.einsum('ib,ob->oi', tmp, ts)
+
         dag4 = -np.einsum('jiob,jb->oi', self.eris.ooov, ts)
         doi1 = -C * np.einsum('ja,jg->ag', ls, ts)
         doi2 = np.einsum('ja,jg->ag', fov, ts)
         doi3 = -C * np.einsum('ja,jg->ag', ls, ts)
         doi4 = np.einsum('jgba,jb->ag', self.eris.ovvv, ts)
-        doi5 = np.einsum('kjab,jb,kg->ag', self.eris.oovv, ts, ts)
+
+        tmp = np.einsum('kjab,jb->ak', self.eris.oovv, ts)
+        doi5 = np.einsum('ak,kg->ag', tmp, ts)
 
         # other contraction
-        int1 = C * np.einsum('ib,jb,oa,jg->iaog', ls, ts, ts, ts)
-        int2 = C * np.einsum('ja,jb,ob,ig->iaog', ls, ts, ts, ts)
+        tmp = np.einsum('ib,jb->ij', ls, ts)
+        int1 = C * np.einsum('ij,oa,jg->iaog', tmp, ts, ts)
+
+        tmp = np.einsum('ja,jb->a', ls, ts)
+        int2 = C * np.einsum('a,ob,ig->iaog', tmp, ts, ts)
         int3 = -np.einsum('igba,ob->iaog', self.eris.ovvv, ts)
-        int4 = -np.einsum('jiac,oc,jg->iaog', self.eris.oovv, ts, ts)
+
+        tmp = np.einsum('jiac,oc->iaoj', self.eris.oovv, ts)
+        int4 = -np.einsum('iaoj,jg->iaog', tmp, ts)
         int5 = -np.einsum('ikoa,kg->iaog', self.eris.ooov, ts)
 
         for p in range(0, nvir * nocc):
@@ -1630,10 +1665,10 @@ if __name__ == "__main__":
     print("--------------------------------")
     print()
     print("T1 ")
-    print(np.subtract(T1eq_1,T1eq_2))
+    print(np.max(np.subtract(T1eq_1, T1eq_2)))
     print()
     print("L1 ")
-    print(np.subtract(L1eq_1, L1eq_2))
+    print(np.max(np.subtract(L1eq_1, L1eq_2)))
     print()
 
     print("--------------------------------")
@@ -1644,13 +1679,13 @@ if __name__ == "__main__":
     inter = mccsg.T1inter(gts, gfs)
     ts_L1 = mccsg.tsupdate_L1(gts, inter, 0.)
     ts_up = mccsg.tsupdate(gts, inter)
-    print(np.subtract(ts_up,ts_L1))
+    print(np.max(np.subtract(ts_up,ts_L1)))
     print()
     print('ls updated with alpha = 0.')
     inter = mccsg.L1inter(gts, gfs)
     ls_L1 = mccsg.lsupdate_L1(gls, inter, 0.)
     ls_up = mccsg.lsupdate(gts, gls, inter)
-    print(np.subtract(ls_up, ls_L1))
+    print(np.max(np.subtract(ls_up, ls_L1)))
 
     print()
     print('####################')
@@ -1688,11 +1723,11 @@ if __name__ == "__main__":
     print()
 
     print('gamma for GS')
-    print('symmetrized')
-    g1 = mccsg.gamma(gts,gls)
-    print(g1)
-    print('unsymmetrized')
-    g2 = mccsg.gamma_unsym(gts,gls)
+    #print('symmetrized')
+    g1 = mccsg.gamma(gts, gls)
+    #print(g1)
+    #print('unsymmetrized')
+    g2 = mccsg.gamma_unsym(gts, gls)
     print(g2)
     print('Difference in Ek:')
     print('DEk= ', np.subtract(utilities.Ekin(mol, g1, aobasis=False, mo_coeff=mgf.mo_coeff),
@@ -1701,9 +1736,9 @@ if __name__ == "__main__":
 
     print()
     print('trace of transition rdm1 ')
-    t1 = np.random.random((gnocc,gnvir))*0.1
-    r1 = np.random.random((gnocc,gnvir))*0.1
-    l1 = np.random.random((gnocc,gnvir))*0.1
+    t1 = np.random.random((gnocc, gnvir))*0.1
+    r1 = np.random.random((gnocc, gnvir))*0.1
+    l1 = np.random.random((gnocc, gnvir))*0.1
     # orthogonalize r and l amp
     Matvec = np.zeros((gnocc*gnvir, 2))
     Matvec[:, 0] = np.ravel(r1)
@@ -1720,7 +1755,7 @@ if __name__ == "__main__":
     
     print('trace of rdm1 for excited state - nelec')
     # normalize r and l
-    c = utilities.get_norm(r1,l1)
+    c = utilities.get_norm(r1, l1, r0k, l0n)
     l1 /= c
     # get r0 and l0
     r0 = mccsg.R0eq(0.1, t1, r1)
@@ -1737,33 +1772,32 @@ if __name__ == "__main__":
     import CC_raw_equations
     
     vn = np.zeros_like(gfs)
-
-    ls = np.random.random((gnocc,gnvir))*0.1
-    rs = ls.copy() 
+    ls = np.random.random((gnocc // 2, gnvir // 2))*0.1
+    ls = utilities.convert_r_to_g_amp(ls)
+    rs = ls.copy()
     r0 = 0.1
     l0 = 0.1
+
+    print('Difference between R1 and L1 inter for t=0 (should be zero)')
+    print('-------------------------------------------------------------')
     ts = np.zeros((gnocc, gnvir))
     Rinter = mccsg.R1inter(ts, gfs, vn)    #Fab, Fji, W, F, Zia, Pia
     Linter = mccsg.es_L1inter(ts, gfs, vn) #Fba, Fij, W, F, Zia, P
-
-    print('Difference between R1 and L1 inter for t=0  and l1=r1 (should be zero)')
-    print('----------------------------------------------------------------------')
-    for R,L in zip(Rinter,Linter):
-       print(np.subtract(R,L))
+    for R, L in zip(Rinter, Linter):
+        print('Inter')
+        print(np.max(np.subtract(R, L)))
 
     print()
-    print('Difference between R1 and L1 equations for t=0 and l1=r1 (should be zero)')
+    print('Difference between R1 and L1 equations for t=0 and ls=rs (should be zero)')
     print('-------------------------------------------------------------------------')
     print('with intermediates')
-    print(np.sum(np.subtract(mccsg.R1eq(rs,r0,Rinter),mccsg.es_L1eq(ls,l0,Linter))))
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), mccsg.es_L1eq(ls, l0, Linter))))
     print('raw equations')
-    print(np.sum(np.subtract(CC_raw_equations.R1eq(ts,rs,r0,geris),CC_raw_equations.es_L1eq(ts,ls,l0,geris))))
+    print(np.max(np.subtract(CC_raw_equations.R1eq(ts, rs, r0, geris), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
 
     print()
     print('Difference between R0 and L0 equations for t=0 and l0=r0 (should be zero)')
     print('-------------------------------------------------------------------------')
-    r1 = np.random.random((gnocc,gnvir))*0.1
-    l1 = r1.copy()
     tmp = np.zeros_like(t1)
     # build symmetrized random fock matrix
     f = np.random.random((gfs.shape[0]//2, gfs.shape[1]//2))
@@ -1771,46 +1805,51 @@ if __name__ == "__main__":
     f = utilities.convert_r_to_g_rdm1(f)
     En = 0.5
     print('raw equations')
-    print(np.subtract(mccsg.R0eq(En, tmp, r1, f),mccsg.L0eq(En, tmp, l1, f)))
+    print(np.max(np.subtract(mccsg.R0eq(En, tmp, rs, f), mccsg.L0eq(En, tmp, ls, f))))
     print('r0 and l0 update')
     v = np.zeros_like(f)
     R0inter = mccsg.R0inter(tmp, f, v)
     L0inter = mccsg.L0inter(tmp, f, v)
     r0 = l0 = 0.5
-    print(np.subtract(mccsg.r0update(r1, r0, En, R0inter), mccsg.l0update(l1, l0, En, L0inter)))
+    print(np.max(np.subtract(mccsg.r0update(rs, r0, En, R0inter), mccsg.l0update(ls, l0, En, L0inter))))
 
     print()
     print('Difference between inter and raw equations for t=0 (should be zero)')
     print('-------------------------------------------------------------------')
+
+    rs = np.random.random((gnocc//2, gnvir//2))*0.1
+    rs = utilities.convert_r_to_g_amp(rs)
+    ls = np.random.random((gnocc//2, gnvir//2))*0.1
+    ls = utilities.convert_r_to_g_amp(ls)
+
     print('R1 difference')
-    print(np.sum(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris))))
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris))))
     print('L1 difference')
-    print(np.sum(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
+    print(np.max(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
 
     print()
     print('Difference between inter and raw equations for t random (should be zero)')
     print('------------------------------------------------------------------------')
-    rs = np.random.random((gnocc//2,gnvir//2))*0.1
-    rs = utilities.convert_r_to_g_amp(rs)
-    ls = np.random.random((gnocc//2,gnvir//2))*0.1
-    ls = utilities.convert_r_to_g_amp(ls)
+
     r0 = 0.1
     l0 = 0.1
-    ts = np.random.random((gnocc//2,gnvir//2))*0.1
+    ts = np.random.random((gnocc//2, gnvir//2))*0.1
     ts = utilities.convert_r_to_g_amp(ts)
-    Rinter = mccsg.R1inter(ts, geris.fock, np.zeros_like(gfs))
-    Linter = mccsg.es_L1inter(ts, geris.fock, np.zeros_like(gfs))
+
+    Rinter = mccsg.R1inter(ts, gfs, np.zeros_like(gfs))
+    Linter = mccsg.es_L1inter(ts, gfs, np.zeros_like(gfs))
+
     print('R1 difference')
-    print(np.sum(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris))))
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris, fsp=gfs))))
     print('L1 difference')
-    print(np.sum(np.subtract(mccsg.es_L1eq(ls,l0,Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
+    print(np.max(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris, fsp=gfs))))
 
     print()
     print('Energy from R1 and R0 equations')
     print('-------------------------------------------------------')
     print()
 
-    r1, DE = utilities.koopman_init_guess(mgf.mo_energy,mgf.mo_occ,(2, 0))
+    r1, DE = utilities.koopman_init_guess(mgf.mo_energy, mgf.mo_occ, (2, 0))
     ts = np.zeros_like(r1[0])
     vm = np.zeros_like(gfs)
     print('State 1')
@@ -1818,39 +1857,16 @@ if __name__ == "__main__":
     print('r0= ', r0)
     Rinter = mccsg.R1inter(ts, gfs, vm)
     print('Koopman DE= ', DE[0])
-    print('E= ', mccsg.Extract_Em_r(r1[0], r0[0], Rinter)[0])
+    print('E= ', mccsg.Extract_Em_r(r1[0], r0, Rinter)[0])
     print()
     print('State 2')
     r0 = mccsg.Extract_r0(r1[1], ts, None, vm)
     print('r0= ', r0)
     print('Koopman DE= ', DE[1])
-    print('E= ', mccsg.Extract_Em_r(r1[1], r0[0], Rinter)[0])
-    print('E= ', mccsg.Extract_Em_r(r1[1], r0[1], Rinter)[0])
+    print('E= ', mccsg.Extract_Em_r(r1[1], r0, Rinter)[0])
     print()
 
     # Note: R and L intermediates are the same for HF basis (f off diag = 0) --> lambda = 0
     #       except the Zia intermediates, which contracts with r0 and l0
     #       note anymore when lambda > 0
     # Fab, Fji, W, F, Zia, Pia
-
-    print("Eris test")
-    print('---------------------------------')
-    print()
-
-    rs, de = utilities.koopman_init_guess(mgf.mo_energy, mo_occ, (1,0))
-    rs = rs[0]
-    o, v = np.unravel_index(np.argmax(abs(rs), axis=None), rs.shape)
-    print(o, v)
-    print('r1')
-    print(rs)
-    print('DE= ', de)
-    print('faa-fii')
-    print(geris.fock[gnocc:, gnocc:][v,v]-geris.fock[:gnocc, :gnocc][o,o])
-    print('ajib')
-    print(-rs[o,v]*geris.voov[v,o,o,v])
-    print('jkik')
-    print(-rs[o,v]*np.einsum('ikik->i', geris.oooo)[o])
-    print('akbk')
-    print(rs[o,v]*np.einsum('akak->a', geris.vovo)[v])
-    print('akik')
-    print(np.einsum('akik->ia', geris.vooo)[o, v])

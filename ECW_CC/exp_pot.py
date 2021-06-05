@@ -19,7 +19,7 @@ import numpy as np
 import utilities
 
 class Exp:
-    def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None, a=None, b=None, c=None):
+    def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None, rec_vec=None, h=None):
         '''
         Class containing the experimental potentials Vnm
         math: Vexp = 2/M sum_i^{M} (Aexp_i-Acalc_i)/sig_i * Ai_pq
@@ -37,13 +37,15 @@ class Exp:
                     'mat' is either a rdm1 or transition rdm1
                       -> must be given in MOs basis
                       -> must be given in G (spin-orbital basis) format
+
+                    Note: the upper triangle corresponds to left properties or dm1
+                          the lower triangle corresponds to right properties or dm1
                     ''
         :param mol: PySCF molecule object
         :param mo_coeff: "canonical" MOs coefficients
         :param mo_coeff_def: MOs coefficients for the exp rdm1 ("deformed" one)
-        :param a: reciprocal lattice length
-        :param b: reciprocal lattice length
-        :param c: reciprocal lattice length
+        :param rec_vec: array of reciprocal lattice lengths (a,b,c)
+        :param h: list of Miller indices
         '''
 
         self.nbr_of_states = len(exp_data[0])  # total nbr of states: GS+ES
@@ -66,7 +68,6 @@ class Exp:
 
         for n in exp_data.flatten():
             # Build check list
-
             if n is not None:
 
                 # if list of properties are given for a given state
@@ -78,16 +79,18 @@ class Exp:
                       tmp_list.append(m[0])
                     self.check.append(tmp_list)
 
-                    # only one property given
+                # only one property given
                 elif isinstance(n[0], str):
                     self.check.append(n[0])
 
                 # structure factor
                 if 'F' in self.check[-1] and self.F_int is None:
-                    self.h = n[1][:, 1]  # list of (hx, hy, hz)
-                    F_mo, self.F_int = utilities.FT_MO(mol, self.h, mo_coeff, a=a, b=b, c=c)
+                    if rec_vec is None or h is None:
+                        raise ValueError('If F are to be calculated, Miller indices and unit cell size must be given')
+                    F_mo, self.F_int = utilities.FT_MO(mol, h, mo_coeff, rec_vec)
+                    self.h = h
                     self.dic_int['F'] = F_mo  # F_mo.shape = (nbr_h_pts, dim, dim)
-                
+
                 # dipole integrals
                 if 'dip' in self.check[-1] and self.dip_int is None:
                     charges = mol.atom_charges()
@@ -110,6 +113,7 @@ class Exp:
                     self.Ek_int = mol.intor_symmetric('int1e_kin')
                     Ek_int_mo = utilities.convert_aoint(self.Ek_int, mo_coeff)
                     self.dic_int['Ek'] = Ek_int_mo
+
             else:
                 self.check.append(None)
 
@@ -130,7 +134,7 @@ class Exp:
         self.Vexp = np.full((self.nbr_of_states, self.nbr_of_states), None)
 
 
-    def Vexp_update(self, rdm1, L, index):
+    def Vexp_update(self, rdm1, index):
 
         '''
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
@@ -140,20 +144,21 @@ class Exp:
         :param index: nm index of the potential Vexp
              -> index = (0,0) for GS
              -> index = (n,n) for prop. of excited state n
-             -> index = (0,n) for transition prop. of excited state n
+             -> index = (0,n) and (n,0) for left and right transition prop. of excited state n
+                        if prop are given (not mat.), the square or the norm is take |prop|^2 = prop_l*prop_r
         :return: (positive) Vexp(index) potential
         '''
 
         n, m = index
-        k, l = np.sort(index)  # exp_data only contains right value (upper triangle)
+        # k, l = np.sort(index)  # exp_data only contains right value (upper triangle)
 
         X2 = 0.
         vmax = 0.
 
         # check if prop or mat comparison
-        # -> check_idx = index to retrive the name of the property from self.check list
+        # -> check_idx = index to retrieve the name of the property from self.check list
         #check = self.exp_data[k,l][0]
-        check_idx = np.ravel_multi_index((k, l), self.exp_data.shape)
+        check_idx = np.ravel_multi_index((n, m), self.exp_data.shape)
 
         # Ground state case
         # -------------------
@@ -230,7 +235,9 @@ class Exp:
 
                     # structure factor
                     elif isinstance(calc_prop, list) and len(calc_prop) == len(self.h):
-                        for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:, 1], calc_prop, self.dic_int['F']):
+                        # loop over structure factors
+                        for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:], calc_prop, self.dic_int['F']):
+                            # todo: Problem with complex number: Vexp is complex ?
                             self.Vexp[0, 0] += (F_exp - F_calc) * F_int_mo
                             X2 += (F_exp - F_calc) ** 2
                             M += 1
@@ -266,7 +273,7 @@ class Exp:
                 # direct comparison between rdm1
 
                 if prop == 'mat':
-                    self.Vexp[n, m] = np.subtract(self.exp_data[k, l][1], rdm1)
+                    self.Vexp[n, m] = np.subtract(self.exp_data[n, m][1], rdm1)
                     X2 = np.sum(abs(self.Vexp[n, m]))
                     vmax = np.max(abs(self.Vexp[n, m]))
 
@@ -274,7 +281,7 @@ class Exp:
 
                 else:
                     calc_prop = self.calc_prop(prop, rdm1)
-                    exp_prop = self.exp_data[k, l]
+                    exp_prop = self.exp_data[n, m]
                     self.Vexp[n, m] = np.zeros_like(rdm1)
                     X2 = 0.
                     # if prop = dip
@@ -297,7 +304,7 @@ class Exp:
                 self.Vexp[n, m] = np.zeros_like(rdm1)
                 X2 = 0.
                 M = 0.
-                for exp_prop in self.exp_data[k, l]:
+                for exp_prop in self.exp_data[n, m]:
                     calc_prop = self.calc_prop(exp_prop[0], rdm1)
                     # dip case -> 3 components
                     if isinstance(exp_prop[1], list):
@@ -316,7 +323,7 @@ class Exp:
                     self.Vexp[n, m] *= 2/float(M)
                     vmax = np.max(abs(self.Vexp[n, m]))
 
-            return self.Vexp[n ,m]*L, X2, vmax
+            return self.Vexp[n, m], X2, vmax
 
     def calc_prop(self, prop, rdm1, g_format=True):
         '''
@@ -346,6 +353,7 @@ class Exp:
                 raise ValueError('A list of Miller indices must be given')
             ans = utilities.structure_factor(self.mol, self.h, rdm1, aobasis=False, mo_coeff=self.mo_coeff,
                                              F_int=self.F_int)
+            ans = list(ans)
 
         else:
             raise NotImplementedError('The possible properties are: Ek, v1e, dip and F')
@@ -356,7 +364,7 @@ if __name__ == "__main__":
     # execute only if run as a script
     # test on water
 
-    from pyscf import gto,scf,cc
+    from pyscf import gto, scf
 
     mol = gto.Mole()
     mol.atom = [
@@ -373,26 +381,26 @@ if __name__ == "__main__":
     mo_occ   = mf.mo_occ
     mo_coeff = mf.mo_coeff
     mo_coeff_inv = np.linalg.inv(mo_coeff)
-    mocc = mo_coeff[:,mo_occ>0]
-    mvir = mo_coeff[:,mo_occ==0]
+    mocc = mo_coeff[:, mo_occ>0]
+    mvir = mo_coeff[:, mo_occ==0]
     nocc = mocc.shape[1]
     nvir = mvir.shape[1]
     dim = nocc+nvir
 
     # build exp list for 3 states: 1 GS + 2 ES
     nbr_os_states = 3
-    exp_data = np.full((nbr_os_states,nbr_os_states),None)
-    GS_exp_mo = np.random.random((dim//2,dim//2))
+    exp_data = np.full((nbr_os_states, nbr_os_states), None)
+    GS_exp_mo = np.random.random((dim//2, dim//2))
     GS_exp_mo = utilities.convert_r_to_g_rdm1(GS_exp_mo)
-    exp_data[0,0] = ['mat', GS_exp_mo]
-    exp_data[0,1] = ['dip', [0.,0.,0.8]]
-    exp_data[1,1] = [['Ek', 75.97],['dip', [0.1,0.2,0.]],['v1e', -70.]]
-    exp_data[0,2] = ['dip', [0.5, 0.2, 0.]]
+    exp_data[0, 0] = ['mat', GS_exp_mo]
+    exp_data[0, 1] = ['dip', [0., 0., 0.8]]
+    exp_data[1, 1] = [['Ek', 75.97], ['dip', [0.1, 0.2, 0.]], ['v1e', -70.]]
+    exp_data[0, 2] = ['dip', [0.5, 0.2, 0.]]
 
     L = 0
 
     # initialize Vexp object
-    myVexp = Exp(exp_data,mol,mo_coeff)
+    myVexp = Exp(exp_data, mol, mo_coeff)
 
     print()
     print('nocc and nvir')

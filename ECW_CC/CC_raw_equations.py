@@ -88,6 +88,7 @@ def La1eq(t1, a1, eris,fsp=None):
 # R equation
 # -----------------
 def R1eq(t1, r1, r0, eris, fsp=None):
+    # commented lines are terms to be included if f are kinetic operator elements
 
     nocc,nvir = t1.shape
     if fsp is None:
@@ -95,19 +96,19 @@ def R1eq(t1, r1, r0, eris, fsp=None):
     else:
         f = fsp
 
-    vv = f[nocc:,nocc:].copy()
-    oo = f[:nocc,:nocc].copy()
-    vo = f[nocc:,:nocc].copy()
-    ov = f[:nocc,nocc:].copy()
+    vv = f[nocc:, nocc:].copy()
+    oo = f[:nocc, :nocc].copy()
+    vo = f[nocc:, :nocc].copy()
+    ov = f[:nocc, nocc:].copy()
 
     # no t terms
     Ria  = r0*e('ai->ia', vo)
     Ria += e('ab,ib->ia', vv, r1)
     Ria -= e('ji,ja->ia', oo, r1)
     Ria += e('jb,ajib->ia', r1, eris.voov)
-    Ria -= e('ja,jkik->ia', r1, eris.oooo)
-    Ria += e('ib,akbk->ia', r1, eris.vovo)
-    Ria += r0*e('akik->ia', eris.vooo)
+    #Ria -= e('ja,jkik->ia', r1, eris.oooo)  ##
+    #Ria += e('ib,akbk->ia', r1, eris.vovo)  ##
+    #Ria += r0*e('akik->ia', eris.vooo)  ##
 
     # t terms
     Ria += e('jb,jb,ia->ia', t1, ov, r1)
@@ -116,21 +117,21 @@ def R1eq(t1, r1, r0, eris, fsp=None):
     Ria += r0*e('ib,ab->ia', t1, vv)
     Ria -= r0*e('ja,ji->ia', t1, oo)
     Ria += r0*e('jb,jabi->ia', t1, eris.ovvo)
-    Ria -= r0*e('ja,jkik->ia', t1, eris.oooo)
-    Ria += r0*e('ib,akbk->ia', t1, eris.vovo)
+    #Ria -= r0*e('ja,jkik->ia', t1, eris.oooo)  ##
+    #Ria += r0*e('ib,akbk->ia', t1, eris.vovo)  ##
     Ria += e('ia,jb,jkbk->ia', r1, t1, eris.oovo)
     Ria -= e('ka,jb,jkbi->ia', r1, t1, eris.oovo)
     Ria += e('ib,ja,jacb->ia', r1, t1, eris.ovvv)
-    Ria -= e('ib,ja,jkbk->ia', r1, t1, eris.oovo)
+    #Ria -= e('ib,ja,jkbk->ia', r1, t1, eris.oovo)  ##
     Ria -= e('kc,ja,jkic->ia', r1, t1, eris.ooov)
-    Ria -= e('ka,ib,kjbj->ia', r1, t1, eris.oovo)
+    #Ria -= e('ka,ib,kjbj->ia', r1, t1, eris.oovo)  ##
     Ria += e('kc,ib,akbc->ia', r1, t1, eris.vovv)
 
     # t.t terms
     Ria -= r0 * e('ib,ja,jb->ia', t1, t1, ov)
     Ria -= r0*e('jb,ka,jkbi->ia', t1, t1, eris.oovo)
     Ria += r0*e('jb,ic,jabc->ia', t1, t1, eris.ovvv)
-    Ria -= r0*e('ib,ka,kjbj->ia', t1, t1, eris.oovo)
+    #Ria -= r0*e('ib,ka,kjbj->ia', t1, t1, eris.oovo)  ##
     Ria += 0.5*e('ia,jb,kc,jkbc->ia', r1, t1, t1, eris.oovv)
     Ria -= e('ka,jb,ic,jkbc->ia', r1, t1, t1, eris.oovv)
     Ria -= e('ic,jb,ka,jkbc->ia', r1, t1, t1, eris.oovv)
@@ -153,11 +154,11 @@ def R10eq(t1, r1, r0, eris, fsp=None):
 
     # no t
     R0  = e("ia,ia", ov, r1)
-    R0 += e("jb,jkbk", r1, eris.oovo)
+    #R0 += e("jb,jkbk", r1, eris.oovo)
 
     # t
     R0 += r0*e("ia,ia", t1, ov)
-    R0 += r0*e("jb,jkbk", t1, eris.oovo)
+    #R0 += r0*e("jb,jkbk", t1, eris.oovo)
     R0 += e("kc,jb,jkbc", r1, t1, eris.oovv)
 
     # t.t
@@ -184,26 +185,26 @@ def es_L1eq(t1, l1, l0, eris, fsp=None):
     Lia += e('ba,ib->ia', vv, l1)
     Lia -= e('ij,ja->ia', oo, l1)
     Lia += e('jb,bija->ia', l1, eris.voov)
-    Lia -= e('ja,ikjk->ia', l1, eris.oooo)
-    Lia += e('ib,bkak->ia', l1, eris.vovo)
-    Lia += l0*e('ikak->ia', eris.oovo)
+    #Lia -= e('ja,ikjk->ia', l1, eris.oooo)  ##
+    #Lia += e('ib,bkak->ia', l1, eris.vovo)  ##
+    #Lia += l0*e('ikak->ia', eris.oovo)  ##
 
     # t terms
     Lia += e('jb,jb,ia->ia', t1, ov, l1)
     Lia -= e('jb,ib,ja->ia', t1, ov, l1)
     Lia -= e('jb,ja,ib->ia', t1, ov, l1)
     Lia += l0*e('jb,jiba->ia',t1, eris.oovv)
-    Lia += e('ia,jb,jkbk->ia', l1, t1, eris.oovo)
-    Lia -= e('ka,jb,jibk->ia', l1, t1, eris.oovo)
+    #Lia += e('ia,jb,jkbk->ia', l1, t1, eris.oovo)  ##
+    #Lia -= e('ka,jb,jibk->ia', l1, t1, eris.oovo)  ##
     Lia += e('ic,jb,jcba->ia', l1, t1, eris.ovvv)
-    Lia -= e('ib,jb,jkak->ia', l1, t1, eris.oovo)
+    #Lia -= e('ib,jb,jkak->ia', l1, t1, eris.oovo)  ##
     Lia -= e('kc,jc,jika->ia', l1, t1, eris.ooov)
     Lia -= e('ka,kb,ijbj->ia', l1, t1, eris.oovo)
     Lia += e('kc,kb,ciba->ia', l1, t1, eris.vovv)
 
     # t.t terms
     Lia += 0.5 * e('ia,jb,kc,jkbc->ia', l1, t1, t1, eris.oovv)
-    Lia -= e('ka,jb,kc,jibc->ia', l1, t1, t1, eris.oovv)
+    Lia -= e('ja,kb,jc,kibc->ia', l1, t1, t1, eris.oovv)
     Lia -= e('ic,jb,kc,jkba->ia', l1, t1, t1, eris.oovv)
     Lia -= e('jc,jb,kc,kiba->ia', l1, t1, t1, eris.oovv)
 
@@ -223,17 +224,17 @@ def es_L10eq(t1, l1, l0, eris, fsp=None):
 
     # no t
     L0  = e('ia,ia', ov, l1)
-    L0 += e('ia,akik', l1, eris.vooo)
+    #L0 += e('ia,akik', l1, eris.vooo)
 
     # t
     L0 += e('ia,ib,ab', l1, t1, vv)
     L0 += l0*e('ia,ia', t1, ov)
     L0 += l0*e('ia,ia', l1, ov)
     L0 -= e('ia,ja,ji', l1, t1, oo)
-    L0 += l0*e('jb,jkbk', t1, eris.oovo)
+    #L0 += l0*e('jb,jkbk', t1, eris.oovo)
     L0 += e('ia,jb,jabi', l1, t1, eris.ovvo)
-    L0 -= e('ia,ja,jkik', l1, t1, eris.oooo)
-    L0 += e('ia,ib,akbk',l1, t1, eris.vovo)
+    #L0 -= e('ia,ja,jkik', l1, t1, eris.oooo)
+    #L0 += e('ia,ib,akbk',l1, t1, eris.vovo)
 
     # t.t
     L0 -= e('ia,ja,ji', l1, t1, oo)
@@ -241,7 +242,7 @@ def es_L10eq(t1, l1, l0, eris, fsp=None):
     L0 += 0.5*l0*e('jb,kc,jkbc', t1, t1, eris.oovv)
     L0 -= e('ia,jb,ka,jkbi', l1, t1, t1, eris.oovo)
     L0 += e('ia,jb,ic,jabc', l1, t1, t1, eris.ovvv)
-    L0 -= e('ia,ib,ka,kjbj', l1, t1, t1, eris.oovo)
+    #L0 -= e('ia,ib,ka,kjbj', l1, t1, t1, eris.oovo)
 
     # t.t.t
     L0 += e('ia,ka,jb,ic,kjbc', l1, t1, t1,t1, eris.oovv)

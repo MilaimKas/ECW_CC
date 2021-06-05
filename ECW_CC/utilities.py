@@ -747,7 +747,7 @@ def ortho_norm(rn, ln, rn0, ln0):
     ln0_new = copy.deepcopy(ln0)
     rn0_new = copy.deepcopy(rn0)
 
-    # check if orthogonal
+    # check if orthogonal and orthogonalize if bi-basis
     if len(rn) == 2:
         for c in np.tril(C_norm, -1).flatten():
             if c > 0.001 or c < -0.001:
@@ -969,7 +969,7 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     return ans
 
 
-def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None, a=10., b=10., c=10.):
+def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None, rec_vec=np.asarray([10., 10., 10.])):
     '''
     Calculates the structure factors for a given rdm1 and list of Miller indices
 
@@ -979,9 +979,7 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
     :param aobasis: True if rdm1 given in AOs basis
     :param mo_coeff: MOs coefficients
     :param F_int: Fourier transform over AO basis
-    :param a: reciprocal lattice length
-    :param b: reciprocal lattice length
-    :param c: reciprocal lattice length
+    :param rec_vec: reciprocal lattice lengths (a,b,c)
     :return: array of structure factors F corresponding to Miller indices in h
 
     '''
@@ -1000,7 +998,7 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
     h = np.asarray(h)
 
     if F_int is None:
-        F_int = FT_MO(mol, h, mo_coeff, a, b, c)[0]
+        F_int = FT_MO(mol, h, mo_coeff, rec_vec)[0]
 
     # contract rdm and Fint
     ans = np.einsum('hij,ji->h', F_int, rdm1)
@@ -1008,22 +1006,20 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
     return ans
 
 
-def FT_MO(mol, h, mo_coeff, a=10., b=10., c=10.):
+def FT_MO(mol, h, mo_coeff, rec_vec=np.asarray([10., 10., 10.])):
     '''
     Calculates the FT over AO, transforms it into MO basis in G format
 
     math: F_pq = <p|F(h)|q>
 
     :param mol: PySCF molecular object
-    :param h: Miller indices, list of triples [(h1x,h1y,h1z),(h2x,h2y,h2z), ...]
-    :param a: reciprocal lattice length
-    :param b: reciprocal lattice length
-    :param c: reciprocal lattice length
+    :param h: Miller indices, list of triples [[h1x,h1y,h1z],[h2x,h2y,h2z], ...]
+    :param rec_vec: reciprocal lattice length (a,b,c)
     :return: Fmo_pq and Fao_ij
     '''
 
     # convert to spatial (R) basis
-    if mo_coeff.shape[0] != mol.nbas:
+    if mo_coeff.shape[0] != mol.nao:
         mo_coeff = convert_g_to_r_coeff(mo_coeff)
     mo_coeff_inv = np.linalg.inv(mo_coeff)
 
@@ -1032,12 +1028,11 @@ def FT_MO(mol, h, mo_coeff, a=10., b=10., c=10.):
         h = np.asarray(h)
 
     # reciprocal lattice
-    rec_vec = np.diag([a, b, c])
-    print(rec_vec)
+    rec_vec = np.diag(rec_vec)
     rec_vec = scipy.linalg.inv(rec_vec)
 
     # build k-vectors
-    gv = 2*np.pi * np.dot(h, b)
+    gv = 2*np.pi * np.dot(h, rec_vec)
 
     # gs = number of h point in each directions
     gs = None
@@ -1212,9 +1207,9 @@ if __name__ == '__main__':
     print('after: ', np.sum(ans[:, 0] * ans[:, 1]))
 
     print()
-    print('################################')
-    print('# GS decomposition              ')
-    print('################################')
+    print('###################################')
+    print('# GS (Gram=Schmidt) decomposition  ')
+    print('###################################')
     print()
 
     ans = ortho_GS(Mvec)
@@ -1264,10 +1259,10 @@ if __name__ == '__main__':
 
     rs = []
     ls = []
-    rs.append(np.random.random((3,4)))
-    rs.append(np.random.random((3,4)))
-    ls.append(np.random.random((3,4)))
-    ls.append(np.random.random((3,4)))
+    rs.append(np.random.random((3, 4)))
+    rs.append(np.random.random((3, 4)))
+    ls.append(np.random.random((3, 4)))
+    ls.append(np.random.random((3, 4)))
     r0 = list([0.1, 0.2])
     l0 = list([0.05, 0.07])
 
@@ -1301,3 +1296,16 @@ if __name__ == '__main__':
     print('ortho_norm function ')
     rs, ls, r0, l0 = ortho_norm(rs, ls, r0, l0)
     print(check_ortho(rs, ls, r0, l0))
+    print()
+
+    print()
+    print('################################')
+    print('# Fourier transform             ')
+    print('################################')
+    print()
+
+    h = [[1, 1, 1], [0, 1, 1], [1, 0, 1], [1, 2, 0], [2, 2, 0]]
+    ft_mo, ft_ao = FT_MO(mol, h, mfr.mo_coeff)
+    print('FT over AO and MO shape')
+    print(ft_mo.shape)
+    print(ft_mo.shape)
