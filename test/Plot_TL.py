@@ -10,9 +10,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from pyscf import gto, scf, cc
 
 # CCS files
-import CCS
-import Solver_GS
-import exp_pot
+from context import CCS, Solver_GS, exp_pot
 
 ##################
 # Build molecule
@@ -56,9 +54,9 @@ mygccs = CCS.Gccs(geris)
 
 # Create rdm1_exp
 # GCCS
-t0=np.asarray([[0.01,0.],[0.,0.]])
-l0=np.asarray([[0.01,0.],[0.,0.]])
-rdm1_exp = mygccs.gamma(t0,l0)
+t0 = np.asarray([[0.01, 0.], [0., 0.]])
+l0 = np.asarray([[0.01, 0.], [0., 0.]])
+rdm1_exp = mygccs.gamma(t0, l0)
 # RCCS
 #t0 = np.asarray([[0.01]])
 #l0 = np.asarray([[0.01]])
@@ -75,27 +73,27 @@ N = 20
 step = 0.0005
 max = 0.02
 N = round(max/step)#*2
-t = np.zeros((N,2,2)) # GCCS
+t = np.zeros((N, 2, 2)) # GCCS
 #t = [] # RCCS
 l = t.copy()
 tli = 0 #-max
 for i in range(N):
-  t[i,0,0] = tli # GCCS
+  t[i, 0, 0] = tli # GCCS
   #t.append(np.asarray([[tli]])) # RCCS
   tli += step
 
 l = t.copy()
 
 # Lambda value
-Larray = [0,1,3,5]
+Larray = [0, 1, 3, 5]
 
 ################
 # Solve T1/L1
 ################
 conv = 10**-6
 # VX Object
-exp_data = np.full((1,1),None)
-exp_data[0,0] = ['mat', rdm1_exp]
+exp_data = np.full((1, 1), None)
+exp_data[0, 0] = ['mat', rdm1_exp]
 VX_exp = exp_pot.Exp(exp_data)
 
 # Gradient object
@@ -103,7 +101,7 @@ mygrad = CCS.ccs_gradient(geris)
 
 # Solver_CCS objects
 # returns: text, Ep, X2, T1, L1, t1, l1
-Solver = Solver_GS.Solver_CCS(mygccs, VX_exp,'tl', conv, CCS_grad=mygrad)
+Solver = Solver_GS.Solver_CCS(mygccs, VX_exp, 'tl', conv, CCS_grad=mygrad)
 
 # Solve for L in Larray
 Result_scf = []
@@ -115,16 +113,16 @@ Result_grad = []
 Result_des = []
 
 # initial ts, ls
-ts_scf_rdm=np.zeros((2,2))
-ls_scf_rdm=np.zeros((2,2))
-ts_scf_t=np.zeros((2,2))
-ls_scf_t=np.zeros((2,2))
-ts_scf_rdm_t=np.zeros((2,2))
-ls_scf_rdm_t=np.zeros((2,2))
-ts_scf_rdm_t_l=np.zeros((2,2))
-ls_scf_rdm_t_l=np.zeros((2,2))
-ts_grad= np.zeros((2,2))
-ls_grad= np.zeros((2,2))
+ts_scf_rdm=np.zeros((2, 2))
+ls_scf_rdm=np.zeros((2, 2))
+ts_scf_t=np.zeros((2, 2))
+ls_scf_t=np.zeros((2, 2))
+ts_scf_rdm_t=np.zeros((2, 2))
+ls_scf_rdm_t=np.zeros((2, 2))
+ts_scf_rdm_t_l=np.zeros((2, 2))
+ls_scf_rdm_t_l=np.zeros((2, 2))
+ts_grad= np.zeros((2, 2))
+ls_grad= np.zeros((2, 2))
 #ts_grad[0] = 0.015
 #ls_grad[0] = 0.015
 ts_des=ts_grad.copy() #np.zeros((2,2))
@@ -137,16 +135,16 @@ ls_scf= ts_grad.copy() #np.zeros((2,2))
 # except [conv text] all array contains the result for each iteration
 
 for L in Larray:
-  ts_des = np.zeros((2,2))
-  ls_des = np.zeros((2,2))
-  ts_scf = np.zeros((2,2))
-  ls_scf = np.zeros((2,2))
-  Result_scf.append(Solver.SCF(L,ts=ts_scf,ls=ls_scf,diis=tuple()))
+  ts_des = np.zeros((2, 2))
+  ls_des = np.zeros((2, 2))
+  ts_scf = np.zeros((2, 2))
+  ls_scf = np.zeros((2, 2))
+  Result_scf.append(Solver.SCF(L, ts=ts_scf, ls=ls_scf, diis=tuple()))
   #Result_scf_rdm.append(Solver_CCS.SCF(L, ts=ts_scf_rdm, ls=ls_scf_rdm, diis=('rdm1',)))
   #Result_scf_t.append(Solver_CCS.SCF(L, ts=ts_scf_t, ls=ls_scf_t, diis=('t',)))
   #Result_scf_rdm_t.append(Solver_CCS.SCF(L, ts=ts_scf_rdm_t, ls=ls_scf_rdm_t, diis=('rdm','t')))
   #Result_scf_rdm_t_l.append(Solver_CCS.SCF(L, ts=ts_scf_rdm_t_l, ls=ls_scf_rdm_t_l, diis=('rdm','t','l')))
-  Result_grad.append(Solver.Gradient(L,method='newton',ts=ts_grad,ls=ls_grad))
+  Result_grad.append(Solver.Gradient(L, method='newton', ts=ts_grad, ls=ls_grad))
   Result_des.append(Solver.Gradient(L, method='descend', ts=ts_des, ls=ls_des))
 
   ts_scf         = Result_scf[-1][3][-1]
@@ -170,21 +168,21 @@ for L in Larray:
 
 # Initialize Plot
 pl_num = 0
-fig, axs = plt.subplots(2,2,figsize=(10,8))
-step =0.005 # step for the x,y ticks
+fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+step = 0.005 # step for the x,y ticks
 
 
 for L in Larray:
-  T1_vec = np.zeros((N,N))
-  L1_vec = np.zeros((N,N))
-  cost_vec = np.zeros((N,N))
-  X2 = np.zeros((N,N))
+  T1_vec = np.zeros((N, N))
+  L1_vec = np.zeros((N, N))
+  cost_vec = np.zeros((N, N))
+  X2 = np.zeros((N, N))
   j = 0
   for ti in t:
       i = 0
       for li in l:
         rdm1 = mygccs.gamma(ti, li)
-        Vexp = np.subtract(rdm1_exp,rdm1)
+        Vexp = np.subtract(rdm1_exp, rdm1)
 
         # RCCS
         #fsp  = np.subtract(rfock,L*Vexp)
@@ -196,11 +194,11 @@ for L in Larray:
         ##X2[i,j] = np.sum(Vexp**2)
 
         # GCCS
-        fsp = np.subtract(gfock,L*Vexp)
-        T1 = mygccs.T1eq(ti,fsp)
-        L1 = mygccs.L1eq(ti,li,fsp)
-        cost_vec[i,j] = np.sqrt(np.sum(T1**2+np.sum(L1)**2))
-        T1_vec[i,j] = T1[0,0]
+        fsp = np.subtract(gfock, L*Vexp)
+        T1 = mygccs.T1eq(ti, fsp)
+        L1 = mygccs.L1eq(ti, li, fsp)
+        cost_vec[i, j] = np.sqrt(np.sum(T1**2+np.sum(L1)**2))
+        T1_vec[i, j] = T1[0, 0]
 
         i += 1
 
@@ -211,11 +209,11 @@ for L in Larray:
   #l_vec = l.copy()
 
   # GCCS
-  t_vec = t[:,0,0]
-  l_vec = l[:,0,0]
+  t_vec = t[:, 0, 0]
+  l_vec = l[:, 0, 0]
 
   X, Y = np.meshgrid(t_vec, l_vec)
-  i,j = np.unravel_index([pl_num],(2,2))
+  i, j = np.unravel_index([pl_num], (2, 2))
   i = int(i)
   j = int(j)
   tit = '$\lambda$ = %1.3f' % L
@@ -242,15 +240,15 @@ for L in Larray:
   #axs[i,j].pcolormesh(X,Y,L1_vec)
 
   # GCCS
-  axs[i,j].contour(X,Y,cost_vec,20,colors='black',linewidths=0.5)
-  axs[i,j].pcolormesh(X,Y,cost_vec,cmap='ocean')
+  axs[i, j].contour(X, Y, cost_vec, 20, colors='black', linewidths=0.5)
+  axs[i, j].pcolormesh(X, Y, cost_vec, cmap='ocean')
   # Plot Result of solvers
   # SCF
-  axs[i,j].plot(Result_scf[pl_num][3][:,0,0],Result_scf[pl_num][4][:,0,0],marker='o',color='red',
-                linewidth=0.5,markerfacecolor='orange',alpha=0.8)
+  axs[i, j].plot(Result_scf[pl_num][3][:, 0, 0],Result_scf[pl_num][4][:, 0, 0],marker='o', color='red',
+                linewidth=0.5, markerfacecolor='orange', alpha=0.8)
   # newton
-  axs[i, j].plot(Result_grad[pl_num][3][:, 0, 0], Result_grad[pl_num][4][:, 0, 0], marker='o',color='grey'
-                 ,linewidth=0.5,markerfacecolor='black')
+  axs[i, j].plot(Result_grad[pl_num][3][:, 0, 0], Result_grad[pl_num][4][:, 0, 0], marker='o', color='grey'
+                 , linewidth=0.5, markerfacecolor='black')
   # DIIS
   #axs[i, j].plot(Result_scf_rdm_t[pl_num][3][:, 0, 0], Result_scf_rdm_t[pl_num][4][:, 0, 0], marker='o',
   #               color='indigo',linewidth=0.5,markerfacecolor='deeppink', alpha=1.0)
@@ -259,20 +257,20 @@ for L in Larray:
   #               ,linewidth=0.5,markerfacecolor='yellow')
 
   ## Plot t0 and l0
-  axs[i,j].plot(t0[0,0],l0[0,0],'x',color='black',markersize=10,markeredgewidth=5)
+  axs[i, j].plot(t0[0, 0], l0[0, 0], 'x', color='black', markersize=10, markeredgewidth=5)
 
   pl_num += 1
 
 # X,Y,Z labels
-fig.text(0.9,0.95,'$Z=\sqrt{\sum T_1^2+\sum L_1^2}$',ha='center',fontsize=14)
-fig.text(0.5, 0.01, 't1 amplitudes', ha='center',fontsize=14)
-fig.text(0.01, 0.5, 'l1 amplitudes', va='center', rotation='vertical',fontsize=14)
+fig.text(0.9, 0.95, '$Z=\sqrt{\sum T_1^2+\sum L_1^2}$', ha='center', fontsize=14)
+fig.text(0.5, 0.01, 't1 amplitudes', ha='center', fontsize=14)
+fig.text(0.01, 0.5, 'l1 amplitudes', va='center', rotation='vertical', fontsize=14)
 
 # better layout
-fig.tight_layout(pad=1.5,rect=(0.03, 0.03, 0.99, 0.99))
+fig.tight_layout(pad=1.5, rect=(0.03, 0.03, 0.99, 0.99))
 
 # add colorbar
-cbar = fig.colorbar(axs[-1,-1].pcolormesh(X,Y,cost_vec,cmap='ocean'), ax=axs.ravel().tolist(), shrink=0.95)
+cbar = fig.colorbar(axs[-1, -1].pcolormesh(X, Y, cost_vec, cmap='ocean'), ax=axs.ravel().tolist(), shrink=0.95)
 cbar.ax.tick_params(labelsize=12)
 
 print('Calculated rdm1')

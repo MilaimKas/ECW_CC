@@ -724,7 +724,6 @@ class Solver_ES:
 
             # CARREFUL WITH THE SIGN OF Vexp !
             # for transition case vn = -Vexp
-            # CARREFUL: the Vexp elements are not scaled with lambda
 
             #
             # update t amplitudes
@@ -989,10 +988,10 @@ if __name__ == "__main__":
     S_AO = mol.intor('int1e_ovlp')
 
     # build gamma_exp for GS
-    ts = np.random.random((gnocc,gnvir))*0.1
-    ls = np.random.random((gnocc,gnvir))*0.1 
+    ts = np.random.random((gnocc, gnvir))*0.1
+    ls = np.random.random((gnocc, gnvir))*0.1
     GS_exp_ao = mccsg.gamma(ts, ls)
-    GS_exp_ao = utilities.mo_to_ao(GS_exp_ao,mo_coeff)
+    GS_exp_ao = utilities.mo_to_ao(GS_exp_ao, mo_coeff)
 
     # build exp list
     exp_data = np.full((3, 3), None)
@@ -1001,7 +1000,7 @@ if __name__ == "__main__":
     exp_data[0, 2] = ['dip', [0.000000, 0.000000, -0.622534]]  # DE = 0.37 au
 
     # Vexp object
-    VXexp = exp_pot.Exp(exp_data,mol,mgf.mo_coeff)
+    VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 
     # initial rn, r0n and ln, l0n list
     rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,nstates=2)
