@@ -20,7 +20,7 @@ import numpy as np
 #from . import utilities
 import pyscf.cc.eom_gccsd
 
-import utilities
+import utilities, CC_raw_equations
 
 np.random.seed(2)
 
@@ -1288,13 +1288,16 @@ class Gccs:
 #################################
 
 class ccs_gradient:
-    def __init__(self, eris, M_tot=None, sum_sig=1):
-        # obtained from generalized T1 and Lambda1 eq
+    def __init__(self, eris, M_tot=1, sum_sig=1):
+        '''
+        Gradient of the ECW-CCS equations and Newton's method
 
-        if M_tot is None:
-            self.M_tot = eris.fock.shape[0] ** 2
-        else:
-            self.M_tot = M_tot
+        :param eris: two electron integrals
+        :param M_tot: scale of the Vexp potential (number of measurements)
+        :param sum_sig: sum of all sig_i, means for each sets of measurements
+        '''
+
+        self.M_tot = M_tot
         self.sum_sig = sum_sig
 
         self.fock = eris.fock
@@ -1308,7 +1311,7 @@ class ccs_gradient:
     ################
 
     def T1eq(self, ts, fsp):
-        return CC_raw_equations.T1eq(ts,self.eris,fsp=fsp)
+        return CC_raw_equations.T1eq(ts, self.eris, fsp=fsp)
 
     #################
     # L1 equations
@@ -1475,9 +1478,10 @@ class ccs_gradient:
                         dL[p, q] += C
                 if o == i:
                     dL[p, q] += C * (doi1[a, g] + doi2[a, g] + doi3[a, g] + doi4[a, g])
-                dL[p, q] += int1[o, g, i, a] + int2[o, g, i, a] + int3[o, g, i, a] + int4[o, g, i, a] + int5[o, g, i, a]
-                dL[p, q] += int6[o, g, i, a] + int7[o, g, i, a] + int8[o, g, i, a] + int9[o, g, i, a] + int10[
-                    o, g, i, a]
+                dL[p, q] += int1[o, g, i, a] + int2[o, g, i, a] + int3[o, g, i, a] \
+                            + int4[o, g, i, a] + int5[o, g, i, a]
+                dL[p, q] += int6[o, g, i, a] + int7[o, g, i, a] + int8[o, g, i, a] \
+                            + int9[o, g, i, a] + int10[o, g, i, a]
                 dL[p, q] += int11[o, g, i, a] + int12[o, g, i, a]
                 dL[p, q] += C * (2 * ls[o, a] * ls[i, g])
                 dL[p, q] += -(fov[o, a] * ls[i, g]) - (fov[i, g] * ls[o, a])
@@ -1536,8 +1540,10 @@ class ccs_gradient:
                         dL[p, q] += C
                 if o == i:
                     dL[p, q] += fvv[a, g]
-                    dL[p, q] += doi1[a, g] + doi2[a, g] + doi3[a, g] + doi4[a, g] + doi5[a, g]
-                dL[p, q] += int1[i, a, o, g] + int2[i, a, o, g] + int3[i, a, o, g] + int4[i, a, o, g] + int5[i, a, o, g]
+                    dL[p, q] += doi1[a, g] + doi2[a, g] + doi3[a, g] \
+                                + doi4[a, g] + doi5[a, g]
+                dL[p, q] += int1[i, a, o, g] + int2[i, a, o, g] + int3[i, a, o, g] \
+                            + int4[i, a, o, g] + int5[i, a, o, g]
                 dL[p, q] += C * (-ts[o, a] * ts[i, g] + ls[i, g] * ts[o, a] - ls[o, a] * ts[i, g])
                 dL[p, q] += self.eris.ovov[i, g, o, a]
 
@@ -1574,7 +1580,7 @@ class ccs_gradient:
 
         return tsnew, lsnew
 
-    def Gradient_Descent(self, alpha, ts, ls, fsp, L):
+    def Gradient_Descent(self, beta, ts, ls, fsp, L):
 
         nocc, nvir = ts.shape
 
@@ -1597,7 +1603,7 @@ class ccs_gradient:
         tls = np.concatenate((ts, ls))
 
         # build new t and l amplitudes
-        tlsnew = tls - alpha * np.dot(J.transpose(), X)
+        tlsnew = tls - beta * np.dot(J.transpose(), X)
         tsnew, lsnew = np.split(tlsnew, 2)
 
         tsnew = tsnew.reshape(nocc, nvir)
@@ -1613,16 +1619,16 @@ if __name__ == "__main__":
     import Eris, CC_raw_equations
 
     mol = gto.Mole()
-    mol.atom = [
-        [8 , (0. , 0.     , 0.)],
-        [1 , (0. , -0.757 , 0.587)],
-        [1 , (0. , 0.757  , 0.587)]]
-    #mol.atom = """
-    #H 0 0 0
-    #H 0 0 1
-    #"""
+    #mol.atom = [
+    #    [8 , (0. , 0.     , 0.)],
+    #    [1 , (0. , -0.757 , 0.587)],
+    #    [1 , (0. , 0.757  , 0.587)]]
+    mol.atom = """
+    H 0 0 0
+    H 0 0 1
+    """
 
-    mol.basis = 'sto3g'
+    mol.basis = '6-31g'
     mol.spin = 0
     mol.build()
 
@@ -1695,17 +1701,15 @@ if __name__ == "__main__":
 
     mgrad = ccs_gradient(geris)
 
-    print("Newton's method with Lamdba = 0 from random initial guess")
-    print()
-
     ts_G = gts.copy()*0.1
     ls_G = gls.copy()*0.1
     conv = 1.
     ite = 1
     norm = 0.
-    while conv > 10**-1:
+    while conv > 10**-5:
         norm_old = norm
         tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0)
+        #tsnew, lsnew = mgrad.Gradient_Descent(0.01, ts_G, ls_G, gfs, 0)
         ts_G = tsnew
         ls_G = lsnew
         norm = np.concatenate((ts_G.flatten(), ls_G.flatten()))
@@ -1713,7 +1717,27 @@ if __name__ == "__main__":
         ite += 1
         if ite > 50:
             break
+    print("Newton's method with Lamdba = 0 from random initial guess")
+    print("t and l amplitudes converged after {} iteration".format(ite))
+    print()
 
+    ts_G = np.zeros_like(gts)
+    ls_G = gls.copy()
+    conv = 1.
+    ite = 1
+    norm = 0.
+    while conv > 10**-5:
+        norm_old = norm
+        tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0.5)
+        #tsnew, lsnew = mgrad.Gradient_Descent(0.01, ts_G, ls_G, gfs, 0)
+        ts_G = tsnew
+        ls_G = lsnew
+        norm = np.concatenate((ts_G.flatten(), ls_G.flatten()))
+        conv = np.linalg.norm(norm-norm_old)
+        ite += 1
+        if ite > 50:
+            break
+    print("Newton's method with Lamdba = 0.1")
     print("t and l amplitudes converged after {} iteration".format(ite))
 
     print()

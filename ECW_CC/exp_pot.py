@@ -256,7 +256,7 @@ class Exp:
             else:
                 raise ValueError('Wrong format for exp_data')
 
-            return self.Vexp[0, 0]*L, X2, vmax
+            return self.Vexp[0, 0], X2, vmax
         
         else:
 

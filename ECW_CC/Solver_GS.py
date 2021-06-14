@@ -19,7 +19,7 @@ from pyscf import lib
 
 class Solver_CCS:
     def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=tuple(),
-                 maxiter=80, maxdiis=20, CCS_grad=None):
+                 maxiter=40, maxdiis=15, CCS_grad=None):
         '''
         
         :param mycc: class containing the CCS functions and equations 
@@ -94,7 +94,7 @@ class Solver_CCS:
     # SCF method
     #############
 
-    def SCF(self, L, ts=None, ls=None, diis=None, alpha=None):
+    def SCF(self, L, ts=None, ls=None, diis=None, alpha=None, store_ite=False):
 
         '''
         SCF+DISS solver for the ECW-CCS equations with L1 regularization term
@@ -104,6 +104,7 @@ class Solver_CCS:
         :param ls: initial l1 amplitudes
         :param diis: tuple of 'rdm1', 't' and/or 'l'
         :param alpha: L1 regularization parameter
+        :param store_ite: print ts and ls at ite in addition
         :return: [0] = convergence text
                  [1] = Ep(it)
                  [2] = X2(it) list of tuple: (X2,vmax,X2_Ek)
@@ -152,14 +153,20 @@ class Solver_CCS:
                 ldiis.space = self.maxdiis
                 ldiis.min_space = 2
 
+        # initialize list of ts and ls
+        if store_ite:
+            ts_ite = []
+            ls_ite = []
+
+        # Main loop
         while Dconv > self.conv_thres:
 
             conv_old = conv
 
             # update fock matrix and store X2
             # ---------------------------------
-            V, X2, vmax = VXexp.Vexp_update(rdm1, L, (0,0))
-            fsp = np.subtract(self.fock, V)
+            V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))
+            fsp = np.subtract(self.fock, L*V)
             X2_ite.append((X2, vmax))
 
             # update t amplitudes
@@ -168,7 +175,7 @@ class Solver_CCS:
             if alpha is None:
                 ts = mycc.tsupdate(ts, T1inter)
             else:
-                ts = mycc.tsupdate_L1(ts,T1inter,alpha)
+                ts = mycc.tsupdate_L1(ts, T1inter, alpha)
             # apply DIIS
             if 't' in diis:
                 ts_vec = np.ravel(ts)
@@ -218,16 +225,25 @@ class Solver_CCS:
 
             ite += 1
 
+            if store_ite:
+               ts_ite.append(ts)
+               ls_ite.append(ts)
+
         else:
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L, ite)
 
-        return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
+        if store_ite:
+            ts_ite = np.asarray(ts_ite)
+            ls_ite = np.asarray(ls_ite)
+            return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, ts_ite, ls_ite
+        else:
+            return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
 
     ###################
     # Gradient method
     ###################
 
-    def Gradient(self, L, method='newton', ts=None, ls=None, diis=tuple(), beta=0.1):
+    def Gradient(self, L, method='newton', ts=None, ls=None, diis=tuple(), beta=0.1, store_ite=False):
 
         '''
         Solver the ECW-CCS equations with gradient based methods
@@ -238,6 +254,7 @@ class Solver_CCS:
         :param ls: initial ls amplitudes
         :param diis: apply diis to ('Ep','t','tl')
         :param beta: step for steepest descend
+        :param store_ite: print ts and ls at ite in addition
         :return: [0] = convergence text
                  [1] = Ep(it)
                  [2] = X2(it) (list of tuple: (X2,vmax,X2_Ek))
@@ -250,7 +267,7 @@ class Solver_CCS:
         if ts is None:
             ts = self.tsini
             ls = self.lsini
-        rdm1 = self.mycc.gamma_CCS(ts, ls)
+        rdm1 = self.mycc.gamma(ts, ls)
 
         nocc = self.nocc
         nvir = self.nvir
@@ -281,14 +298,20 @@ class Solver_CCS:
                 ldiis.space = self.maxdiis
                 ldiis.min_space = 2
 
+        # initialize list of ts and ls
+        if store_ite:
+            ts_ite = []
+            ls_ite = []
+
+        # Main loop
         while Dconv > self.conv_thres:
 
             conv_old = conv
 
             # update fock matrix and store X2
             # ---------------------------------
-            V, X2, vmax = VXexp.Vexp_update(rdm1, L, (0,0))
-            fsp = np.subtract(self.fock, V)
+            V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))
+            fsp = np.subtract(self.fock, L*V)
             X2_ite.append((X2, vmax))
 
             # update t and l amplitudes
@@ -307,24 +330,24 @@ class Solver_CCS:
 
             # calculated rdm1 from ts and ls
             # --------------------------------
-            rdm1 = self.mycc.gamma_CCS(ts, ls)
+            rdm1 = self.mycc.gamma(ts, ls)
             # apply DIIS
             if 'rdm1' in diis:
                 rdm1_vec = np.ravel(rdm1)
                 rdm1 = adiis.update(rdm1_vec).reshape((dim, dim))
 
-            # calculate E' and Ekin             
+            # calculate E'
             # -------------------------------------------
             Ep = mycc.energy_ccs(ts, fsp)
             Ep_ite.append(Ep)
 
-            # checking convergence 
+            # checking convergence
             # --------------------------------------------
             dic = {'ts': ts, 'ls': ls, 'fsp': fsp}
             conv = self.Conv_check(dic)
-            conv_ite.append(conv)
             if ite > 0:
-                Dconv = abs(conv - conv_old)
+                Dconv = np.linalg.norm(conv - conv_old)
+            conv_ite.append(Dconv)
 
             # print convergence infos
             # --------------------------------------------
@@ -337,10 +360,18 @@ class Solver_CCS:
 
             ite += 1
 
+            if store_ite:
+               ts_ite.append(ts)
+               ls_ite.append(ts)
         else:
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L, ite)
 
-        return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
+        if store_ite:
+            ts_ite = np.asarray(ts_ite)
+            ls_ite = np.asarray(ls_ite)
+            return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, ts_ite, ls_ite
+        else:
+            return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
 
     ################################
     # ECW-CCS_L1 solver 
@@ -422,8 +453,8 @@ class Solver_CCS:
 
             # calculate subdifferential dW
             # ----------------------------------
-            dWT = utilities.subdiff(Teq,ts,alpha,thres=self.conv_thres)
-            dWL = utilities.subdiff(Leq,ls,alpha,thres=self.conv_thres)
+            dWT = utilities.subdiff(Teq, ts, alpha)
+            dWL = utilities.subdiff(Leq, ls, alpha)
 
             # update t and l amplitudes and apply P_0
             # -----------------------------------------
@@ -431,20 +462,20 @@ class Solver_CCS:
                 for a in range(nvir):
 
                     #ts
-                    Xj = ts[i,a]-chi*dWT[i,a]/(-fii[i]+faa[a])
-                    tmp = Xj*ts[i,a]
+                    Xj = ts[i, a]-chi*dWT[i, a]/(-fii[i]+faa[a])
+                    tmp = Xj*ts[i, a]
                     if tmp > self.conv_thres:
-                        ts[i,a] = Xj
+                        ts[i, a] = Xj
                     elif tmp < self.conv_thres:
-                        ts[i,a] = 0.
+                        ts[i, a] = 0.
 
                     #ls
-                    Xj = ls[i,a]-chi*dWL[i,a]/(-fii[i]+faa[a])
-                    tmp = Xj*ls[i,a]
+                    Xj = ls[i, a]-chi*dWL[i, a]/(-fii[i]+faa[a])
+                    tmp = Xj*ls[i, a]
                     if tmp > self.conv_thres:
-                        ls[i,a] = Xj
+                        ls[i, a] = Xj
                     elif tmp < self.conv_thres:
-                        ls[i,a] = 0.
+                        ls[i, a] = 0.
 
             # apply DIIS
             if 't' in diis:
@@ -743,7 +774,7 @@ if __name__ == "__main__":
         [1, (0., -0.757, 0.587)],
         [1, (0., 0.757, 0.587)]]
 
-    mol.basis = '6-31+g**'
+    mol.basis = '6-31g'
     mol.spin = 0
     mol.build()
 
@@ -769,13 +800,18 @@ if __name__ == "__main__":
     gexp.Vext(field)
     gexp.build()
     rdm1_exp = gexp.gamma_ao
-    exp = np.full((2,2),None)
-    exp[0,0] = ['mat',rdm1_exp]
+    exp = np.full((2, 2), None)
+    exp[0,0] = ['mat', rdm1_exp]
 
     print()
     print('################')
     print('# ECW-CCS test  ')
     print('################')
+    print()
+
+    print('       SCF      ')
+    print('================')
+    print()
 
     # GCCS object
     mccsg = CCS.Gccs(geris)
@@ -786,22 +822,22 @@ if __name__ == "__main__":
     VXexp = exp_pot.Exp(exp, mol, mgf.mo_coeff)
 
     # initial ts and ls
-    #tsini = np.random.rand(gnocc,gnvir)*0.01
-    #lsini = np.random.rand(gnocc,gnvir)*0.01
-    tsini = np.zeros((gnocc,gnvir))
-    lsini = np.zeros((gnocc,gnvir))
+    #tsini = np.random.rand(gnocc, gnvir)*0.01
+    #lsini = np.random.rand(gnocc, gnvir)*0.01
+    tsini = np.zeros((gnocc, gnvir))
+    lsini = np.zeros((gnocc, gnvir))
 
     # convergence options
     conv_thres = 10 ** -6
     diis = ('rdm1')  # must be tuple
 
     # initialise Solver_CCS Class
-    Solver_CCS = Solver_CCS(mccsg, VXexp,'tl',conv_thres, tsini=tsini, lsini=lsini, diis=diis, CCS_grad=mygrad)
+    Solver_CCS = Solver_CCS(mccsg, VXexp, 'tl', conv_thres, tsini=tsini, lsini=lsini, diis=diis, CCS_grad=mygrad)
 
     # Solve for L = 0
     L = 0.01
     Results = Solver_CCS.SCF(L)
-    #Results = Solver_CCS.Gradient(L,method='newton', alpha=0.5)
+    #Results = Solver_CCS.Gradient(L,method='newton')
     print(Results[0])
     print('X2= ', Results[2][-1])
     print()
@@ -813,6 +849,22 @@ if __name__ == "__main__":
     print()
     print()
 
+
+    print('     Newton/Gradient descend     ')
+    print('=================================')
+    print()
+
+    Results = Solver_CCS.Gradient(L, method='descend', beta=0.01, diis=tuple())
+    print(Results[0])
+    print('X2= ', Results[2][-1])
+    print()
+    print('Ep')
+    print(Results[1])
+    print()
+    print('Conv')
+    print(Results[3])
+    print()
+    print()
 
     print('########################')
     print('# ECW-CCSD test         ')
@@ -836,7 +888,7 @@ if __name__ == "__main__":
 
     # convergence options
     maxiter = 20
-    conv_thres = 10 ** -6
+    conv_thres = 10 ** -5
     diis = ('')  # must be tuple
 
     # initialise Solver_CCS Class
