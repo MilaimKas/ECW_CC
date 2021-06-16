@@ -74,10 +74,10 @@ ES_dip_2 = ES_dip_l_2*ES_dip_r_2
 # build exp list
 exp_data = np.full((nbr_states, nbr_states), None)
 #exp_data[0, 0] = ['mat', GS_exp]
-exp_data[0, 1] = ['mat', ES_trrdm_l_1]
-exp_data[0, 2] = ['mat', ES_trrdm_l_2]
-exp_data[1, 0] = ['mat', ES_trrdm_r_1]
-exp_data[2, 0] = ['mat', ES_trrdm_r_2]
+exp_data[0, 1] = ['mat', ES_trrdm_l_1*ES_trrdm_r_1]
+exp_data[0, 2] = ['mat', ES_trrdm_l_2*ES_trrdm_r_2]
+#exp_data[1, 0] = ['mat', ES_trrdm_r_1*ES_trrdm_l_1]
+#exp_data[2, 0] = ['mat', ES_trrdm_r_2*ES_trrdm_l_2]
 # dip transition moment for H2O/6-311+g** with Qchem
 #exp_data[0, 1] = ['dip', [0.000000, 0.523742, 0.0000]]     # DE = 0.28 au
 #exp_data[0, 2] = ['dip', [0.000000, 0.000000, -0.622534]]  # DE = 10.06 eV
@@ -89,10 +89,10 @@ VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 
 # convergence options
 maxiter = 50
-conv_thres = 10 ** -4
-diis = ('r', 'l')  # must be tuple
+conv_thres = 10 ** -5
+#diis = ('r', 'l')  # must be tuple
 #diis = ('rdm1')
-#diis = ('')
+diis = ('')
 conv = 'rl'
 
 # initialise Solver_CCS Class
@@ -132,12 +132,8 @@ print('Difference between left and right gamma_exp')
 print(np.max(np.subtract(ES_trrdm_l_1, ES_trrdm_r_1)))
 print(np.max(np.subtract(ES_trrdm_l_2, ES_trrdm_r_2)))
 
-#print('Exp data')
-#print(exp_data)
-#print()
-
 # Solve for L
-L = np.full((exp_data.shape), 0.01)
+L = np.full(exp_data.shape, 0.1)
 L[0, 0] = 0
 #result = Solver.SCF(L)
 result = Solver.SCF_davidson(L)

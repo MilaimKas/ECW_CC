@@ -688,7 +688,6 @@ class Solver_ES:
                     # left tr_dm1 <Psi_n|aa|Psi_k>
                     tr_l = mycc.gamma_tr(ts, ls, rn[n], r0n[n], 1)
                     tr_rdm1[n] = list((tr_r, tr_l))
-
                 del tr_r, tr_l
 
             #
@@ -697,8 +696,8 @@ class Solver_ES:
 
             # GS
             if rdm1[0] is not None:
-                V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], (0, 0))
-                fsp[0] = np.subtract(mycc.fock, V)
+                v, x2, vmax = Vexp_class.Vexp_update(rdm1[0], (0, 0))
+                fsp[0] = np.subtract(mycc.fock, v)
                 X2[0, 0] = x2
             # else:
             #    fsp[0] = fock.copy()
@@ -708,17 +707,18 @@ class Solver_ES:
                 n = j+1
 
                 if rdm1[n] is not None:
-                    V, x2, vmax = Vexp_class.Vexp_update(rdm1[n], (n, n))
-                    fsp[n] = np.subtract(mycc.fock, V)
+                    v, x2, vmax = Vexp_class.Vexp_update(rdm1[n], (n, n))
+                    fsp[n] = np.subtract(mycc.fock, v)
                     X2[n, n] = x2
                 #else:
                 #    fsp[n] = fock.copy()
 
                 if tr_rdm1[j] is not None:
-                    V, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))
-                    V, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))
-
-            del V
+                    #v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))
+                    #v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))
+                    #v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j], (n, 0))
+                    v, X2[0, n], vmax = Vexp_class.Vexp_update_norm(tr_rdm1[j][0], (0, n), rdm1_l=tr_rdm1[j][1])
+            del v
 
             X2_ite.append(X2)
 
@@ -740,7 +740,7 @@ class Solver_ES:
             # ----------------------------------------
 
             L1inter = mycc.L1inter(ts, fsp[0])
-            vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]  # use left Vexp
+            #vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]  # use left Vexp
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
 
             del vexp, L1inter
@@ -773,7 +773,7 @@ class Solver_ES:
                 # ----------------------------------------------
 
                 Rinter = mycc.R1inter(ts, fsp[i+1], vexp)
-                del vexp
+                #del vexp
 
                 diag = np.zeros((nocc, nvir))
                 for j in range(nocc):
@@ -802,8 +802,7 @@ class Solver_ES:
                 print('rn eigenvectors')
                 En_r = de[i]
                 rn[i] = rvec[i].reshape((nocc, nvir))
-                print(rn[i])  #rn[i][0, 0])
-                #rn[i][1, 1])
+                print(rn[i])
                 print()
 
                 #
@@ -815,7 +814,7 @@ class Solver_ES:
                 #
                 # Left Vexp
                 # ---------------------------------------------
-                vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
+                #vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
 
                 #
                 # make H_i left matrix and diag terms
@@ -856,7 +855,7 @@ class Solver_ES:
                 l0n[i] = mycc.L0eq(En_l, ts, ln[i], fsp=fsp[i+1])
 
                 #
-                # Update Energies
+                # Update ES energies
                 # ----------------------------------------------
 
                 Ep[i + 1][0] = En_r
@@ -869,7 +868,7 @@ class Solver_ES:
             # -------------------------------------------------------------------------
             #
 
-            ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
+            ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n, ortho=False)
             C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
             print('C_norm')
             print(C_norm)
@@ -885,6 +884,7 @@ class Solver_ES:
             vexp = [-L[0, i + 1] * Vexp_class.Vexp[0, i + 1] for i in range(nbr_states)]
             Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rsn=rn, r0n=r0n, vn=vexp)
             Ep_ite.append(Ep)
+            del vexp
 
             #
             # checking convergence
@@ -900,7 +900,7 @@ class Solver_ES:
             conv_ite.append(Dconv)
 
             #
-            # print convergence infos
+            # print convergence info
             # --------------------------------------------
 
             tmp = [ite, format_float.format(Dconv)]
@@ -908,11 +908,11 @@ class Solver_ES:
             for i in range(nbr_states):
 
                 if i == 0:
-                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i+1, 0], X2[i+1, i], 2*Spin[i]+1, r0n[i], l0n[i],
-                                Ep[i + 1][0], Ep[i + 1][1]])
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[0, i+1], X2[i+1, 0],
+                                2*Spin[i]+1, r0n[i], l0n[i], Ep[i + 1][0], Ep[i + 1][1]])
                 else:
                     C_norm_av = (C_norm[0, i] + C_norm[i, 0]) / 2
-                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i+1, 0], X2[0, i+1], 2*Spin[i]+1, r0n[i],
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[0, i+1], X2[i+1, 0], 2*Spin[i]+1, r0n[i],
                                 l0n[i], Ep[i + 1][0], Ep[i + 1][1], format_float.format(C_norm_av)])
 
             table.append(tmp)
@@ -942,6 +942,7 @@ class Solver_ES:
             print('Final energies: ', Ep_ite[-1])
 
         return Conv_text, dic
+
 
 
 if __name__ == "__main__":

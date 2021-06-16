@@ -730,13 +730,18 @@ def biortho_es(r1, l1, r0, l0):
     return new_r, new_l, new_r0, new_l0
 
 
-def ortho_norm(rn, ln, rn0, ln0):
+def ortho_norm(rn, ln, rn0, ln0, ortho=True):
     '''
     normalize vectors r and l
-    orthgonalize r and l if biorthogonal set (len(rn)=2)
+    orthogonalize r and l if biorthogonal set (len(rn)=2)
 
     math: <Psi_n|Psi_k> = dnk
 
+    :param rn: list of r1 amplitudes for each state
+    :param ln: list of l1 amplitudes for each state
+    :param rn0: list of r0 amplitudes for each state
+    :param ln0: list of l0 amplitudes for each state
+    :param ortho: True if a biorthogonalization is to be performed
     :return:
     '''
 
@@ -747,12 +752,16 @@ def ortho_norm(rn, ln, rn0, ln0):
     ln0_new = copy.deepcopy(ln0)
     rn0_new = copy.deepcopy(rn0)
 
-    # check if orthogonal and orthogonalize if bi-basis
-    if len(rn) == 2:
+    # check if orthogonal and orthogonalizes if bi-basis
+    if len(rn) == 2 and ortho is True:
         for c in np.tril(C_norm, -1).flatten():
             if c > 0.001 or c < -0.001:
+                # right
                 rn_new[0], ln_new[1], rn0_new[0], ln0_new[1] = \
                     biortho_es(rn_new[0], ln_new[1], rn0_new[0], ln0_new[1])
+                # left
+                rn_new[1], ln_new[0], rn0_new[1], ln0_new[0] = \
+                    biortho_es(rn_new[1], ln_new[0], rn0_new[1], ln0_new[0])
                 C_norm = check_ortho(rn_new, ln_new, rn0_new, ln0_new)
                 break
 
@@ -1283,13 +1292,14 @@ if __name__ == '__main__':
 
     print("bi-orthogonalize rn and lk")
     rs[0], ls[1], r0[0], l0[1] = biortho_es(rs[0], ls[1], r0[0], l0[1])
+    rs[1], ls[0], r0[1], l0[0] = biortho_es(rs[1], ls[0], r0[1], l0[0])
     print('rn vector ortho ? -> NO')
     print(np.sum(rs[0].flatten()*rs[1].flatten())+r0[0]*r0[1])
     print('ln vectors ortho ? -> NO')
     print(np.sum(ls[0].flatten() * ls[1].flatten())+l0[0]*l0[1])
     print('rn-lk ortho ? -> YES')
     print(np.sum(rs[0].flatten() * ls[1].flatten())+r0[0]*l0[1])
-    print('rk-ln ortho ? -> NO')
+    print('rk-ln ortho ? -> YES')
     print(np.sum(ls[0].flatten() * rs[1].flatten())+l0[0]*r0[1])
     print()
 

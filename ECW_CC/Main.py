@@ -268,9 +268,9 @@ class ECW:
                             b = p[2][1]
                             c = p[2][2]
                         else:
-                            a=10.
-                            b=10.
-                            c=10.
+                            a = 10.
+                            b = 10.
+                            c = 10.
                         self.rec_vec = np.asarray([a, b, c])
                         # calculate list of structure factors for each given set of Miller indices
                         F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,

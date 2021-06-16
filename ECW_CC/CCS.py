@@ -743,7 +743,7 @@ class Gccs:
         if fsp is None:
             fsp = self.fock.copy()
 
-        fov = fsp[:nocc,nocc:].copy()
+        fov = fsp[:nocc, nocc:].copy()
         
         # r intermediates
         # ------------------
@@ -752,7 +752,7 @@ class Gccs:
         Fjb = fov.copy()
         #Fjb += np.einsum('jkbk->jb',self.eris.oovo)
         #tmp = Fjb.copy()
-        Fjb += np.einsum('kc,kjcb->jb',ts,self.eris.oovv)
+        Fjb += np.einsum('kc,kjcb->jb', ts, self.eris.oovv)
            
         # r0 intermediates
         # ------------------
@@ -760,17 +760,17 @@ class Gccs:
         # Zjb: equation (25) --> Same as Fjb in R1inter
         # Zjb and ts are contracted here
         Zjb = fov.copy()
-        Zjb += 0.5*np.einsum('kc,jkbc->jb',ts,self.eris.oovv)
-        Z = np.einsum('jb,jb',ts,Zjb)
+        Zjb += 0.5*np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
+        Z = np.einsum('jb,jb', ts, Zjb)
         del Zjb
         #del tmp
 
         # Vexp inter
         # -------------------
-        vm_oo = vm[:nocc,:nocc]
-        vm_ov = vm[:nocc,nocc:]
-        P = np.einsum('jj',vm_oo)
-        P += np.einsum('jb,jb',ts,vm_ov)
+        vm_oo = vm[:nocc, :nocc]
+        vm_ov = vm[:nocc, nocc:]
+        P = np.einsum('jj', vm_oo)
+        P += np.einsum('jb,jb', ts, vm_ov)
         
         return Fjb, Z, P
 
@@ -1549,6 +1549,17 @@ class ccs_gradient:
 
         return dL
 
+    def Jacobian(self, ts, ls, fsp, L):
+
+        # build Jacobian
+        J00 = self.dTdt(ts, ls, fsp, L)
+        J01 = self.dTdl(ts, L)
+        J10 = self.dLdt(ts, ls, fsp, L)
+        J11 = self.dLdl(ts, ls, fsp, L)
+        J = np.block([[J00, J01], [J10, J11]])
+
+        return J
+
     ###################
     # Newton's method
     ###################
@@ -1563,11 +1574,7 @@ class ccs_gradient:
         X = np.concatenate((T1, L1))
 
         # build Jacobian
-        J00 = self.dTdt(ts, ls, fsp, L)
-        J01 = self.dTdl(ts, L)
-        J10 = self.dLdt(ts, ls, fsp, L)
-        J11 = self.dLdl(ts, ls, fsp, L)
-        J = np.block([[J00, J01], [J10, J11]])
+        J = self.Jacobian(ts, ls, fsp, L)
 
         # Solve J.Dx=-X
         Dx = np.linalg.solve(J, -X)
@@ -1590,12 +1597,7 @@ class ccs_gradient:
         X = np.concatenate((T1, L1))
 
         # build Jacobian
-        J00 = self.dTdt(ts, ls, fsp, L)
-        J01 = self.dTdl(ts, L)
-        J10 = self.dLdt(ts, ls, fsp, L)
-        J11 = self.dLdl(ts, ls, fsp, L)
-        J = np.block([[J00, J01], [J10, J11]])
-        # print J
+        J = self.Jacobian(ts, ls, fsp, L)
 
         # make ts and ls vectors
         ts = ts.flatten()
