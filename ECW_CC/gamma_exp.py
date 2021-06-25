@@ -166,7 +166,7 @@ class Gexp:
         # parse new coordinates to mol_def object
         self.mol_def.atom = []
         for i in range(natm):
-            self.mol_def.atom.append([atom_name[i][0], [new_coord[i, 0],new_coord[i, 1], new_coord[i, 2]]])
+            self.mol_def.atom.append([atom_name[i][0], [new_coord[i, 0], new_coord[i, 1], new_coord[i, 2]]])
 
         # rebuild integral
         self.mol_def.build()
@@ -217,6 +217,8 @@ class Gexp:
         self.mf_def.kernel()
         if not self.g_format:
             self.mf_def = scf.addons.convert_to_ghf(self.mf_def)
+        # modify hcore dimension R => G format
+        self.mf_def.get_hcore = lambda *args: scipy.linalg.block_diag(self.mf_def.get_hcore, self.mf_def.get_hcore)
         self.mo_coeff_def = self.mf_def.mo_coeff
         self.nocc = np.count_nonzero(self.mf_def.mo_occ > 0)
         self.nvir = np.count_nonzero(self.mf_def.mo_occ == 0)
