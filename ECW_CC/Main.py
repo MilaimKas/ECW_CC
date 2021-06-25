@@ -232,7 +232,7 @@ class ECW:
         # Build gamma_exp for the GS
         # ---------------------------
 
-        gexp = gamma_exp.Gexp(self.mol, posthf, self.G_format)
+        gexp = gamma_exp.Gexp(self.mol, posthf)
 
         if isinstance(max_def, float):
             gexp.deform(max_def)
@@ -303,7 +303,7 @@ class ECW:
             
         print('*** GS data stored ***')
 
-    def Build_ES_exp_MOM(self,nbr_of_es=(1,0), field=None):
+    def Build_ES_exp_MOM(self, nbr_of_es=(1, 0), field=None):
         '''
         Build excited states data from MOM calculation
 

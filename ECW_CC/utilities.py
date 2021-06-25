@@ -218,6 +218,7 @@ def convert_u_to_g_rdm1(rdm_u):
     return rdm_g
 
 def convert_r_to_g_rdm1(rdm_r):
+    # todo: trace of the transformed rdm1 is not = nelec
     """
     convert R rdm1 to G rdm1
 
@@ -234,6 +235,7 @@ def convert_r_to_g_rdm1(rdm_r):
     return rdm_g
 
 def convert_r_to_g_coeff(mo_coeff):
+    # todo: trace of the transformed rdm1 is not = nelec
     '''
     Convert mo_coeff in spatial format into spin-orbital format
 
@@ -280,18 +282,19 @@ def convert_aoint(int_ao, mo_coeff):
     :return:
     '''
 
-    dim = mo_coeff.shape[0]
-
     # dipole case
     if int_ao.shape[0] == 3:
+        dim = mo_coeff.shape[0]
         int_mo = np.zeros((3, dim, dim))
         for int, i in zip(int_ao, [0, 1, 2]):
-            int_mo[i, :, :] = ao_to_mo(int, mo_coeff)
+            tmp = ao_to_mo(int, convert_g_to_r_coeff(mo_coeff))
+            # R -> G
+            int_mo[i, :, :] = convert_r_to_g_rdm1(tmp)
+
     else:
         int_mo = ao_to_mo(int_ao, convert_g_to_r_coeff(mo_coeff))
-
-    # R -> G
-    int_mo = convert_r_to_g_rdm1(int_mo)
+        # R -> G
+        int_mo = convert_r_to_g_rdm1(int_mo)
 
     return int_mo
 

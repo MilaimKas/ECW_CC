@@ -40,20 +40,18 @@ gamma_exp_ao = gamma_exp.gamma_ao
 gamma_exp_mo = utilities.ao_to_mo(gamma_exp_ao, mo_coeff)
 
 # Initial ts and ls amplitudes
-ts = np.zeros(nocc, nvir)
-ls = np.zeros(nocc, nvir)
+ts = np.zeros((nocc, nvir))
+ls = np.zeros((nocc, nvir))
 
 # Initial gamma_calc
 gamma_calc = mccsg.gamma(ts, ls)
 
 # Initial effective fock matrix f' with weight L
 L = 0.
-fsp = L*(np.subtract(gamma_exp, gamma_calc))
+fsp = L*(np.subtract(gamma_exp_mo, gamma_calc))
 
 # Function to calculate T1 and L1 values and the Jacobian matrix
 mygrad = CCS.ccs_gradient(geris)
 T1 = mygrad.T1eq(ts, fsp)
 L1 = mygrad.L1eq(ts, ls, fsp)
 J = mygrad.Jacobian(ts, ls, fsp, L)
-
-# CHANGES

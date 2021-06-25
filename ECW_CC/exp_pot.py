@@ -235,7 +235,6 @@ class Exp:
                     elif isinstance(calc_prop, list) and len(calc_prop) == len(self.h):
                         # loop over structure factors
                         for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:], calc_prop, self.dic_int['F']):
-                            # todo: Problem with complex number: Vexp is complex ?
                             self.Vexp[0, 0] += np.abs((F_exp - F_calc)) * F_int_mo
                             X2 += (F_exp - F_calc) ** 2
                             M += 1
@@ -593,11 +592,11 @@ if __name__ == "__main__":
     mf = scf.RHF(mol)
     mf.kernel()
     mf = scf.addons.convert_to_ghf(mf)
-    mo_occ   = mf.mo_occ
+    mo_occ = mf.mo_occ
     mo_coeff = mf.mo_coeff
     mo_coeff_inv = np.linalg.inv(mo_coeff)
-    mocc = mo_coeff[:, mo_occ>0]
-    mvir = mo_coeff[:, mo_occ==0]
+    mocc = mo_coeff[:, mo_occ > 0]
+    mvir = mo_coeff[:, mo_occ == 0]
     nocc = mocc.shape[1]
     nvir = mvir.shape[1]
     dim = nocc+nvir
@@ -619,31 +618,35 @@ if __name__ == "__main__":
 
     print()
     print('nocc and nvir')
-    print(nocc,nvir)
+    print(nocc, nvir)
     print()
     print('Initial Vexp matrix')
     print(myVexp.Vexp)
     print()
     
-    print('###############################')
-    print(" Experimental potential and X2 ")
-    print('###############################')
+    print('##################################')
+    print(" A: Experimental potential and X2 ")
+    print('##################################')
     
     #######
     # GS
     #######
 
     # GS calc rdm1
-    rdm1_GS = np.random.random((dim//2,dim//2))
+    rdm1_GS = np.random.random((dim//2, dim//2))*0.1
+    rdm1_GS = rdm1_GS + rdm1_GS.T - 2*np.diag(rdm1_GS)
+    idx = np.array([[i, i] for i in range(sum(mol.nelec))])
+    rdm1_GS[idx] += 1.
     rdm1_GS = utilities.convert_r_to_g_rdm1(rdm1_GS)
+    print('Trace - nelec: ', np.trace(rdm1_GS)-sum(mol.nelec))
 
-    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, L, (0, 0))
+    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, (0, 0))
     
     print('--------')
     print('GS case')
     print('--------')
     print()
-    print('Prop = {}'.format(exp_data[0,0][1]))
+    print('Prop = {}'.format(exp_data[0, 0][0]))
     print()
     print('Vexp')
     print('X2, vmax =', X2, vmax)
@@ -660,10 +663,10 @@ if __name__ == "__main__":
     print('ES case')
     print('--------')
 
-    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, L, (1, 1))
+    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, (1, 1))
 
     print('ES 1,1')
-    print('prop = {}'.format(exp_data[1,1]))
+    print('prop = {}'.format(exp_data[1, 1]))
     print()
     print('Vexp')
     print()
@@ -671,13 +674,21 @@ if __name__ == "__main__":
     print('Vexp shape=', V.shape)
     print()
 
-    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, L, (0, 1))
+    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, (0, 1))
 
     print('ES 0,1')
-    print('prop = {}'.format(exp_data[0,1][1]))
+    print('prop = {}'.format(exp_data[0, 1][1]))
     print()
     print('Vexp')
     print()
     print('X2, vmax =', X2, vmax)
     print('Vexp shape=', V.shape)
     print()
+
+    print('#####################################')
+    print(" A**2: Experimental potential and X2 ")
+    print('#####################################')
+    print()
+
+    V, X2, vmax = myVexp.Vexp_update_norm2(rdm1_GS, rdm1_GS, (1, 1))
+    print('X2=', X2)

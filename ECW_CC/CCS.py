@@ -122,7 +122,6 @@ class Gccs:
     # -------------------------------------------------------------------
     # RDM1
     # -------------------------------------------------------------------
-    # todo: check r0 and l0 for the GS case
 
     def gamma(self, ts, ls):
         return gamma_CCS(ts, ls)
@@ -644,7 +643,6 @@ class Gccs:
     # ------------------------------------------------------------------------------------------
 
     def R1inter(self, ts, fsp, vm):
-        # todo: calculates all Rn inter simultaneously
         '''
         Calculates the R1 intermediates for state m: equations (14) -> (21) in ES-ECW-CCS file
 
@@ -786,7 +784,6 @@ class Gccs:
         return Fjb, Z, P
 
     def Extract_Em_r(self, rs, r0, Rinter, ov=None):
-        # todo: to avoid spin degeneracy, extract Em from the initial ria
         '''
 
         Extract Em from the largest r1 element
@@ -855,7 +852,6 @@ class Gccs:
             b -= Z
 
             # solve quadratic equation using delta
-            # todo : which r0 solution to choose ?
             r0_1 = (-b + np.sqrt((b**2)-(4*a*c))) / c
             r0_2 = (-b - np.sqrt((b**2)-(4*a*c))) / c
 
@@ -1201,7 +1197,6 @@ class Gccs:
             b -= Z
 
             # solve quadratic equation using delta
-            # todo : which l0 solution to choose ?
             l0_1 = (-b + np.sqrt((b ** 2) - (4 * a * c))) / 2*c
             l0_2 = (-b - np.sqrt((b ** 2) - (4 * a * c))) / 2*c
 
@@ -1841,8 +1836,8 @@ if __name__ == "__main__":
     rk = Matvec[:, 0].reshape(gnocc, gnvir)
     ln = Matvec[:, 1].reshape(gnocc, gnvir)
     # get r0 and l0
-    r0k = mccsg.R0eq(0.1, t1, rk)
-    l0n = mccsg.L0eq(0.1, t1, ln)
+    r0k = mccsg.R0eq(0.1, t1, rk, np.zeros_like(gfs))
+    l0n = mccsg.L0eq(0.1, t1, ln, np.zeros_like(gfs))
     tr_rdm1 = mccsg.gamma_tr(t1, ln, rk, r0k, l0n)
     print(tr_rdm1.trace())
     print()
