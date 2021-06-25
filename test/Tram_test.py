@@ -56,5 +56,4 @@ T1 = mygrad.T1eq(ts, fsp)
 L1 = mygrad.L1eq(ts, ls, fsp)
 J = mygrad.Jacobian(ts, ls, fsp, L)
 
-
-print('WAAAAAAAAAAAAAAAAAAAHHHHHHHHHHHHHHHH')
+# CHANGES
