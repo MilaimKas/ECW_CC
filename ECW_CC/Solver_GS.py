@@ -68,7 +68,6 @@ class Solver_CCS:
         self.fock = mycc.fock
         self.tsini = tsini
         self.lsini = lsini
-        self.nocc, self.nvir = tsini.shape
 
     #####################
     # Convergence check

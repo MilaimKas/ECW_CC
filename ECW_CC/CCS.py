@@ -122,6 +122,7 @@ class Gccs:
     # -------------------------------------------------------------------
     # RDM1
     # -------------------------------------------------------------------
+    # todo: check r0 and l0 for the GS case
 
     def gamma(self, ts, ls):
         return gamma_CCS(ts, ls)
@@ -139,10 +140,10 @@ class Gccs:
 
         nocc,nvir = ts.shape
 
-        doo = -np.einsum('ie,je->ij',ts,ls)
-        dvv = np.einsum('mb,ma->ab',ts,ls)
+        doo = -np.einsum('ie,je->ij', ts, ls)
+        dvv = np.einsum('mb,ma->ab', ts, ls)
         dov = ls.copy()
-        dvo = -np.einsum('ie,ma,me->ai',ts,ts,ls)+ts.transpose()
+        dvo = -np.einsum('ie,ma,me->ai', ts, ts, ls)+ts.transpose()
 
         dm1 = np.empty((nocc + nvir, nocc + nvir))
         dm1[:nocc, :nocc] = doo
@@ -171,16 +172,23 @@ class Gccs:
         # GS case:
         if rn is None:
             rn = np.zeros_like(ts)
-            r0n = 0.
+            r0n = 1.
         if ln is None:
             ln = np.zeros_like(ts)
-            l0n = 0.
+            l0n = 1.
 
+        # gamma_ij
         doo = -r0n * np.einsum('ie,je->ij', ts, ln)
         doo -= np.einsum('ie,je->ij', rn, ln)
+
+        # gamma_ia
         dov = r0n * ln
+
+        # gamma_ab
         dvv = r0n * np.einsum('mb,ma->ab', ts, ln)
         dvv += np.einsum('mb,ma->ab', rn, ln)
+
+        # gamma_ai
         dvo = r0n * np.einsum('ie,ma,me->ai', ts, ts, ln)
         dvo -= np.einsum('ma,ie,me->ai', ts, rn, ln)
         dvo -= np.einsum('ie,ma,me->ai', ts, rn, ln)
@@ -225,20 +233,23 @@ class Gccs:
 
         # if Psi_n = GS
         if l0n == 0 or l0n is None:
-            l0n = 0
+            l0n = 1.
 
 
         doo = -r0k * np.einsum('ie,je->ij', ts, ln)
         doo -= np.einsum('ie,je->ij', rk, ln)
+
         dov = r0k * ln
+
         dvv = r0k * np.einsum('mb,ma->ab', ts, ln)
         dvv += np.einsum('mb,ma->ab', rk, ln)
+
         dvo = -r0k * np.einsum('ie,ma,me->ai', ts, ts, ln)
         dvo -= np.einsum('ma,ie,me->ai', ts, rk, ln)
         dvo -= np.einsum('ie,ma,me->ai', ts, rk, ln)
         dvo += l0n*r0k*ts.transpose()
         dvo += np.einsum('jb,ia,jb->ai', ln, ts, rk)
-        dvo += l0n*rk.transpose()  # not present in Stanton
+        dvo += l0n*rk.transpose()  # not present in Stanton because l0n = 0
 
         dm = np.empty((nocc + nvir, nocc + nvir))
         dm[:nocc, :nocc] = doo
@@ -507,7 +518,7 @@ class Gccs:
             if r0n is None or l0n is None:
                 raise ValueError('r0 and l0 values must be given')
 
-            for r,l,v,r0,l0 in zip(rsn,lsn,vn,r0n,l0n):
+            for r, l, v, r0, l0 in zip(rsn, lsn, vn, r0n, l0n):
 
                 if v.any():
                     v = np.asarray(v)
@@ -675,10 +686,10 @@ class Gccs:
         Fji += np.einsum('kb,ic,kjbc->ji', ts, ts,self.eris.oovv)
         
         # Wakic: equation (16)
-        W  = self.eris.voov.copy()
-        W += np.einsum('ib,akbc->akic', ts, self.eris.vovv)
-        W -= np.einsum('ib,ja,jkbc->akic', ts, ts, self.eris.oovv)
-        W -= np.einsum('ja,jkic->akic', ts, self.eris.ooov)
+        Wakic  = self.eris.voov.copy()
+        Wakic += np.einsum('ib,akbc->akic', ts, self.eris.vovv)
+        Wakic -= np.einsum('ib,ja,jkbc->akic', ts, ts, self.eris.oovv)
+        Wakic -= np.einsum('ja,jkic->akic', ts, self.eris.ooov)
         
         # Fjb: equation (17)
         Fjb = fov.copy()
@@ -725,7 +736,7 @@ class Gccs:
         Pia -= np.einsum('ii,ja,ib->ai', v_oo, ts, ts)
         Pia = np.einsum('ai->ia', Pia)
 
-        return Fab, Fji, W, F, Zia, Pia
+        return Fab, Fji, Wakic, F, Zia, Pia
     
     def R0inter(self, ts, fsp, vm):
         '''
@@ -955,11 +966,11 @@ class Gccs:
         rov = 1 - r0 * l0 - np.einsum('ia,ia', r, ls)
         #print('amp {} from normality condition'.format(ind))
         #print(rov)
-        rov /= ls[o,v]
+        rov /= ls[o, v]
 
         return rov
 
-    def R0eq(self, En, t1, r1, fsp=None):
+    def R0eq(self, En, t1, r1, vm0, fsp=None):
         '''
         Returns r0 term for a CCS state
         See equation 23 in Derivation_ES file
@@ -967,9 +978,8 @@ class Gccs:
         :param En: correlation energy of the state
         :param t1: t1 amp
         :param r1: r1 amp
+        :param vm0: constraint potential Vm0
         :param fsp: fock matrix
-        :param eris_oovo: two-particle integrals
-        :param eris_oovv:
         :return: r0
         '''
 
@@ -977,6 +987,9 @@ class Gccs:
             fsp = self.fock.copy()
 
         nocc, nvir = r1.shape
+
+        vov = vm0[:nocc, nocc:].copy()
+        voo = vm0[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
         
         d = 0.
@@ -987,8 +1000,11 @@ class Gccs:
 
         r0 = 0.
         r0 += np.einsum('jb,jb', r1, fov)
+        idx = np.argwhere(r1)
         #r0 += np.einsum('jb,jkbk', t1, self.eris.oovo)
         r0 += np.einsum('kc,jb,jkbc', r1, t1, self.eris.oovv)
+        r0 += np.einsum('jb, jb', t1, vov)
+        r0 += np.trace(voo)
         r0 /= d
 
         return r0
@@ -1150,6 +1166,52 @@ class Gccs:
 
         return Em, o,v
 
+    def Extract_l0(self, l1, ts, fsp, vm):
+        '''
+        Use L1 and L0 equations to calculate l0 from given r1
+
+        :param l1: l1 amplitude vector
+        :return: r0
+        '''
+
+        if fsp is None:
+            f = self.fock
+        else:
+            f = fsp.copy()
+
+        Fba, Fij, W, F, Zia, P = self.es_L1inter(ts, f, vm)
+        Fbj, Wjb, Z, P = self.L0inter(ts, f, vm)
+
+        L1 = np.einsum('ba, ib->ia', Fba, l1)
+        L1 -= np.einsum('ij, ja->ia', Fij, l1)
+        L1 += np.einsum('jb, bija->ia', l1, W)
+        L1 += l1 * F
+        L1 += P
+
+        c = -np.einsum('jb, bj', l1, Fbj)
+        c -= P
+
+        if c == 0.:
+            return 0
+        else:
+            # largest l1
+            i, j = np.unravel_index(np.argmax(abs(l1), axis=None), l1.shape)
+            a = Zia[i, j] / l1[i, j]
+            b = L1[i, j] / l1[i, j]
+            b -= Z
+
+            # solve quadratic equation using delta
+            # todo : which l0 solution to choose ?
+            l0_1 = (-b + np.sqrt((b ** 2) - (4 * a * c))) / 2*c
+            l0_2 = (-b - np.sqrt((b ** 2) - (4 * a * c))) / 2*c
+
+            if l0_1 > 0:
+                return l0_1
+            elif l0_2 > 0:
+                return l0_2
+            else:
+                raise ValueError('Both solution for l0 are negative')
+
     def es_lsupdate(self, ls, l0, Em, L1inter, idx=None):
         '''
         Update the l1 amplitudes for state m
@@ -1233,14 +1295,15 @@ class Gccs:
 
         return l0new
 
-    def L0eq(self, En, t1, l1, fsp=None):
+    def L0eq(self, En, t1, l1, v0m, fsp=None):
         '''
         Returns l0 term for a CCS state
         See equation 23 in Derivation_ES file
 
-        :param En: correlation energy (En+EHF=En_tot) of the state
+        :param En: correlation energy (En+EHF=En_tot) of the state n
         :param t1: t1 amp
-        :param r1: l1 amp
+        :param l1: l1 amp of state n
+        :param v0m: contraint potential matrix V0m
         :param fsp: fock matrix
         :return: l0
         '''
@@ -1252,6 +1315,9 @@ class Gccs:
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
         foo = fsp[:nocc, :nocc].copy()
+
+        vov = v0m[:nocc, nocc:]
+        voo = v0m[:nocc, :nocc]
 
         d = En
         #d -= np.einsum('jb,jkbk', t1, self.eris.oovo)
@@ -1278,6 +1344,8 @@ class Gccs:
         #tmp = np.einsum('jb,jc->bc', l1, t1)
         #l0 -= np.einsum('bc,kb,klcl', tmp, t1, self.eris.oovo)
         del tmp
+        l0 += np.einsum('ia, ia', t1, vov)
+        l0 += np.trace(voo)
 
         l0 /= d
 

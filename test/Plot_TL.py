@@ -3,6 +3,7 @@
 # Python
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 # PySCF
 from pyscf import gto, scf, cc
@@ -29,6 +30,8 @@ mol.build()
 mrf = scf.RHF(mol)
 mrf.kernel()
 mgf = scf.addons.convert_to_ghf(mrf)
+#mgf = scf.GHF(mol)
+#mgf.kernel()
 
 ##########
 # ERIS
@@ -83,7 +86,7 @@ mygrad = CCS.ccs_gradient(geris)
 
 # Solver_CCS objects
 # returns: text, Ep, X2, T1, L1, t1, l1
-Solver = Solver_GS.Solver_CCS(mygccs, VX_exp, 'tl', conv, CCS_grad=mygrad)
+Solver = Solver_GS.Solver_CCS(mygccs, VX_exp, 'Ep', conv, CCS_grad=mygrad)
 
 # L1 alpha value
 alpha = 0.001
@@ -115,17 +118,19 @@ ls_scf = np.zeros((2, 2))
 # except conv text and rdm1 all array contain the result for each iteration
 
 for L in Larray:
-  Result_scf.append(Solver.SCF(L, ts=ts_scf, ls=ls_scf, diis=tuple(), store_ite=True))
+  #Result_scf.append(Solver.SCF(L, ts=ts_scf, ls=ls_scf, diis=tuple(), store_ite=True))
+  Result_scf.append(Solver.SCF(L, ts=ts_grad, ls=ls_grad, diis=tuple(), store_ite=True))
   Result_scf_L1.append(Solver.SCF(L, ts=ts_scf_L1, ls=ls_scf_L1, diis=tuple(), alpha=alpha, store_ite=True))
-  Result_scf_rdm.append(Solver.SCF(L, ts=ts_scf_rdm, ls=ls_scf_rdm, diis=('rdm1',), store_ite=True))
+  #Result_scf_rdm.append(Solver.SCF(L, ts=ts_scf_rdm, ls=ls_scf_rdm, diis=('rdm1',), store_ite=True))
+  Result_scf_rdm.append(Solver.SCF(L, ts=ts_grad, ls=ls_grad, diis=('rdm1',), store_ite=True))
   Result_scf_t_l.append(Solver.SCF(L, ts=ts_scf_t_l, ls=ls_scf_t_l, diis=('t', 'l'), store_ite=True))
   Result_grad.append(Solver.Gradient(L, method='newton', ts=ts_grad, ls=ls_grad, store_ite=True))
   Result_des.append(Solver.Gradient(L, beta=0.1, method='descend', ts=ts_des, ls=ls_des, store_ite=True))
 
-  ts_scf         = Result_scf[-1][5][-1, :, :]
-  ls_scf         = Result_scf[-1][6][-1, :, :]
-  ts_scf_rdm     = Result_scf_rdm[-1][5][-1, :, :]
-  ls_scf_rdm     = Result_scf_rdm[-1][6][-1, :, :]
+  #ts_scf         = Result_scf[-1][5][-1, :, :]
+  #ls_scf         = Result_scf[-1][6][-1, :, :]
+  #ts_scf_rdm     = Result_scf_rdm[-1][5][-1, :, :]
+  #ls_scf_rdm     = Result_scf_rdm[-1][6][-1, :, :]
   ts_scf_L1       = Result_scf_L1[-1][5][-1, :, :]
   ls_scf_L1       = Result_scf_L1[-1][6][-1, :, :]
   ts_scf_t_l = Result_scf_t_l[-1][5][-1, :, :]
@@ -202,26 +207,47 @@ for L in Larray:
     #axs[i, j].scatter(Result_scf_t_l[pl_num][5][-1, 0, 0], Result_scf_t_l[pl_num][6][-1, 0, 0], marker='o', color='grey', s=40)
 
     # newton
+    print('t-l')
+    print(np.subtract(Result_grad[pl_num][5][:, :, :], Result_grad[pl_num][6][:, :, :]))
+
     axs[i, j].plot(Result_grad[pl_num][5][::2, 0, 0], Result_grad[pl_num][6][::2, 0, 0], marker='o', markersize=10,
                       alpha=0.8, linewidth=0.5, markerfacecolor='white', color='black')
     #axs[i, j].plot(Result_grad[pl_num][5][-1, 0, 0], Result_grad[pl_num][6][-1, 0, 0],
     #                  marker='x', color='black', markersize=8)
 
     # DIIS
-    #axs[i, j].plot(Result_scf_rdm[pl_num][5][:-2:4, 0, 0], Result_scf_rdm[pl_num][6][:-2:4, 0, 0], marker='o', color='green'
-    #               , linewidth=0.5, markerfacecolor='yellow')
+    axs[i, j].plot(Result_scf_rdm[pl_num][5][:-2:4, 0, 0], Result_scf_rdm[pl_num][6][:-2:4, 0, 0], marker='o', color='green'
+                   , linewidth=0.5, markerfacecolor='yellow')
     #axs[i, j].plot(Result_scf_rdm[pl_num][5][-1, 0, 0], Result_scf_rdm[pl_num][6][-1, 0, 0], marker='x', color='yellow'
     #               , linewidth=0.5, markersize=8)
 
     # L1 reg
-    print(Result_scf_L1[pl_num][5][-1, :, :])
-    axs[i, j].plot(Result_scf_L1[pl_num][5][:, 0, 0], Result_scf_L1[pl_num][6][:, 0, 0], marker='o', color='green'
-                   , linewidth=0.5, markerfacecolor='yellow')
+    #print(Result_scf_L1[pl_num][5][-1, :, :])
+    #axs[i, j].plot(Result_scf_L1[pl_num][5][:, 0, 0], Result_scf_L1[pl_num][6][:, 0, 0], marker='o', color='green'
+    #               , linewidth=0.5, markerfacecolor='yellow')
     #axs[i, j].plot(Result_scf_rdm[pl_num][5][-1, 0, 0], Result_scf_rdm[pl_num][6][-1, 0, 0], marker='x', color='yellow'
     #               , linewidth=0.5, markersize=8)
 
     ## Plot t0 and l0
     axs[i, j].plot(t0[0, 0], l0[0, 0], 'x', color='grey', markersize=12, markeredgewidth=3, markerfacecolor='white')
+
+    # Insets
+    if pl_num != 0:
+        axins = inset_axes(axs[i, j], width="40%", height="40%", loc=2)
+        axins.set_facecolor('black')
+        axins.patch.set_alpha(0.5)
+        axins.plot(Result_grad[pl_num][3][1:], color='white', linewidth=2)
+        axins.plot(Result_scf[pl_num][3][1:], color='orange', linewidth=2)
+        axins.plot(Result_scf_rdm[pl_num][3][1:], color='green', linewidth=2)
+        axins.set_xticks([])
+        axins.set_yticks([])
+        if pl_num == 1:
+            axins.set_ylim([-0.001, 0.012])
+        elif pl_num == 2:
+            axins.set_ylim([-0.001, 0.05])
+        elif pl_num == 3:
+            axins.set_ylim([-0.001, 0.02])
+
 
     pl_num += 1
 

@@ -13,6 +13,7 @@
 ###################################################################
 
 import numpy as np
+import scipy
 import copy
 from pyscf import lib
 #from . import utilities
@@ -592,7 +593,7 @@ class Solver_ES:
     # SCF method with iterative diagonalization
     #############################################
 
-    def SCF_davidson(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, max_space=10):
+    def SCF_diag(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, max_space=10, davidson=True):
         '''
         SCF + davidson solver for the coupled T,Lam,R and L equations
         Diagonalizes the effective similarly transformed Hamiltonian at each iteration for each excited states and
@@ -604,6 +605,7 @@ class Solver_ES:
         :param ts, ls, rn, ln, r0n, l0n: amplitudes
             -> ln,rn,l0 and r0 are list with length = nbr of excited states
         :param max_space: maximum size of the subspace used for the Davidson algorithm
+        :param davidson: False for standard eigh solver
         :return:
         '''
 
@@ -684,9 +686,9 @@ class Solver_ES:
                 # calculate tr_rdm1 if transition exp data are present
                 if Vexp_class.exp_data[0, n + 1] is not None:
                     # right tr_dm1 <Psi_k|aa|Psi_n>
-                    tr_r = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
+                    tr_r = mycc.gamma_tr(ts, ln[n], None, None, l0n[n])
                     # left tr_dm1 <Psi_n|aa|Psi_k>
-                    tr_l = mycc.gamma_tr(ts, ls, rn[n], r0n[n], 1)
+                    tr_l = mycc.gamma_tr(ts, ls, rn[n], r0n[n], None)
                     tr_rdm1[n] = list((tr_r, tr_l))
                 del tr_r, tr_l
 
@@ -714,10 +716,9 @@ class Solver_ES:
                 #    fsp[n] = fock.copy()
 
                 if tr_rdm1[j] is not None:
-                    #v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))
-                    #v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))
-                    #v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j], (n, 0))
-                    v, X2[0, n], vmax = Vexp_class.Vexp_update_norm(tr_rdm1[j][0], (0, n), rdm1_l=tr_rdm1[j][1])
+                    v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))  # right
+                    v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))  # left
+                    #v, X2[0, n], vmax = Vexp_class.Vexp_update_norm(tr_rdm1[j][0], (0, n), rdm1_l=tr_rdm1[j][1])
             del v
 
             X2_ite.append(X2)
@@ -740,26 +741,21 @@ class Solver_ES:
             # ----------------------------------------
 
             L1inter = mycc.L1inter(ts, fsp[0])
-            #vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]  # use left Vexp
+            vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]  # use left Vexp
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
 
             del vexp, L1inter
 
             #
-            # Build guess r and l vector
-            # ---------------------------
+            # Build guess r and l vector for davidson
+            # -----------------------------------------
 
-            vec_r = np.zeros((nbr_states, nocc*nvir))
-            vec_l = np.zeros_like(vec_r)
-            for i in range(nbr_states):
-                vec_r[i, :] = rn[i].flatten()
-                vec_l[i, :] = ln[i].flatten()
-
-            print()
-            print('####################')
-            print('#  ITERATION {}'.format(ite))
-            print('####################')
-
+            if davidson:
+                vec_r = np.zeros((nbr_states, nocc*nvir))
+                vec_l = np.zeros_like(vec_r)
+                for i in range(nbr_states):
+                    vec_r[i, :] = rn[i].flatten()
+                    vec_l[i, :] = ln[i].flatten()
 
             for i in range(nbr_states):
 
@@ -769,65 +765,63 @@ class Solver_ES:
                 vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1]  # V0n
 
                 #
-                # make H_i right matrix and diag terms
-                # ----------------------------------------------
+                # Apply Diagonalization procedure
+                # ------------------------------------
 
-                Rinter = mycc.R1inter(ts, fsp[i+1], vexp)
-                #del vexp
+                # Davidson using PySCF library
+                if davidson:
+                    # make H_i right matrix and diag terms
+                    Rinter = mycc.R1inter(ts, fsp[i+1], vexp)
 
-                diag = np.zeros((nocc, nvir))
-                for j in range(nocc):
-                    for b in range(nvir):
-                        diag[j, b] = Rinter[0][b, b] - Rinter[1][j, j] + Rinter[2][b, j, j, b] \
-                                     + Rinter[3] + Rinter[5][i, b]
+                    diag = np.zeros((nocc, nvir))
+                    for j in range(nocc):
+                        for b in range(nvir):
+                            diag[j, b] = Rinter[0][b, b] - Rinter[1][j, j] + Rinter[2][b, j, j, b] \
+                                         + Rinter[3] + Rinter[5][j, b]
 
-                # function to create H matrix from Ria and ria
-                matvec = lambda xs: [mycc.R1eq(x.reshape(nocc, nvir), r0n[i], Rinter).flatten() for x in xs]
-                # needed function for diagonal term of H
-                precond = lambda r, e, r0: r / (e-diag.flatten()+1e-12)
+                    # function to create H matrix from Ria and ria
+                    matvec = lambda xs: [mycc.R1eq(x.reshape(nocc, nvir), r0n[i], Rinter).flatten() for x in xs]
+                    # needed function for diagonal term of H
+                    precond = lambda r, e, r0: r / (e-diag.flatten()+1e-12)
 
-                #
-                # Apply Davidson using PySCF library
-                # ------------------------------------------
+                    # Apply Davidson
+                    conv, de, rvec = lib.davidson_nosym1(matvec, vec_r, precond, max_space=max_space, nroots=nbr_states)
 
-                conv, de, rvec = lib.davidson_nosym1(matvec, vec_r, precond, max_space=max_space, nroots=nbr_states)
+                    for j in range(len(conv)):
+                        if not conv[j]:
+                            print('Davidson algorithm did not converged for {}th right eigenvectors '
+                              'at iteration {}'.format(j+1, ite))
 
-                for j in range(len(conv)):
-                    if not conv[j]:
-                        print('Davidson algorithm did not converged for {}th right eigenvectors '
-                          'at iteration {}'.format(j+1, ite))
-
+                # Diagonalization of the full right matrix using scipy
+                #else:
+                #    mat =
+                #    scipy.linalg.eigh()
                 # store results
-                print('E_R = ', de)
-                print('rn eigenvectors')
                 En_r = de[i]
                 rn[i] = rvec[i].reshape((nocc, nvir))
-                print(rn[i])
-                print()
 
                 #
                 # Update r0
                 # ----------------------------------------------
 
-                r0n[i] = mycc.R0eq(En_r, ts, rn[i], fsp=fsp[i+1])
+                r0n[i] = mycc.R0eq(En_r, ts, rn[i], vexp, fsp=fsp[i+1])
 
                 #
                 # Left Vexp
                 # ---------------------------------------------
-                #vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
+                vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
 
                 #
                 # make H_i left matrix and diag terms
                 # ----------------------------------------------
 
                 Linter = mycc.es_L1inter(ts, fsp[i+1], vexp)
-                del vexp
 
                 diag = np.zeros((nocc, nvir))
                 for j in range(nocc):
                     for b in range(nvir):
                         diag[j, b] = Linter[0][b, b] - Linter[1][j, j] + Linter[2][b, j, j, b] \
-                                     + Linter[3] + Linter[5][i, b]
+                                     + Linter[3] + Linter[5][j, b]
 
                 # function to create H matrix from Lia and lia
                 matvec = lambda xs: [mycc.es_L1eq(x.reshape(nocc, nvir), l0n[i], Linter).flatten() for x in xs]
@@ -852,7 +846,7 @@ class Solver_ES:
                 #
                 # Update l0
                 # ----------------------------------------------
-                l0n[i] = mycc.L0eq(En_l, ts, ln[i], fsp=fsp[i+1])
+                l0n[i] = mycc.L0eq(En_l, ts, ln[i], vexp, fsp=fsp[i+1])
 
                 #
                 # Update ES energies
@@ -870,9 +864,6 @@ class Solver_ES:
 
             ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n, ortho=False)
             C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
-            print('C_norm')
-            print(C_norm)
-            print()
 
             for i in range(nbr_states):
                 Spin[i] = utilities.check_spin(rn[i], ln[i])
