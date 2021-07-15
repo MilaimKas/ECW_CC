@@ -133,12 +133,9 @@ class Solver_ES:
     # SCF method
     #############
 
-    def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None, S_AO=None):
+    def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None):
         '''
-        !!!
-        SCF rough solver for R and L equations: takes care of the spin symmetry but
-        only works when no spatial symmetry is present
-        !!!
+        Rough SCF solver for T, Lam, R and L equations: takes care of the spin symmetry
 
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
@@ -191,7 +188,7 @@ class Solver_ES:
 
         # initialize X2 and Ep array
         X2 = np.zeros((nbr_states + 1, nbr_states + 1))
-        Ep = np.zeros((nbr_states+1,2))
+        Ep = np.zeros((nbr_states+1, 2))
         
         # initialize loop vectors and printed information
         conv = 0.
@@ -237,12 +234,15 @@ class Solver_ES:
 
         table = []
         # First line of printed table
-        headers = ['ite',str(self.conv_var)]
+        headers = ['ite', str(self.conv_var)]
         for i in range(nbr_states):
             if i == 0:
                 headers.extend(['ES {}'.format(i+1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0','Er', 'El'])
             else:
-                headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El', 'Ortho wrt ES 1'])
+                headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El',
+                                'Ortho wrt ES 1'])
+
+        # Main loop
 
         while Dconv > self.conv_thres:
 
@@ -303,7 +303,7 @@ class Solver_ES:
             # GS
             if rdm1[0] is not None:
                 V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], L[0, 0], (0, 0))
-                fsp[0] = np.subtract(mycc.fock,V)
+                fsp[0] = np.subtract(mycc.fock, V)
                 X2[0, 0] = x2
             #else:
             #    fsp[0] = fock.copy()
@@ -320,8 +320,8 @@ class Solver_ES:
                 #    fsp[n] = fock.copy()
 
                 if tr_rdm1[j] is not None:
-                    v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))
-                    v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))
+                    v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))  # right
+                    v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))  # left
             del v
 
             X2_ite.append(X2)
@@ -334,11 +334,11 @@ class Solver_ES:
             # update t amplitudes
             # ---------------------------------------------------
 
-            vexp = -L[0, 1:]*Vexp_class.Vexp[0, 1:]
+            vexp = -L[0, 1:]*Vexp_class.Vexp[0, 1:]  # -lam * 0mV
             T1inter = mycc.T1inter(ts, fsp[0])
             ts = mycc.tsupdate(ts, T1inter, rsn=rn, r0n=r0n, vn=vexp)
-            # apply DIIS
 
+            # apply DIIS
             if 't' in diis:
                 ts_vec = np.ravel(ts)
                 ts = tdiis.update(ts_vec).reshape((nocc, nvir))
@@ -389,30 +389,20 @@ class Solver_ES:
                 # R and R0 intermediates
                 # ------------------------
 
-                vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1] # V0n
+                vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1]  # 0iV
                 Rinter  = mycc.R1inter(ts, fsp[i+1], vexp)
                 #R0inter = mycc.R0inter(ts, fsp[i+1], vexp)
-                del vexp
 
                 #
                 # update En_r
                 # ------------------------
 
-                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)#, ov=ov[i])
+                #En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
+                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter, ov=ov[i])  # force alpha transition
                 print('Update E')
                 print(En_r)
                 print('o,v: ', o, v)
 
-                #
-                # update r0
-                # ------------------------
-
-                #r0new[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
-                r0new[i] = mycc.R0eq(En_r, ts, rn[i], fsp=fsp[i+1])
-                #del R0inter
-                print()
-                print('update r0')
-                print(r0new[i])
                 #
                 # Update r
                 # -------------------------
@@ -423,41 +413,43 @@ class Solver_ES:
                 print('UPDATE r')
                 print('rnew')
                 print(rnew[i])
+
                 #
                 # Get missing r ampl
                 # -------------------------
+
                 print()
                 print('UPDATE rov')
                 rnew[i][o, v] = mycc.get_ov(ln[i], l0n[i], rn[i], r0n[i], [o, v])
 
                 print('rnew')
                 print(rnew[i])
+
+                #
+                # update r0
+                # ------------------------
+
+                #r0new[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
+                r0new[i] = mycc.R0eq(En_r, ts, rn[i], vexp, fsp=fsp[i+1])
+                #del R0inter
+                print()
+                print('update r0')
+                print(r0new[i])
                 
                 #
                 # L and L0 inter
                 # ------------------------
 
-                vexp = -L[i+1,0]*Vexp_class.Vexp[i+1,0] # Vn0
-                Linter = mycc.es_L1inter(ts, fsp[i+1], vexp )
+                vexp = -L[i+1, 0]*Vexp_class.Vexp[i+1, 0]  # Vn0
+                Linter = mycc.es_L1inter(ts, fsp[i+1], vexp)
                 #L0inter = mycc.L0inter(ts, fsp[i+1], vexp)
-                del vexp
 
                 #
                 # Update En_l
                 # ------------------------
 
-                En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)#, ov=ov[i])
-
-                #
-                # Update l0
-                # ------------------------
-
-                #l0new[i] = mycc.l0update(ln[i], l0n[i], En_l, L0inter)
-                l0new[i] = mycc.L0eq(En_l, ts, ln[i], fsp=fsp[i + 1])
-                #del L0inter
-                print()
-                print('update l0')
-                print(l0new[i])
+                #En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
+                En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter, ov=ov[i])  # force alpha transition
 
                 #
                 # Update l
@@ -478,6 +470,19 @@ class Solver_ES:
 
                 print('lnew')
                 print(lnew[i])
+
+                #
+                # Update l0
+                # ------------------------
+
+                #l0new[i] = mycc.l0update(ln[i], l0n[i], En_l, L0inter)
+                l0new[i] = mycc.L0eq(En_l, ts, ln[i], vexp, fsp=fsp[i + 1])
+                #del L0inter
+                del vexp
+                print()
+                print('update l0')
+                print(l0new[i])
+
                 #
                 # Store excited states energies Ep = (En_r,En_l)
                 # -----------------------------------------------
@@ -504,11 +509,8 @@ class Solver_ES:
             # -------------------------------------------------------------------------
             #
 
-            ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
+            #ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
             C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
-            print('C_norm')
-            print(C_norm)
-            print()
 
             for i in range(nbr_states):
                 Spin[i] = utilities.check_spin(rn[i], ln[i])
@@ -523,7 +525,7 @@ class Solver_ES:
             l0n = copy.deepcopy(l0new)
 
             #
-            # Store GS energies Ep
+            # Store GS energy Ep
             # --------------------------------------------
 
             vexp = [-L[0, i + 1] * Vexp_class.Vexp[0, i + 1] for i in range(nbr_states)]
@@ -534,7 +536,7 @@ class Solver_ES:
             # checking convergence
             # --------------------------------------------
 
-            dic = {'ts':ts, 'ls':ls, 'rn':rn, 'ln':ln}
+            dic = {'ts': ts, 'ls': ls, 'rn': rn, 'ln': ln}
             conv = self.Conv_check(dic)
             conv_ite.append(conv)
 
@@ -552,8 +554,8 @@ class Solver_ES:
             for i in range(nbr_states):
 
                 if i == 0:
-                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i+1, 0], X2[i+1, i], 2*Spin[i]+1, r0n[i], l0n[i],
-                                Ep[i + 1][0], Ep[i + 1][1]])
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i+1, 0], X2[i+1, i], 2*Spin[i]+1,
+                                r0n[i], l0n[i], Ep[i + 1][0], Ep[i + 1][1]])
                 else:
                     C_norm_av = (C_norm[0, i] + C_norm[i, 0]) / 2
                     tmp.extend(['', format_float.format(C_norm[i, i]), X2[i+1, 0], X2[0, i+1], 2*Spin[i]+1, r0n[i],

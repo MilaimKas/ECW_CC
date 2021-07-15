@@ -64,13 +64,13 @@ def La1eq(t1, a1, eris,fsp=None):
     else:
         f = fsp
 
-    vv = f[nocc:,nocc:].copy()
-    oo = f[:nocc,:nocc].copy()
-    ov = f[:nocc,nocc:].copy()
+    vv = f[nocc:, nocc:].copy()
+    oo = f[:nocc, :nocc].copy()
+    ov = f[:nocc, nocc:].copy()
 
     He = 0
     He += e("ba,ib->ia", vv, a1)  # d0_ov
-    He -= e("ji,ia->ja", oo, a1)  # d1_ov
+    He -= e("ij,ia->ja", oo, a1)  # d1_ov
     He += e("ia->ia", ov)  # d2_ov
     He -= e("jb,ia,ja->ib", ov, a1, t1)  # d3_ov
     He -= e("jb,ia,ib->ja", ov, a1, t1)  # d4_ov
@@ -138,7 +138,7 @@ def R1eq(t1, r1, r0, eris, fsp=None):
     Ria -= e('jc,ib,ka,kjbc->ia', r1, t1, t1, eris.oovv)
     
     # t.t.t
-    Ria += r0*e('ka,jb,ic,kjbc->ia', t1, t1, t1, eris.oovv)
+    Ria -= r0*e('ka,jb,ic,kjbc->ia', t1, t1, t1, eris.oovv)  # recheck sign
 
     return Ria
 

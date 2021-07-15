@@ -328,13 +328,15 @@ class Exp:
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
         assumes that square norm for the prop are given in exp_data
 
+        rdm can be a transition rdm. In this case the right and left tr_rdm must be given
+
         :param rdm1: calculated nm rdm1 or tr_rdm1 in MO basis
         :param rdm1_2: calculated mn rdm1 or tr_rdm1 in MO basis
         :param index: nm index of the potential Vexp
              -> index = (0,0) for GS
              -> index = (n,n) for prop. of excited state n
              -> index = (0,n) and (n,0) for left and right transition prop. of excited state n
-                        if prop are given (not mat.), the square or the norm is take |prop|^2 = prop_l*prop_r
+                        if prop are given (not mat.), the square or the norm is taken as |prop|^2 = prop_l*prop_r
         :return: (positive) Vexp(index) potential
         '''
 
@@ -363,14 +365,13 @@ class Exp:
                 # use given target rdm1
 
                 if prop == 'mat':
-                    raise NotImplementedError
-                    #self.Vexp[0, 0] = np.subtract(self.exp_data[0, 0][1], rdm1_r)
-                    #X2 = np.sum(abs(self.Vexp[0, 0]))
-                    #vmax = np.max(abs(self.Vexp[0, 0]))
-                    ## calculate Ek_calc
-                    #self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1_r, aobasis=False,
-                    #                                 mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
-                    #self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS) ** 2
+                    self.Vexp[0, 0] = np.subtract(self.exp_data[0, 0][1], rdm1_r)
+                    X2 = np.sum(abs(self.Vexp[0, 0]))
+                    vmax = np.max(abs(self.Vexp[0, 0]))
+                    # calculate Ek_calc
+                    self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1_r, aobasis=False,
+                                                     mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
+                    self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS) ** 2
 
                 # use given single experimental property
 
@@ -518,7 +519,7 @@ class Exp:
 
 
     def calc_prop(self, prop, rdm1, g_format=True, rdm1_2=None):
-        '''
+        """
         Calculate A**2 and/or A using given rdm1
 
         :param prop: one-electron prop to calculate -> 'Ek', 'v1e' or 'dip'
@@ -526,7 +527,7 @@ class Exp:
         :return: calculated one-electron property A**2 and/or A
         :param rdm1_2: left rdm1, if given, the norm squared of the prop is calculated using both right and left rdm1
                         where rdm1_2 is the rdm1^mn if Vnm
-        '''
+        """
 
         if prop == 'Ek':
             ans1 = utilities.Ekin(self.mol, rdm1, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,

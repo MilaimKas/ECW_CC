@@ -15,7 +15,7 @@ H 0 0 0
 H 0 0 1.
 '''
 
-mol.basis = '6-31++g**'
+mol.basis = '6-31g'
 mol.spin = 0
 mol.build()
 
@@ -43,7 +43,7 @@ mccsg = CCS.Gccs(geris)
 # build gamma_exp for GS
 ##########################
 
-nbr_states = 3  # GS + ES
+nbr_states = 2  # GS + ES
 
 # ts and ls amplitudes
 #ts = np.random.random((gnocc//2,gnvir//2))
@@ -94,7 +94,7 @@ for i in range(nbr_states-1):
 VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 
 # convergence options
-maxiter = 50
+maxiter = 100
 conv_thres = 10 ** -5
 #diis = ('r', 'l')  # must be tuple
 #diis = ('rdm1')
@@ -110,6 +110,7 @@ mrf = scf.RHF(mol).run()
 mcis = tdscf.TDA(mrf)
 mcis.kernel(nstates=3)
 
+print()
 print('EHF= ', mgf.e_tot)
 print()
 print('CIS calc')
@@ -135,8 +136,8 @@ print()
 # Solve for L
 L = np.full(exp_data.shape, 0)
 L[0, 0] = 0
-#result = Solver.SCF(L)
-result = Solver.SCF_diag(L)
+result = Solver.SCF(L)
+#result = Solver.SCF_diag(L)
 
 print('Final ts and ls')
 print(result[1].get('ts')[0, 0])
