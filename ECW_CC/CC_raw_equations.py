@@ -195,11 +195,11 @@ def es_L1eq(t1, l1, l0, eris, fsp=None):
     Lia -= e('jb,ja,ib->ia', t1, ov, l1)
     Lia += l0*e('jb,jiba->ia',t1, eris.oovv)
     #Lia += e('ia,jb,jkbk->ia', l1, t1, eris.oovo)  ##
-    #Lia -= e('ka,jb,jibk->ia', l1, t1, eris.oovo)  ##
+    Lia -= e('ka,jb,jibk->ia', l1, t1, eris.oovo)  ##
     Lia += e('ic,jb,jcba->ia', l1, t1, eris.ovvv)
     #Lia -= e('ib,jb,jkak->ia', l1, t1, eris.oovo)  ##
     Lia -= e('kc,jc,jika->ia', l1, t1, eris.ooov)
-    Lia -= e('ka,kb,ijbj->ia', l1, t1, eris.oovo)
+    #Lia -= e('ka,kb,ijbj->ia', l1, t1, eris.oovo)
     Lia += e('kc,kb,ciba->ia', l1, t1, eris.vovv)
 
     # t.t terms

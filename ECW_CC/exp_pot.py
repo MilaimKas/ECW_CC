@@ -138,8 +138,9 @@ class Exp:
 
         '''
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
+        Here, norm of expectation value are compared
 
-        :param rdm1: calculated rdm1 or tr_rdm1 in MO basis
+        :param rdm1: calculated left(mn) or right(nm) rdm1 or tr_rdm1 in MO basis
         :param L: exp weight
         :param index: nm index of the potential Vexp
              -> index = (0,0) for GS
@@ -326,7 +327,7 @@ class Exp:
         # todo: Problem with complex number: Vexp is complex ?
         '''
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
-        assumes that square norm for the prop are given in exp_data
+        assumes that square norm for the expectation value are compared
 
         rdm can be a transition rdm. In this case the right and left tr_rdm must be given
 
@@ -365,13 +366,14 @@ class Exp:
                 # use given target rdm1
 
                 if prop == 'mat':
-                    self.Vexp[0, 0] = np.subtract(self.exp_data[0, 0][1], rdm1_r)
-                    X2 = np.sum(abs(self.Vexp[0, 0]))
-                    vmax = np.max(abs(self.Vexp[0, 0]))
-                    # calculate Ek_calc
-                    self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1_r, aobasis=False,
-                                                     mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
-                    self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS) ** 2
+                    raise NotImplementedError
+                    # self.Vexp[0, 0] = np.subtract(self.exp_data[0, 0][1], rdm1)
+                    # X2 = np.sum(abs(self.Vexp[0, 0]))
+                    # vmax = np.max(abs(self.Vexp[0, 0]))
+                    # # calculate Ek_calc
+                    # self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, aobasis=False,
+                    #                                 mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
+                    # self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS) ** 2
 
                 # use given single experimental property
 

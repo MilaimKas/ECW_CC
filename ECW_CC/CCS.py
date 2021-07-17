@@ -1158,7 +1158,7 @@ class Gccs:
         #Fij += np.einsum('ikjk->ij', self.eris.oooo)  ##
         Fij += np.einsum('jb,ib->ij', ts, fov)
         #Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)  ##
-        Fij += np.einsum('jb,ikbk->ij', ts, self.eris.oovo)
+        Fij += np.einsum('jb,jibk->ij', ts, self.eris.oovo)
         Fij += np.einsum('kb,jc,kibc->ij', ts, ts, self.eris.oovv)
 
         # Wbija: equation (32)

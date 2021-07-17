@@ -30,13 +30,15 @@ einsum = lib.einsum
 ##################
 
 def tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0):
-    '''
+    """
     Intermediates for the transition density matrix <Psi_{n}(t,l)|ap^{dag}aq|Psi_{k}(t,r)>
     All amplitudes must be given in amp format (nocc x nvir)
 
+    raw equation from Stanton 95
+
     :param: single and double amplitudes
     :return: intermediates
-    '''
+    """
 
     # oo inter
     Yijem = np.einsum('if,jmfe->ijem', t1, l2)
@@ -69,22 +71,30 @@ def tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0):
     return Yijem, Yabn, Yim, Yea, Yea_p, Yanef, Yainf
 
 
-def tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter):
-    '''
+def tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter=None):
+    """
     Calculates the transition reduced density matrix between two states m and n
     <Psi_m|a^{dag}_p a_q|Psi_n>
     Psi_m -> t,l
     Psi_n -> t,r
     For ground state (n=0): r=0 and r0=1
+                     (m=0): l=lambda and l0=1
 
-    :param t: t1 and t2 amplitudes
-    :param l: l1 and l2 amplitudes for states k
-    :param r: r1 and r2 amplitudes
+    raw equation from Stanton 95
+
+    :param t1: t1 amplitudes
+    :param l1: l1 amplitudes for state m
+    :param r1: r1 amplitudes for state n
+    :param t2: t2 amplitudes
+    :param l2: l2 amplitudes for state m
+    :param r2: r2 amplitudes for state n
     :param inter: intermediates
     :return:
-    '''
-
-    Yijem, Yabn, Yim, Yea, Yea_p, Yanef, Yainf = inter
+    """
+    if inter is None:
+       Yijem, Yabn, Yim, Yea, Yea_p, Yanef, Yainf = tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0)
+    else:
+        Yijem, Yabn, Yim, Yea, Yea_p, Yanef, Yainf = inter
 
     # oo
     rdm1oo = np.einsum('ie,je->ij', t1, l1)
@@ -120,18 +130,20 @@ def tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter):
 
     return rdm1
 
+
 def gamma_CCSD(t1, t2, l1, l2):
-    '''
-    Construct symetrized CCSD reduced density matrix
+    """
+    Construct symetrized CCSD reduced density matrix for the ground state
     PySCF GCCSD_rdm1 file
-    Give the same result has CCS.gamma_ccs with t2 and l2 = 0
+
+    (Give the same result has CCS.gamma_ccs with t2 and l2 = 0)
 
     :param t1: t1 amplitudes in G format (nocc, nvir)
     :param t2: t2 amplitudes in G format (nocc, nocc, nvir, nvir)
-    :param l1:
-    :param l2:
+    :param l1: lambda 1 amplitudes
+    :param l2: lambda 2 amplitudes
     :return:
-    '''
+    """
 
     doo, dov, dvo, dvv = gamma_inter(t1, t2, l1, l2)
     nocc, nvir = dov.shape
