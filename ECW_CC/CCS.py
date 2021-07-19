@@ -15,6 +15,8 @@
 #
 #
 ###################################################################
+import copy
+import sys
 
 import numpy as np
 # from . import utilities
@@ -531,12 +533,13 @@ class Gccs:
         :return: Lambda1 value
         """
         
-        Fia, Fea, Fim, Wieam = self.L1inter(ts, fsp)
+        Fia, Fea, Fim, Wieam, E = self.L1inter(ts, fsp)
 
         L1 = Fia.copy()
         L1 += np.einsum('ie,ea->ia', ls, Fea)
         L1 -= np.einsum('ma,im->ia', ls, Fim)
         L1 += np.einsum('me,ieam->ia', ls, Wieam)
+        L1 += ls*E
 
         return L1
 
@@ -554,7 +557,7 @@ class Gccs:
         :return lsnew: updated lambda 1 values
         """
 
-        Fia, Fea, Fim, Wieam = L1inter
+        Fia, Fba, Fij, Wjiba, E = L1inter
 
         nocc, nvir = ls.shape
 
@@ -562,16 +565,16 @@ class Gccs:
         diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
         # remove diagonal of the fock matrix
-        Fea[np.diag_indices(nvir)] -= diag_vv
-        Fim[np.diag_indices(nocc)] -= diag_oo
+        Fba[np.diag_indices(nvir)] -= diag_vv
+        Fij[np.diag_indices(nocc)] -= diag_oo
 
         lsnew = Fia.copy()
-        lsnew += np.einsum('ie,ea->ia', ls, Fea)
-        lsnew -= np.einsum('ma,im->ia', ls, Fim)
-        lsnew += np.einsum('me,ieam->ia', ls, Wieam)
+        lsnew += np.einsum('ib,ba->ia', ls, Fba)
+        lsnew -= np.einsum('ja,ij->ia', ls, Fij)
+        lsnew += np.einsum('jb,jiba->ia', ls, Wjiba)
+        lsnew += ls*E
 
-        # add l_R terms from coupling to excited states
-        # assuming that l_r are small
+        # add terms from coupling to excited states
         if rsn is not None:
 
             # check length
@@ -588,21 +591,31 @@ class Gccs:
                     v_vv = v[nocc:, nocc:]
                     v_ov = v[:nocc, nocc:]
 
-                    # term with l (lambda) and r
-                    lsnew += np.einsum('jb,jb', r, v_ov)
-                    lsnew += r0*np.einsum('jb,jb', ts, v_ov)
-                    lsnew += r0*np.trace(v_oo)
-                    lsnew *= ls
-                    # term with lsn
-                    lsnew += l*np.trace(v_oo)
-                    lsnew += np.einsum('ib,ba->ia', l, v_vv)
-                    lsnew -= np.einsum('ij,ja->ia', v_oo, l)
-                    lsnew += l*np.einsum('jb,jb', ts, v_ov)
-                    tmp    = np.einsum('ja,jb->ab',l, ts)
-                    lsnew -= np.einsum('ab,ib->ia', tmp, v_ov)
-                    tmp    = np.einsum('ib,jb->ij', l, ts)
-                    lsnew -= np.einsum('ij,ja->ia', tmp, v_ov)
+                    # P_lam intermediate
+                    Pl = np.einsum('jb,jb', r, v_ov)
+                    Pl += r0*np.einsum('jb,jb', ts, v_ov)
+                    Pl += r0*np.trace(v_oo)
+
+                    # P_0 intermediate => v_ov
+
+                    # P intermediate
+                    P = v_oo.copy()
+                    P += np.einsum('jb,jb', ts, v_ov)
+
+                    # Pba intermediate
+                    Pba = v_vv.copy()
+                    Pba -= np.einsum('jb,ja', ts, v_ov)
+
+                    # Pij intermediate
+                    Pij = -v_oo.copy()
+                    Pij -= np.einsum('jb,ib', ts, v_ov)
+
+                    # add Vexp terms
+                    lsnew += ls*Pl
                     lsnew += l0*v_ov
+                    lsnew += l*P
+                    lsnew += np.einsum('ib,ba', l, Pba)
+                    lsnew += np.einsum('ja,ij', l, Pij)
 
         lsnew /= (diag_oo[:, None] - diag_vv)
 
@@ -618,20 +631,25 @@ class Gccs:
         :return: updated ls
         """
 
-        Fia, Fea, Fim, Wieam = L1inter
+        Fia, Fba, Fij, Wjiba, E = L1inter
 
         nocc, nvir = ls.shape
 
         diag_vv = np.diagonal(self.fock[nocc:, nocc:])
         diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
-        L1 = Fia.copy()
-        L1 += np.einsum('ie,ea->ia', ls, Fea)
-        L1 -= np.einsum('ma,im->ia', ls, Fim)
-        L1 += np.einsum('me,ieam->ia', ls, Wieam)
+        # remove diagonal of the fock matrix
+        Fba[np.diag_indices(nvir)] -= diag_vv
+        Fij[np.diag_indices(nocc)] -= diag_oo
+
+        lsnew = Fia.copy()
+        lsnew += np.einsum('ib,ba->ia', ls, Fba)
+        lsnew -= np.einsum('ja,ij->ia', ls, Fij)
+        lsnew += np.einsum('jb,jiba->ia', ls, Wjiba)
+        lsnew += ls*E
 
         # subdifferential
-        dW = utilities.subdiff(L1, ls, alpha)
+        dW = utilities.subdiff(lsnew, ls, alpha)
 
         # remove diagonal elements
         eia = diag_oo[:, None] - diag_vv
@@ -640,9 +658,36 @@ class Gccs:
 
         return dW
 
+    def lsupdate_PySCF(self, ts, ls, fsp):
+        """
+        PySCF module for lambda update with l2=0
+
+        :return:
+        """
+
+        from pyscf.cc import gccsd_lambda
+
+        class tmp:
+            def __init__(self):
+                self.stout = sys.stdout
+                self.verbose = 0
+                self.level_shift = 0
+
+        nocc, nvir = ts.shape
+        t2 = np.zeros((nocc, nocc, nvir, nvir))
+        l2 = np.zeros_like(t2)
+
+        tmp_eris = copy.deepcopy(self.eris)
+        tmp_eris.fock = fsp
+
+        imds = gccsd_lambda.make_intermediates(tmp, t1, t2, tmp_eris)
+        lsnew = gccsd_lambda.update_lambda(tmp, ts, t2, l1, l2, tmp_eris, imds)[0]
+
+        return lsnew
+
     def L1inter(self, ts, fsp):
         """
-        Lambda intermediates as computed from Lambda 1 equations with l2=0
+        Lambda 1 intermediates from equation ...
 
         :param ts: t1 amplitudes
         :param fsp: effective fock matrix in spin-orbital MO basis
@@ -661,27 +706,31 @@ class Gccs:
             fvv = fsp[nocc:, nocc:].copy()
 
         Fba = fvv.copy()
-        Fba += np.einsum('ja,jb->ba', fov, ts)
+        Fba -= np.einsum('ja,jb->ba', fov, ts)
         Fba += np.einsum('jbca,jc->ba', self.eris.ovvv, ts)
-        tmp = np.einsum('kjca,jc->kca', self.eris.oovv, ts)
-        Fba += np.einsum('kca,kb->ba', tmp, ts)
+        tmp = np.einsum('jkca,jc->kca', self.eris.oovv, ts)
+        Fba -= np.einsum('kca,kb->ba', tmp, ts)
 
         Fij = foo.copy()
         Fij += np.einsum('ib,jb->ij', fov, ts)
         Fij += np.einsum('kibj,kb->ij', self.eris.oovo, ts)
-        tmp = np.einsum('kibc,kc->ibc', self.eris.oovv, ts)
-        Fij -= np.einsum('ibc,jb->ij', tmp, ts)
+        tmp = np.einsum('kibc,jc->ibj', self.eris.oovv, ts)
+        Fij += np.einsum('ibj,kb->ij', tmp, ts)
 
-        Wibaj = self.eris.ovvo.copy()
-        Wibaj -= np.einsum('ibca,jc->ibaj', self.eris.ovvv, ts)
+        Wbija = self.eris.voov.copy()
+        Wbija -= np.einsum('kija,kb->bija', self.eris.ovvv, ts)
         tmp = np.einsum('kica,kb->icab', self.eris.oovv, ts)
-        Wibaj -= np.einsum('icab,jc->ibaj', tmp, ts)
-        Wibaj -= np.einsum('ikaj,kb->ibaj', self.eris.oovo, ts)
+        Wbija -= np.einsum('icab,jc->bija', tmp, ts)
+        Wbija -= np.einsum('bica,jc->bija', self.eris.vovv, ts)
 
         Fia = fov.copy()
         Fia += np.einsum('jiba,jb->ia', self.eris.oovv, ts)
 
-        return Fia, Fba, Fij, Wibaj
+        # energy term
+        E = -np.einsum('jb,jb', ts, fov)
+        E -= 0.5*np.einsum('jb,kc,jkbc', ts, ts, self.eris.oovv)
+
+        return Fia, Fba, Fij, Wbija, E
 
     def L1inter_Stanton(self, ts, fsp):
         """
@@ -738,16 +787,20 @@ class Gccs:
         Fim = TFim.copy()
         Fim += 0.5 * np.einsum('me,ie->im', ts, TFie)
 
-        Wieam = self.eris.ovvo.copy()
-        Wieam += np.einsum('mf,ieaf->ieam', ts, self.eris.ovvv)
+        Weima = self.eris.ovvo.copy()
+        Weima += np.einsum('mf,ieaf->ieam', ts, self.eris.ovvv)
         # inam oovo becomes nima ooov in PySCF but same result
-        Wieam -= np.einsum('ne,inam->ieam', ts, self.eris.oovo)
+        Weima -= np.einsum('ne,inam->ieam', ts, self.eris.oovo)
         # inaf becomes nifa in PySCF but same result
-        Wieam -= np.einsum('mf,ne,inaf->ieam', ts, ts, self.eris.oovv)
+        Weima -= np.einsum('mf,ne,inaf->ieam', ts, ts, self.eris.oovv)
+        Weima = Weima.transpose(1, 0, 3, 2)  # ieam to eima
 
         Fia = TFie.copy()
 
-        return Fia, Fea, Fim, Wieam
+        # energy term not present due to the use of commutator
+        E = 0.
+
+        return Fia, Fea, Fim, Weima, E
 
     # ------------------------------------------------------------------------------------------
     # R1 equations
