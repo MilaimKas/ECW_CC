@@ -28,22 +28,21 @@ import utilities
 ############################
 
 def gamma_unsym_CCS(ts, ls):
-    '''
+    """
     Unsymmetrized one-particle reduced density matrix CCS
-    - Stanton 1993 with ria = 0 and  r0=1
-    - Stasis: same results except l0 term
+    Same as gamma_es with r=0 and r0=1 (GS case)
 
     :param ts: t1 amplitudes
     :param ls: l1 amplitudes
     :return:
-    '''
+    """
 
     nocc, nvir = ts.shape
 
     doo = -np.einsum('ie,je->ij', ts, ls)
-    dvv = np.einsum('mb,ma->ab', ts, ls)
-    dov = ls.copy()
-    dvo = -np.einsum('ie,ma,me->ai', ts, ts, ls) + ts.transpose()
+    dvv = np.einsum('ib,ia->ab', ts, ls)
+    dvo = ls.transpose()
+    dov = -np.einsum('ja,ib,jb->ia', ts, ts, ls) + ts
 
     dm1 = np.empty((nocc + nvir, nocc + nvir))
     dm1[:nocc, :nocc] = doo
@@ -56,45 +55,47 @@ def gamma_unsym_CCS(ts, ls):
     return dm1
 
 
-def gamma_es_CCS(ts, ln, rn, r0n, l0n):
+def gamma_es_CCS(ts, ln, rk, r0k, l0n):
     """
-    Unsymmetrized CCS one-particle reduced density matrix for a excited states n
-    Psi_n must be normalized: sum(ln*rn)+(l0*r0) = 1
+    Unsymmetrized CCS one-particle reduced density matrix
+
+    GS case: ln = lambda, rn = l0n = 0 and r0 = 1
+    ES case: rk = rn and r0k = r0n
+    transition rdm: <Psi_n|ap.aq|Psi_k>
 
     :param ts: t1 amplitudes
-    :param ln: l1 amplitudes
-    :param rn: r1 amplitudes
-    :param r0n: r0 amplitude
+    :param ln: l1 amplitudes or lambda 1 amplitudes
+    :param rk: r1 amplitudes
+    :param r0k: r0 amplitude
     :return:
     """
 
     nocc, nvir = ts.shape
 
     # GS case:
-    if rn is None:
-        rn = np.zeros_like(ts)
-        r0n = 1.
-    if ln is None:
-        ln = np.zeros_like(ts)
-        l0n = 1.
+    if rk is None:
+        rk = np.zeros_like(ts)
+        r0k = 1.
+        l0n = 0.
 
     # gamma_ij
-    doo = -r0n * np.einsum('ie,je->ij', ts, ln)
-    doo -= np.einsum('ie,je->ij', rn, ln)
-
-    # gamma_ia
-    dov = r0n * ln
-
-    # gamma_ab
-    dvv = r0n * np.einsum('mb,ma->ab', ts, ln)
-    dvv += np.einsum('mb,ma->ab', rn, ln)
+    doo = -r0k * np.einsum('ie,je->ij', ts, ln)
+    doo -= np.einsum('ie,je->ij', rk, ln)
 
     # gamma_ai
-    dvo = r0n * np.einsum('ie,ma,me->ai', ts, ts, ln)
-    dvo -= np.einsum('ma,ie,me->ai', ts, rn, ln)
-    dvo -= np.einsum('ie,ma,me->ai', ts, rn, ln)
-    dvo += np.einsum('ia->ai', ts)
-    dvo += l0n * rn.transpose()
+    dvo = r0k * ln.transpose()
+
+    # gamma_ab
+    dvv = r0k * np.einsum('mb,ma->ab', ts, ln)
+    dvv += np.einsum('mb,ma->ab', rk, ln)
+
+    # gamma_ia
+    tmp = np.einsum('ja,jb->ab', ts, ln)
+    dov = -r0k * np.einsum('ib,ab->ia', ts, tmp)
+    dov -= np.einsum('ma,ie,me->ia', ts, rk, ln)
+    dov -= np.einsum('ie,ma,me->ia', ts, rk, ln)
+    dov += ts
+    dov += l0n * rk
 
     dm1 = np.empty((nocc + nvir, nocc + nvir))
     dm1[:nocc, :nocc] = doo
@@ -102,64 +103,60 @@ def gamma_es_CCS(ts, ln, rn, r0n, l0n):
     dm1[nocc:, :nocc] = dvo
     dm1[nocc:, nocc:] = dvv
 
-    # G format
+    # G format: Hartree Fock term
     dm1[np.diag_indices(nocc)] += 1
 
     return dm1
 
-
 def gamma_tr_CCS(ts, ln, rk, r0k, l0n):
     """
-    CCS one-particle reduced transition density matrix between state n and k
+    Unsymmetrized CCS transition rdm: <Psi_n|ap.aq|Psi_k>
+    same as gamma_es without HF term (1 in diagonal oo bloc)
 
-    <Psi_n|apaq|Psi_k>
-    if Psi_k = Psi_GS then r0=1 and rk=0
-    if Psi_n = Psi_GS then l0=1 and lk=lam_k
-    ln,l0 and rk,r0k must be orthogonal: sum(ln*rk)+(r0*l0) = 0
+    GS cases:
+    <Psi_0|ap.aq|Psi_k>: ln = lambda and l0n = 0
+    <Psi_n|ap.aq|Psi_0>: rk = 0 and r0k = 1
 
-    :param ts: t1 amplitude
-    :param ln: l1 amplitudes for state n
-    :param rk: r1 amplitudes for state k
-    :param r0k: r0 amplitude for state k
-
-    :return: tr_rdm1 in G format
+    :param ts: t1 amplitudes
+    :param ln: l1 amplitudes
+    :param rk: r1 amplitudes
+    :param r0k: r0 amplitude
+    :return:
     """
 
     nocc, nvir = ts.shape
 
-    # if Psi_k = GS
-    if isinstance(rk, float) or isinstance(rk, int) or rk is None:
-        if rk != 0 and rk is not None:
-            print('Warning: wrong input for the r vector, assuming r=0')
-        rk = np.zeros_like(ln)
+    # GS case:
+    if rk is None:
+        rk = np.zeros_like(ts)
         r0k = 1.
 
-    # if Psi_n = GS
-    if l0n == 0 or l0n is None:
-        l0n = 1.
-
+    # gamma_ij
     doo = -r0k * np.einsum('ie,je->ij', ts, ln)
     doo -= np.einsum('ie,je->ij', rk, ln)
 
-    dov = r0k * ln
+    # gamma_ai
+    dvo = r0k * ln.transpose()
 
+    # gamma_ab
     dvv = r0k * np.einsum('mb,ma->ab', ts, ln)
     dvv += np.einsum('mb,ma->ab', rk, ln)
 
-    dvo = -r0k * np.einsum('ie,ma,me->ai', ts, ts, ln)
-    dvo -= np.einsum('ma,ie,me->ai', ts, rk, ln)
-    dvo -= np.einsum('ie,ma,me->ai', ts, rk, ln)
-    dvo += l0n * r0k * ts.transpose()
-    dvo += np.einsum('jb,ia,jb->ai', ln, ts, rk)
-    dvo += l0n * rk.transpose()  # not present in Stanton because l0n = 0
+    # gamma_ia
+    tmp = np.einsum('ja,jb->ab', ts, ln)
+    dov = -r0k * np.einsum('ib,ab->ia', ts, tmp)
+    dov -= np.einsum('ma,ie,me->ia', ts, rk, ln)
+    dov -= np.einsum('ie,ma,me->ia', ts, rk, ln)
+    dov += ts
+    dov += l0n * rk
 
-    dm = np.empty((nocc + nvir, nocc + nvir))
-    dm[:nocc, :nocc] = doo
-    dm[:nocc, nocc:] = dov
-    dm[nocc:, :nocc] = dvo
-    dm[nocc:, nocc:] = dvv
+    dm1 = np.empty((nocc + nvir, nocc + nvir))
+    dm1[:nocc, :nocc] = doo
+    dm1[:nocc, nocc:] = dov
+    dm1[nocc:, :nocc] = dvo
+    dm1[nocc:, nocc:] = dvv
 
-    return dm
+    return dm1
 
 def gamma_CCS(ts, ls):
     '''
@@ -282,11 +279,11 @@ class Gccs:
         :return: T1 nocc x nvir matrix
         """
         
-        Fae, Fmi, Fai = self.T1inter(ts, fsp)
+        Fab, Fji, Fai = self.T1inter(ts, fsp)
 
         T1 = np.einsum('ai->ia', Fai)
-        T1 += np.einsum('ie,ae->ia', ts, Fae)
-        T1 -= np.einsum('ma,mi->ia', ts, Fmi)
+        T1 += np.einsum('ib,ab->ia', ts, Fab)
+        T1 -= np.einsum('ja,ji->ia', ts, Fji)
 
         return T1
 
@@ -302,23 +299,22 @@ class Gccs:
         :return: updated ts amplitudes
         """
 
-        Fae, Fmi, Fai = T1inter
+        Fab, Fji, Fai = T1inter
         nocc, nvir = ts.shape
 
         diag_vv = np.diagonal(self.fock[nocc:, nocc:])
         diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
         # remove diagonal of the fock matrix
-        Fae[np.diag_indices(nvir)] -= diag_vv
-        Fmi[np.diag_indices(nocc)] -= diag_oo
+        Fab[np.diag_indices(nvir)] -= diag_vv
+        Fji[np.diag_indices(nocc)] -= diag_oo
 
         # update ts
         tsnew = np.einsum('ai->ia', Fai)
-        tsnew += np.einsum('ie,ae->ia', ts, Fae)
-        tsnew -= np.einsum('ma,mi->ia', ts, Fmi)
+        tsnew += np.einsum('ib,ab->ia', ts, Fab)
+        tsnew -= np.einsum('ja,ji->ia', ts, Fji)
         
         # add coupling terms with excited states
-        # assuming that the additional terms are small
         if rsn is not None:
             if r0n is None:
                 raise ValueError('if Vexp are to be calculated, list of r0 amp must be given')
@@ -367,17 +363,17 @@ class Gccs:
         :return: updated ts
         """
 
-        Fae, Fmi, Fai = T1inter
+        Fab, Fji, Fai = T1inter
         nocc, nvir = ts.shape
 
-        # remove diagonal of the fock matrix
+        # store diagonals
         diag_vv = np.diagonal(self.fock[nocc:, nocc:])
         diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
-        # update ts
+        # T1 eq
         T1 = np.einsum('ai->ia', Fai)
-        T1 += np.einsum('ie,ae->ia', ts, Fae)
-        T1 -= np.einsum('ma,mi->ia', ts, Fmi)
+        T1 += np.einsum('ib,ab->ia', ts, Fab)
+        T1 -= np.einsum('ja,ji->ia', ts, Fji)
 
         # subdifferential
         dW = utilities.subdiff(T1, ts, alpha)
@@ -385,8 +381,29 @@ class Gccs:
         # remove diagonal elements
         eia = diag_oo[:, None] - diag_vv
         dW += ts*eia
+        dW /= eia
 
-        return dW/eia
+        return dW
+
+    def tsupdate_PySCF(self, cc, ts, fsp):
+        """
+        PySCF module for ts update
+        For comparison purpose
+
+        :return:
+        """
+
+        from pyscf.cc import gccsd
+
+        nocc, nvir = ts.shape
+        t2 = np.zeros((nocc, nocc, nvir, nvir))
+
+        eris = gccsd._make_eris_outcore(cc)
+        eris.fock = fsp
+
+        tsnew = gccsd.update_amps(cc, ts, t2, eris)[0]
+
+        return tsnew
 
     def T1inter(self, ts, fsp):
         """
@@ -411,65 +428,18 @@ class Gccs:
             fvv = fsp[nocc:, nocc:].copy()
 
         Fai = fvo.copy()
-        Fai += np.einsum('kc,kaci->ai', ts, self.eris.ovvo)  # Crawford
-        # Fai += np.einsum('me,amie->ai', ts, self.eris.ovvo)  # Stanton
+        Fai += np.einsum('jb,jabi->ai', ts, self.eris.ovvo)
 
         Fab = fvv.copy()
-        Fab -= np.einsum('kb,ka->ab', fov, ts)
-        Fab += np.einsum('kc,kacb->ab', ts, self.eris.ovvv)
+        Fab -= np.einsum('jb,ja->ab', fov, ts)
+        Fab += np.einsum('jc,jacb->ab', ts, self.eris.ovvv)
 
         Fji = foo.copy()
-        Fji += np.einsum('kc,kjci->ji', ts, self.eris.oovo)
-        tmp = np.einsum('kc,kjcd->jd', ts, self.eris.oovv)
-        Fji += np.einsum('id,jd->ji', ts, tmp)
+        Fji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
+        tmp = np.einsum('kc,jkcb->jb', ts, self.eris.oovv)
+        Fji -= np.einsum('ib,jb->ji', ts, tmp)
 
         return Fab, Fji, Fai
-
-    def T1inter_PySCF(self, ts, fsp):
-        """
-        T1 intermediates in spin orbital MO basis
-        see also PySCF cc/gintermediates
-
-        :param ts: t1 amplitudes
-        :param fsp: effective fock matrix in spin orbital MO basis
-        :return:
-        """
-
-        nocc, nvir = ts.shape
-
-        if fsp is None:
-            foo = self.fock[:nocc, :nocc].copy()
-            fvv = self.fock[nocc:, nocc:].copy()
-            fov = self.fock[:nocc, nocc:].copy()
-        else:
-            foo = fsp[:nocc, :nocc].copy()
-            fov = fsp[:nocc, nocc:].copy()
-            fvv = fsp[nocc:, nocc:].copy()
-
-        # make tau
-        fac = 0.5
-        tsts = np.einsum('ia,jb->ijab', fac * 0.5 * ts, ts)
-        tsts = tsts - tsts.transpose(1, 0, 2, 3)
-        tau = tsts - tsts.transpose(0, 1, 3, 2)
-
-        # Fvv
-        Fae = fvv.copy()
-        Fae -= 0.5 * np.einsum('me,ma->ae', fov, ts)
-        Fae += np.einsum('mf,amef->ae', ts, self.eris.vovv)
-        Fae -= 0.5 * np.einsum('mnaf,mnef->ae', tau, self.eris.oovv)
-
-        # Foo
-        Fmi = foo.copy()
-        Fmi += 0.5 * np.einsum('me,ie->mi', fov, ts)
-        Fmi += np.einsum('ne,mnie->mi', ts, self.eris.ooov)
-        Fmi += 0.5 * np.einsum('inef,mnef->mi', tau, self.eris.oovv)
-
-        # Fvo - Fov
-        Fai = fov.copy()
-        Fai -= np.einsum('nf,naif->ia', ts, self.eris.ovov)
-        Fai = np.einsum('ia->ai', Fai)
-
-        return Fae, Fmi, Fai
 
     def T1inter_Stanton(self, ts, fsp):
         """
@@ -519,26 +489,23 @@ class Gccs:
 
         return Fae, Fmi, Fai
 
-    # ------------------------------------------------------------------------------------------
-    # Lambda 1 equation
-    # -------------------------------------------------------------------------------------------
-
-    def L1eq(self, ts, ls, fsp):
+    def L1eq(self, ts, ls, fsp, E_term=True):
         """
         Value of the Lambda 1 equations using intermediates
 
         :param ts: t1 amplitudes
         :param ls: l1 amplitudes
         :param fsp: fock matrix
+        :param E_term: False if energy term in Lambda eq is zero
         :return: Lambda1 value
         """
         
-        Fia, Fea, Fim, Wieam, E = self.L1inter(ts, fsp)
+        Fia, Fba, Fij, Wbija, E = self.L1inter(ts, fsp, E_term=E_term)
 
         L1 = Fia.copy()
-        L1 += np.einsum('ie,ea->ia', ls, Fea)
-        L1 -= np.einsum('ma,im->ia', ls, Fim)
-        L1 += np.einsum('me,ieam->ia', ls, Wieam)
+        L1 += np.einsum('ib,ba->ia', ls, Fba)
+        L1 -= np.einsum('ja,ij->ia', ls, Fij)
+        L1 += np.einsum('jb,bija->ia', ls, Wbija)
         L1 += ls*E
 
         return L1
@@ -547,17 +514,13 @@ class Gccs:
         """
         SCF update of the lambda singles amplitudes ls
 
-        see PySCF module:
-        from gccsd import update_lambda(mycc, t1, t2, l1, l2, eris, imds)
-        where imds are the intermediates taken from make_intermediates(mycc, t1, t2, eris)
-
         :param rsn: list with r amplitudes associated to excited state n
         :param lsn: list with l amplitudes associated to excited state n
         :param vn: exp potential Vexp[n,0]
         :return lsnew: updated lambda 1 values
         """
 
-        Fia, Fba, Fij, Wjiba, E = L1inter
+        Fia, Fba, Fij, Wbija, E = L1inter
 
         nocc, nvir = ls.shape
 
@@ -571,7 +534,7 @@ class Gccs:
         lsnew = Fia.copy()
         lsnew += np.einsum('ib,ba->ia', ls, Fba)
         lsnew -= np.einsum('ja,ij->ia', ls, Fij)
-        lsnew += np.einsum('jb,jiba->ia', ls, Wjiba)
+        lsnew += np.einsum('jb,bija->ia', ls, Wbija)
         lsnew += ls*E
 
         # add terms from coupling to excited states
@@ -631,25 +594,22 @@ class Gccs:
         :return: updated ls
         """
 
-        Fia, Fba, Fij, Wjiba, E = L1inter
+        Fia, Fba, Fij, Wbija, E = L1inter
 
         nocc, nvir = ls.shape
 
+        # store diagonals
         diag_vv = np.diagonal(self.fock[nocc:, nocc:])
         diag_oo = np.diagonal(self.fock[:nocc, :nocc])
 
-        # remove diagonal of the fock matrix
-        Fba[np.diag_indices(nvir)] -= diag_vv
-        Fij[np.diag_indices(nocc)] -= diag_oo
-
-        lsnew = Fia.copy()
-        lsnew += np.einsum('ib,ba->ia', ls, Fba)
-        lsnew -= np.einsum('ja,ij->ia', ls, Fij)
-        lsnew += np.einsum('jb,jiba->ia', ls, Wjiba)
-        lsnew += ls*E
+        L1 = Fia.copy()
+        L1 += np.einsum('ib,ba->ia', ls, Fba)
+        L1 -= np.einsum('ja,ij->ia', ls, Fij)
+        L1 += np.einsum('jb,bija->ia', ls, Wbija)
+        L1 += ls * E
 
         # subdifferential
-        dW = utilities.subdiff(lsnew, ls, alpha)
+        dW = utilities.subdiff(L1, ls, alpha)
 
         # remove diagonal elements
         eia = diag_oo[:, None] - diag_vv
@@ -669,7 +629,7 @@ class Gccs:
 
         class tmp:
             def __init__(self):
-                self.stout = sys.stdout
+                self.stdout = sys.stdout
                 self.verbose = 0
                 self.level_shift = 0
 
@@ -677,20 +637,23 @@ class Gccs:
         t2 = np.zeros((nocc, nocc, nvir, nvir))
         l2 = np.zeros_like(t2)
 
+        cc = tmp()
         tmp_eris = copy.deepcopy(self.eris)
         tmp_eris.fock = fsp
+        tmp_eris.mo_energy = fsp.diagonal()
 
-        imds = gccsd_lambda.make_intermediates(tmp, t1, t2, tmp_eris)
-        lsnew = gccsd_lambda.update_lambda(tmp, ts, t2, l1, l2, tmp_eris, imds)[0]
+        imds = gccsd_lambda.make_intermediates(cc, ts, t2, tmp_eris)
+        lsnew = gccsd_lambda.update_lambda(cc, ts, t2, ls, l2, tmp_eris, imds)[0]
 
         return lsnew
 
-    def L1inter(self, ts, fsp):
+    def L1inter(self, ts, fsp, E_term=True):
         """
-        Lambda 1 intermediates from equation ...
+        Lambda 1 intermediates
 
         :param ts: t1 amplitudes
         :param fsp: effective fock matrix in spin-orbital MO basis
+        :param E_term: False is energy term is 0.
         :return:
         """
 
@@ -708,27 +671,30 @@ class Gccs:
         Fba = fvv.copy()
         Fba -= np.einsum('ja,jb->ba', fov, ts)
         Fba += np.einsum('jbca,jc->ba', self.eris.ovvv, ts)
-        tmp = np.einsum('jkca,jc->kca', self.eris.oovv, ts)
-        Fba -= np.einsum('kca,kb->ba', tmp, ts)
+        tmp = np.einsum('jkca,jc->ka', self.eris.oovv, ts)
+        Fba -= np.einsum('ka,kb->ba', tmp, ts)
 
         Fij = foo.copy()
         Fij += np.einsum('ib,jb->ij', fov, ts)
         Fij += np.einsum('kibj,kb->ij', self.eris.oovo, ts)
-        tmp = np.einsum('kibc,jc->ibj', self.eris.oovv, ts)
-        Fij += np.einsum('ibj,kb->ij', tmp, ts)
+        tmp = np.einsum('kibc,kb->ic', self.eris.oovv, ts)
+        Fij += np.einsum('ic,jc->ij', tmp, ts)
 
         Wbija = self.eris.voov.copy()
-        Wbija -= np.einsum('kija,kb->bija', self.eris.ovvv, ts)
+        Wbija -= np.einsum('kija,kb->bija', self.eris.ooov, ts)
         tmp = np.einsum('kica,kb->icab', self.eris.oovv, ts)
         Wbija -= np.einsum('icab,jc->bija', tmp, ts)
-        Wbija -= np.einsum('bica,jc->bija', self.eris.vovv, ts)
+        Wbija += np.einsum('bica,jc->bija', self.eris.vovv, ts)
 
         Fia = fov.copy()
         Fia += np.einsum('jiba,jb->ia', self.eris.oovv, ts)
 
         # energy term
-        E = -np.einsum('jb,jb', ts, fov)
-        E -= 0.5*np.einsum('jb,kc,jkbc', ts, ts, self.eris.oovv)
+        if E_term:
+            E = -np.einsum('jb,jb', ts, fov)
+            E -= 0.5*np.einsum('jb,kc,jkbc', ts, ts, self.eris.oovv)
+        else:
+            E = 0.
 
         return Fia, Fba, Fij, Wbija, E
 
@@ -877,7 +843,7 @@ class Gccs:
         # Zji += np.einsum('jkik->ji', self.eris.oooo)  ##
         Zji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
         tmp = np.einsum('ic,jkbc->ijkb', ts, self.eris.oovv)
-        Zji += np.einsum('kb,ijkb->ji', ts, tmp)  # recheck sign ?
+        Zji -= np.einsum('kb,ijkb->ji', ts, tmp)
         del tmp
 
         # Zai: equation (20)
@@ -902,53 +868,6 @@ class Gccs:
         Pia = np.einsum('ai->ia', Pia)
 
         return Fab, Fji, Wakic, Er, Tia, Pia
-    
-    def R0inter(self, ts, fsp, vm):
-        """
-        one and two particles intermediates for state m as well as the Vexp intermediate
-        for the R0 equations
-
-        :param ts: t1 amplitudes
-        :param fsp: effective fock matrix for the state m
-        :param vm: m0V potential
-        :return: Fjb, Zjb, P intermediates
-        """
-        
-        nocc,nvir = ts.shape
-
-        if fsp is None:
-            fsp = self.fock.copy()
-
-        fov = fsp[:nocc, nocc:].copy()
-        
-        # r intermediates
-        # ------------------
-        
-        # Fjb: equation (23)
-        Fjb = fov.copy()
-        # Fjb += np.einsum('jkbk->jb',self.eris.oovo)
-        # tmp = Fjb.copy()
-        Fjb += np.einsum('kc,kjcb->jb', ts, self.eris.oovv)
-           
-        # r0 intermediates
-        # ------------------
-        
-        # Zjb: equation (25) --> Same as Fjb in R1inter
-        # Zjb and ts are contracted here
-        Zjb = fov.copy()
-        Zjb += 0.5*np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
-        Z = np.einsum('jb,jb', ts, Zjb)
-        del Zjb
-        #del tmp
-
-        # Vexp inter
-        # -------------------
-        vm_oo = vm[:nocc, :nocc]
-        vm_ov = vm[:nocc, nocc:]
-        P = np.einsum('jj', vm_oo)
-        P += np.einsum('jb,jb', ts, vm_ov)
-        
-        return Fjb, Z, P
 
     def Extract_Em_r(self, rs, r0, Rinter, ov=None):
         """
@@ -982,51 +901,6 @@ class Gccs:
         Em = Rov/rs[o, v]
 
         return Em, o, v
-
-    def Extract_r0(self, r1, ts, fsp, vm):
-        """
-        Use R1 and R0 equations to calculate r0 from given r1
-
-        :param r1: r1 amplitude vector
-        :return: r0
-        """
-
-        if fsp is None:
-            f = self.fock
-        else:
-            f = fsp.copy()
-
-        Fab, Fji, W, F, Zia, Pia = self.R1inter(ts, f, vm)
-        Fjb, Z, P = self.R0inter(ts, f, vm)
-
-        R1 = np.einsum('ab, ib->ia', Fab, r1)
-        R1 -= np.einsum('ji, ja->ia', Fji, r1)
-        R1 += np.einsum('kc, akic->ia', r1, W)
-        R1 += r1*F
-        R1 += Pia
-        
-        c = -np.einsum('jb, jb', r1, Fjb)
-        c -= P
-
-        if c == 0.:
-            return 0
-        else:
-            # largest r1
-            i, j = np.unravel_index(np.argmax(abs(r1), axis=None), r1.shape)
-            a = Zia[i, j] / r1[i, j]
-            b = R1[i, j] / r1[i, j]
-            b -= Z
-
-            # solve quadratic equation using delta
-            r0_1 = (-b + np.sqrt((b**2)-(4*a*c))) / c
-            r0_2 = (-b - np.sqrt((b**2)-(4*a*c))) / c
-
-            if r0_1 > 0:
-                return r0_1
-            elif r0_2 > 0:
-                return r0_2
-            else:
-                raise ValueError('Both solution for r0 are negative')
 
     def rsupdate(self, rs, r0, Rinter, Em, idx=None):
         """
@@ -1073,47 +947,10 @@ class Gccs:
 
         return rsnew
 
-    def R1eq(self, rs, r0, Rinter):
-        """
-        Return the Ria values
-
-        :param rs: r1 amplitudes
-        :param r0: r0 amplitude
-        :param Rinter: R1 intermediates
-        :return: Ria
-        """
-
-        Fab, Fji, W, F, Zia, Pia = Rinter
-
-        # Ria = ria*En' matrix
-        Ria = np.einsum('ab,ib->ia', Fab, rs)
-        Ria -= np.einsum('ji,ja->ia', Fji, rs)
-        Ria += np.einsum('akic,kc->ia', W, rs)
-        Ria += rs * F
-        Ria += r0 * Zia
-        Ria += Pia
-
-        return Ria
-
-    def r0update(self, rs, r0, Em, R0inter):
-        """
-
-        :param rs: r1 amplitude
-        :param Em: energy of state m
-        :param R0inter: intermediates for the R0 equation
-        :return: updated r0 for state m
-        """
-
-        Fjb, Z, P = R0inter
-        F = np.einsum('jb,jb', rs, Fjb)
-        r0new = F+P+(r0*Z)
-        r0new /= Em
-
-        return r0new
 
     def get_ov(self, ls, l0, rs, r0, ind):
         """
-        Extract missing ria/lia value from normality relation
+        Extract missing ria/lia value from normality condition
 
         :param ls: l1 amplitudes for state m
         :param l0: l0 amplitude for state m
@@ -1131,9 +968,160 @@ class Gccs:
 
         return rov
 
-    def R0eq(self, En, t1, r1, vm0, fsp=None):
+    def R1eq(self, rs, r0, Rinter):
         """
-        Returns the r0 value for a CCS state from the R0 equation
+        Return the Ria values
+
+        :param rs: r1 amplitudes
+        :param r0: r0 amplitude
+        :param Rinter: R1 intermediates
+        :return: Ria
+        """
+
+        Fab, Fji, W, F, Tia, Pia = Rinter
+
+        # Ria = ria*En' matrix
+        Ria = np.einsum('ab,ib->ia', Fab, rs)
+        Ria -= np.einsum('ji,ja->ia', Fji, rs)
+        Ria += np.einsum('akic,kc->ia', W, rs)
+        Ria += rs * F
+        Ria += r0 * Tia
+        Ria += Pia
+
+        return Ria
+
+    def R0inter(self, ts, fsp, vm):
+        """
+        one and two particles intermediates for state m as well as the Vexp intermediate
+        for the R0 equations
+
+        :param ts: t1 amplitudes
+        :param fsp: effective fock matrix for the state m
+        :param vm: m0V potential
+        :return: Fjb, Zjb, P intermediates
+        """
+
+        nocc, nvir = ts.shape
+
+        if fsp is None:
+            fsp = self.fock.copy()
+
+        fov = fsp[:nocc, nocc:].copy()
+
+        # (commented lines are additional term when f=kin)
+
+        # r intermediates
+        # ------------------
+
+        # Fjb: equation (23)
+        Fjb = fov.copy()
+        # Fjb += np.einsum('jkbk->jb',self.eris.oovo)
+        # tmp = Fjb.copy()
+        Fjb += np.einsum('kc,kjcb->jb', ts, self.eris.oovv)
+
+        # r0 intermediates (energy term)
+        # -------------------------------
+
+        # Zjb: equation (25) --> Same as Fjb in R1inter
+        # Zjb and ts are contracted here to form E
+        Zjb = fov.copy()
+        Zjb += 0.5 * np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
+        E = np.einsum('jb,jb', ts, Zjb)
+        del Zjb
+
+        # Vexp intermediate P
+        # ---------------------
+
+        vm_oo = vm[:nocc, :nocc]
+        vm_ov = vm[:nocc, nocc:]
+        P = np.einsum('jj', vm_oo)
+        P += np.einsum('jb,jb', ts, vm_ov)
+
+        return Fjb, E, P
+
+    def Extract_r0(self, r1, ts, fsp, vm):
+        """
+        Use R1 and R0 equations to calculate r0 from given r1
+
+        :param r1: r1 amplitude vector
+        :return: r0
+        """
+
+        if fsp is None:
+            f = self.fock
+        else:
+            f = fsp.copy()
+
+        Fab, Fji, W, F, Zia, Pia = self.R1inter(ts, f, vm)
+        Fjb, Z, P = self.R0inter(ts, f, vm)
+
+        R1 = np.einsum('ab, ib->ia', Fab, r1)
+        R1 -= np.einsum('ji, ja->ia', Fji, r1)
+        R1 += np.einsum('kc, akic->ia', r1, W)
+        R1 += r1 * F
+        R1 += Pia
+
+        c = -np.einsum('jb, jb', r1, Fjb)
+        c -= P
+
+        if c == 0.:
+            return 0
+        else:
+            # largest r1
+            i, j = np.unravel_index(np.argmax(abs(r1), axis=None), r1.shape)
+            a = Zia[i, j] / r1[i, j]
+            b = R1[i, j] / r1[i, j]
+            b -= Z
+
+            # solve quadratic equation using delta
+            r0_1 = (-b + np.sqrt((b ** 2) - (4 * a * c))) / c
+            r0_2 = (-b - np.sqrt((b ** 2) - (4 * a * c))) / c
+
+            if r0_1 > 0:
+                return r0_1
+            elif r0_2 > 0:
+                return r0_2
+            else:
+                raise ValueError('Both solution for r0 are negative')
+
+    def r0update(self, rs, r0, Em, R0inter):
+        """
+        SCF update of the r0 amplitude
+
+        :param rs: r1 amplitude from the previous iteration
+        :param Em: energy of state m
+        :param R0inter: intermediates for the R0 equation
+        :return: updated r0 for state m
+        """
+
+        Fjb, E, P = R0inter
+        F = np.einsum('jb,jb', rs, Fjb)
+        r0new = F+P+(r0*E)
+        r0new /= Em
+
+        return r0new
+
+    def R0eq(self, rs, r0, R0inter):
+        """
+        Returns the E*r0 from R0 equation using intermediates
+
+        :param rs: r1 amplitude for state m
+        :param r0: r0 coefficient for state m
+        :param R0inter: R0 intermediates
+        :return:
+        """
+
+        Fjb, E, P = R0inter
+
+        R0 = np.einsum('jb,jb', rs, Fjb)
+        R0 += r0*E
+        R0 += P
+
+        return R0
+
+    def r0_fromE(self, En, t1, r1, vm0, fsp=None):
+        """
+        Returns the r0 value for a CCS state with given energy from the R0 equation
 
         :param En: correlation energy of the state
         :param t1: t1 amp
@@ -1151,6 +1139,8 @@ class Gccs:
         vov = vm0[:nocc, nocc:].copy()
         voo = vm0[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
+
+        # (commented lines are additional term when f=kin)
         
         d = 0.
         d += En
@@ -1210,8 +1200,8 @@ class Gccs:
         Fij = foo.copy()
         #Fij += np.einsum('ikjk->ij', self.eris.oooo)  ##
         Fij += np.einsum('jb,ib->ij', ts, fov)
-        #Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)  ##
-        Fij += np.einsum('jb,jibk->ij', ts, self.eris.oovo)
+        Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)
+        # Fij += np.einsum('jb,ikbk->ij', ts, self.eris.oovo) ##
         Fij += np.einsum('kb,jc,kibc->ij', ts, ts, self.eris.oovv)
 
         # Wbija: equation (32)
@@ -1234,7 +1224,7 @@ class Gccs:
         #Zia += np.einsum('ikak->ia', self.eris.oovo)  ##
         Zia += np.einsum('jb,jiba->ia', ts, self.eris.oovv)
 
-        # Vexp intermediate
+        # Vexp intermediate P
         # ---------------------
 
         P = vm[:nocc, nocc:].copy()
@@ -1251,7 +1241,7 @@ class Gccs:
         :return: L0 intermediates
         '''
        
-        nocc,nvir = ts.shape
+        nocc, nvir = ts.shape
 
         if fsp is None:
             fsp = self.fock.copy()
@@ -1282,7 +1272,7 @@ class Gccs:
 
         # Z: eq (38) --> same as Z in R0 equation --> R1inter
         Zjb = fov.copy()
-        #Zjb += np.einsum('jkbk->jb', self.eris.oovo)
+        #Zjb -= np.einsum('jkbk->jb', self.eris.oovo)
         Zjb += 0.5*np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
         Z = np.einsum('jb,jb', ts, Zjb)
         del Zjb
@@ -1372,7 +1362,7 @@ class Gccs:
                 raise ValueError('Both solution for l0 are negative')
 
     def es_lsupdate(self, ls, l0, Em, L1inter, idx=None):
-        '''
+        """
         Update the l1 amplitudes for state m
 
         :param ls: list of l amplitudes for the m excited state
@@ -1380,7 +1370,7 @@ class Gccs:
         :param Em: Energy of the state m
         :param L1inter: intermediates for the L1 equation of state m
         :return: updated matrix of ls amplitudes for state m
-        '''
+        """
 
         Fba, Fij, W, F, Zia, P = L1inter
         nocc, nvir = ls.shape
@@ -1398,7 +1388,8 @@ class Gccs:
         lsnew += ls*F
         lsnew += l0*Zia
         lsnew += P
-        #lsnew -= ls*Em
+        # lsnew -= ls*Em  # uncomment if E term stays on the right hand side
+
         if idx is not None:
             o, v = idx
             lov = lsnew[o-1, v-1]-ls[o-1, v-1]*Em
@@ -1409,41 +1400,41 @@ class Gccs:
 
         # divide by diag
         lsnew /= (Em+diag_oo[:,None]-diag_vv)
-        #lsnew /= (diag_oo[:, None] - diag_vv)
+        # lsnew /= (diag_oo[:, None] - diag_vv)  # uncomment if E term stays on the right hand side
 
         return lsnew
 
-    def es_L1eq(self, ls, l0, L1inter):
+    def es_L1eq(self, ls, l0, es_L1inter):
         """
-        Update the l1 amplitudes for state m
+        Return the value of Lia (lia*E)
 
-        :param ls: list of l amplitudes for the m excited state
-        :param l0: l0 amplitude for state m
+        :param ls: l1 amplitudes
+        :param l0: l0 amplitude
         :param L1inter: intermediates for the L1 equation of state m
-        :return: updated matrix of ls amplitudes for state m
+        :return:
         """
 
-        Fba, Fij, W, F, Zia, P = L1inter
+        Fba, Fij, W, El, Zia, P = es_L1inter
 
         # get lia
         Lia  = np.einsum('ib,ba->ia', ls, Fba)
         Lia -= np.einsum('ja,ij->ia', ls, Fij)
         Lia += np.einsum('jb,bija->ia', ls, W)
-        Lia += ls*F
+        Lia += ls*El
         Lia += l0*Zia
         Lia += P
 
         return Lia
 
     def l0update(self, ls, l0, Em, L0inter):
-        '''
+        """
         Update the l0 amplitude
 
         :param ls: l1 amplitudes for state m
         :param Em: energy for state m
         :param L0inter: L1 intermediates for state m
         :return:
-        '''
+        """
 
         Fjb, Wjb, Z, P = L0inter
         F = np.einsum('jb,bj', ls, Fjb)
@@ -1453,7 +1444,26 @@ class Gccs:
 
         return l0new
 
-    def L0eq(self, En, t1, l1, v0m, fsp=None):
+    def L0eq(self, ls, l0, L0inter):
+        """
+        Returns Lia (lia*E) values
+
+        :param ls: l1 amplitudes for state m
+        :param Em: energy for state m
+        :param L0inter: L1 intermediates for state m
+        :return: Lia
+        """
+
+        Fbj, Wjb, El, P = L0inter
+
+        Lia = np.einsum('jb,bj', ls, Fbj)
+        Lia += np.einsum('jb,jb', ls, Wjb)
+        Lia += l0*El
+        Lia += P
+
+        return Lia
+
+    def l0_fromE(self, En, t1, l1, v0m, fsp=None):
         '''
         Returns l0 term for a CCS state
         See equation 23 in Derivation_ES file
@@ -1513,15 +1523,18 @@ class Gccs:
 #   ECW-GCCS gradient equations #
 #################################
 
+# todo: add E term from L1 equation in gradient
+# todo: calculate gradient for squared norm case and
+
 class ccs_gradient:
     def __init__(self, eris, M_tot=1, sum_sig=1):
-        '''
+        """
         Gradient of the ECW-CCS equations and Newton's method
 
         :param eris: two electron integrals
         :param M_tot: scale of the Vexp potential (number of measurements)
         :param sum_sig: sum of all sig_i, means for each sets of measurements
-        '''
+        """
 
         self.M_tot = M_tot
         self.sum_sig = sum_sig
@@ -1544,6 +1557,7 @@ class ccs_gradient:
         :param fsp: fock matrix
         :return: T1 nocc x nvir matrix
         """
+
         nocc, nvir = ts.shape
 
         if fsp is None:
@@ -1558,20 +1572,20 @@ class ccs_gradient:
             fvv = fsp[nocc:, nocc:].copy()
 
         Fai = fvo.copy()
-        Fai += np.einsum('kc,kaci->ai', ts, self.eris.ovvo)
+        Fai += np.einsum('jb,jabi->ai', ts, self.eris.ovvo)
 
         Fab = fvv.copy()
-        Fab -= np.einsum('kb,ka->ab', fov, ts)
-        Fab += np.einsum('kc,kacb->ab', ts, self.eris.ovvv)
+        Fab -= np.einsum('jb,ja->ab', fov, ts)
+        Fab += np.einsum('jc,jacb->ab', ts, self.eris.ovvv)
 
         Fji = foo.copy()
-        Fji += np.einsum('kc,kjci->ji', ts, self.eris.oovo)
-        tmp = np.einsum('kc,kjcd->jd', ts, self.eris.oovv)
-        Fji += np.einsum('id,jd->ji', ts, tmp)
+        Fji += np.einsum('kb,kjbi->ji', ts, self.eris.oovo)
+        tmp = np.einsum('kc,jkcb->jb', ts, self.eris.oovv)
+        Fji -= np.einsum('ib,jb->ji', ts, tmp)
 
         T1 = np.einsum('ai->ia', Fai)
-        T1 += np.einsum('ie,ae->ia', ts, Fab)
-        T1 -= np.einsum('ma,mi->ia', ts, Fji)
+        T1 += np.einsum('ib,ab->ia', ts, Fab)
+        T1 -= np.einsum('ja,ji->ia', ts, Fji)
 
         return T1
 
@@ -1579,13 +1593,14 @@ class ccs_gradient:
     # L1 equations
     #################
 
-    def L1eq(self, ts, ls, fsp):
+    def L1eq(self, ts, ls, fsp, E_term=False):
         """
         Value of the Lambda 1 equations using intermediates
 
         :param ts: t1 amplitudes
         :param ls: l1 amplitudes
         :param fsp: fock matrix
+        :param E_term: False if energy term in Lambda eq is zero
         :return: Lambda1 value
         """
 
@@ -1601,30 +1616,38 @@ class ccs_gradient:
             fvv = fsp[nocc:, nocc:].copy()
 
         Fba = fvv.copy()
-        Fba += np.einsum('ja,jb->ba', fov, ts)
+        Fba -= np.einsum('ja,jb->ba', fov, ts)
         Fba += np.einsum('jbca,jc->ba', self.eris.ovvv, ts)
-        tmp = np.einsum('kjca,jc->kca', self.eris.oovv, ts)
-        Fba += np.einsum('kca,kb->ba', tmp, ts)
+        tmp = np.einsum('jkca,jc->ka', self.eris.oovv, ts)
+        Fba -= np.einsum('ka,kb->ba', tmp, ts)
 
         Fij = foo.copy()
         Fij += np.einsum('ib,jb->ij', fov, ts)
         Fij += np.einsum('kibj,kb->ij', self.eris.oovo, ts)
-        tmp = np.einsum('kibc,kc->ibc', self.eris.oovv, ts)
-        Fij -= np.einsum('ibc,jb->ij', tmp, ts)
+        tmp = np.einsum('kibc,kb->ic', self.eris.oovv, ts)
+        Fij += np.einsum('ic,jc->ij', tmp, ts)
 
-        Wibaj = self.eris.ovvo.copy()
-        Wibaj -= np.einsum('ibca,jc->ibaj', self.eris.ovvv, ts)
+        Wbija = self.eris.voov.copy()
+        Wbija -= np.einsum('kija,kb->bija', self.eris.ooov, ts)
         tmp = np.einsum('kica,kb->icab', self.eris.oovv, ts)
-        Wibaj -= np.einsum('icab,jc->ibaj', tmp, ts)
-        Wibaj -= np.einsum('ikaj,kb->ibaj', self.eris.oovo, ts)
+        Wbija -= np.einsum('icab,jc->bija', tmp, ts)
+        Wbija += np.einsum('bica,jc->bija', self.eris.vovv, ts)
 
         Fia = fov.copy()
         Fia += np.einsum('jiba,jb->ia', self.eris.oovv, ts)
 
+        # energy term
+        if E_term:
+            E = -np.einsum('jb,jb', ts, fov)
+            E -= 0.5*np.einsum('jb,kc,jkbc', ts, ts, self.eris.oovv)
+        else:
+            E = 0.
+
         L1 = Fia.copy()
         L1 += np.einsum('ib,ba->ia', ls, Fba)
         L1 -= np.einsum('ja,ij->ia', ls, Fij)
-        L1 += np.einsum('jb,ibaj->ia', ls, Wibaj)
+        L1 += np.einsum('jb,bija->ia', ls, Wbija)
+        L1 += ls * E
 
         return L1
 
@@ -1858,15 +1881,22 @@ class ccs_gradient:
         return dL
 
     def Jacobian(self, ts, ls, fsp, L):
+        """
+        Build Jacobian matrix
 
-        # build Jacobian
+        :param ts:
+        :param ls:
+        :param fsp:
+        :param L:
+        :return:
+        """
+
         J00 = self.dTdt(ts, ls, fsp, L)
         J01 = self.dTdl(ts, L)
         J10 = self.dLdt(ts, ls, fsp, L)
         J11 = self.dLdl(ts, ls, fsp, L)
-        J = np.block([[J00, J01], [J10, J11]])
 
-        return J
+        return np.block([[J00, J01], [J10, J11]])
 
     ###################
     # Newton's method
@@ -1922,12 +1952,13 @@ class ccs_gradient:
         return tsnew, lsnew
 
 if __name__ == "__main__":
-    # execute only if run as a script
+    # execute only if file is run as a script
 
     np.random.seed(2)
 
     from pyscf import gto, scf, cc
-    import Eris, CC_raw_equations
+    import Eris
+    import CC_raw_equations
 
     mol = gto.Mole()
     #mol.atom = [
@@ -1966,75 +1997,104 @@ if __name__ == "__main__":
     gls = np.random.rand(gnocc//2, gnvir//2)
     gls = utilities.convert_r_to_g_amp(gls)
     gfs = np.random.rand(gdim//2, gdim//2)
-    gfs = utilities.convert_r_to_g_rdm1(gfs)
+    gfs_sym = gfs + gfs.T
+    gfs = utilities.convert_r_to_g_rdm1(gfs)  # non-symmetric fock matrix
+    gfs_sym = utilities.convert_r_to_g_rdm1(gfs_sym)  # symmetric fock matrix
 
     print()
     print('####################################################')
     print(' Test T and L equations using random t1, l1 and f   ')
     print('####################################################')
 
-    T1eq_1 = mccsg.T1eq(gts, gfs)
-    T1eq_2 = CC_raw_equations.T1eq(gts, geris)
+    T1eq = mccsg.T1eq(gts, gfs)
+    T1eq_raw = CC_raw_equations.T1eq(gts, geris, fsp=gfs)
 
-    La1eq_1 = mccsg.L1eq(gts, gls, gfs)
-    La1eq_2 = CC_raw_equations.La1eq(gts, gls, geris)
-
-    print()
-    print("---------------------------------")
-    print("Difference between intermediates ")
-    print("---------------------------------")
-    print()
-
-    print('T1 intermediates')
-    print('----------------')
-    R_St = mccsg.T1inter_Stanton(gts, gfs)
-    R_PySCF = mccsg.T1inter_PySCF(gts, gfs)
-    R = mccsg.T1inter(gts, gfs)
-    for r_st, r_py, r in zip(R_St, R_PySCF, R):
-        print('Inter')
-        print("With Stanton ")
-        print(np.max(np.subtract(r_st, r)))
-        print()
-        print("With PySCF ")
-        print(np.max(np.subtract(r_py, r)))
-        print()
-
-    print('Lambda 1 intermediates')
-    print('----------------')
-    L_St = mccsg.L1inter_Stanton(gls, gfs)
-    L = mccsg.L1inter(gls, gfs)
-    for l_st, l in zip(L_St, L):
-        print('Inter')
-        print("With Stanton ")
-        print(np.max(np.subtract(l_st, l)))
-        print()
+    La1eq = mccsg.L1eq(gts, gls, gfs, E_term=False)
+    La1eq_raw = CC_raw_equations.La1eq(gts, gls, geris, fsp=gfs)
 
     print()
-    print("-------------------------------------------------")
-    print("Difference between raw eq and with intermediates ")
-    print("-------------------------------------------------")
+    print("--------------------------------------------------")
+    print(" Difference between raw eq and with intermediates ")
+    print("--------------------------------------------------")
     print()
     print("T1 ")
-    print(np.max(np.subtract(T1eq_1, T1eq_2)))
+    print(np.max(np.subtract(T1eq, T1eq_raw)))
     print()
     print("L1 ")
-    print(np.max(np.subtract(La1eq_1, La1eq_2)))
+    print(np.max(np.subtract(La1eq, La1eq_raw)))
+    print()
+
+    print()
+    print("----------------------------------------------------------------")
+    print(" Difference between updated amp with different intermediates    ")
+    print("----------------------------------------------------------------")
+    print()
+
+    print('l1 update')
+    print()
+
+    print('symmetric fock matrix')
+    pyscf = mccsg.lsupdate_PySCF(gts, gls, gfs_sym)
+    Linter = mccsg.L1inter_Stanton(gts, gfs_sym)
+    stanton = mccsg.lsupdate(gts, gls, Linter)
+    Linter = mccsg.L1inter(gts, gfs_sym, E_term=False)
+    stasis = mccsg.lsupdate(gts, gls, Linter)
+    print('PySCF-Stanton: ', np.max(np.subtract(pyscf, stanton)))
+    print('PySCF-Stasis: ', np.max(np.subtract(pyscf, stasis)))
+    print('Stanton-Stasis: ', np.max(np.subtract(stanton, stasis)))
+    print()
+
+    print('non-symmetric fock matrix')
+    pyscf = mccsg.lsupdate_PySCF(gts, gls, gfs)
+    Linter = mccsg.L1inter_Stanton(gts, gfs)
+    stanton = mccsg.lsupdate(gts, gls, Linter)
+    Linter = mccsg.L1inter(gts, gfs, E_term=False)
+    stasis = mccsg.lsupdate(gts, gls, Linter)
+    print('PySCF-Stanton: ', np.max(np.subtract(pyscf, stanton)))
+    print('PySCF-Stasis: ', np.max(np.subtract(pyscf, stasis)))
+    print('Stanton-Stasis: ', np.max(np.subtract(stanton, stasis)))
+
+    print()
+    print('t1 update')
+    print()
+
+    print('Symmetric fock matrix')
+    pyscf = mccsg.tsupdate_PySCF(mygcc, gts, np.diag(gfs.diagonal()))
+    Tinter = mccsg.T1inter_Stanton(gts, np.diag(gfs.diagonal()))
+    stanton = mccsg.tsupdate(gts, Tinter)
+    Tinter = mccsg.T1inter(gts, np.diag(gfs.diagonal()))
+    stasis = mccsg.tsupdate(gts, Tinter)
+    print('PySCF-Stanton: ', np.max(np.subtract(pyscf, stanton)))
+    print('PySCF-Stasis: ', np.max(np.subtract(pyscf, stasis)))
+    print('Stanton-Stasis: ', np.max(np.subtract(stanton, stasis)))
+    print()
+
+    print('Non symmetric fock matrix')
+    pyscf = mccsg.tsupdate_PySCF(mygcc, gts, gfs)
+    Tinter = mccsg.T1inter_Stanton(gts, gfs)
+    stanton = mccsg.tsupdate(gts, Tinter)
+    Tinter = mccsg.T1inter(gts, gfs)
+    stasis = mccsg.tsupdate(gts, Tinter)
+    print('PySCF-Stanton: ', np.max(np.subtract(pyscf, stanton)))
+    print('PySCF-Stasis: ', np.max(np.subtract(pyscf, stasis)))
+    print('Stanton-Stasis: ', np.max(np.subtract(stanton, stasis)))
     print()
 
     print("--------------------------------")
     print(" ts_update with L1 reg          ")
     print("--------------------------------")
 
-    print('ts updated with alpha = 0.')
-    inter = mccsg.T1inter(gts, gfs)
-    ts_L1 = mccsg.tsupdate_L1(gts, inter, 0.)
-    ts_up = mccsg.tsupdate(gts, inter)
+    print('ts updated with alpha = 0')
+    Tinter = mccsg.T1inter(gts, gfs)
+    ts_L1 = mccsg.tsupdate_L1(gts, Tinter, 0.)
+    ts_up = mccsg.tsupdate(gts, Tinter)
     print(np.max(np.subtract(ts_up, ts_L1)))
+
     print()
-    print('ls updated with alpha = 0.')
-    inter = mccsg.L1inter(gts, gfs)
-    ls_L1 = mccsg.lsupdate_L1(gls, inter, 0.)
-    ls_up = mccsg.lsupdate(gts, gls, inter)
+    print('ls updated with alpha = 0')
+    Linter = mccsg.L1inter(gts, gfs)
+    ls_L1 = mccsg.lsupdate_L1(gls, Linter, 0.)
+    ls_up = mccsg.lsupdate(gts, gls, Linter)
     print(np.max(np.subtract(ls_up, ls_L1)))
 
     print()
@@ -2051,9 +2111,10 @@ if __name__ == "__main__":
     conv = True
     ite = 1
     norm = 0.
+    L = 0.
     while conv_thre > 10**-5:
         norm_old = norm
-        tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0)
+        tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, L)
         #tsnew, lsnew = mgrad.Gradient_Descent(0.01, ts_G, ls_G, gfs, 0)
         ts_G = tsnew
         ls_G = lsnew
@@ -2065,7 +2126,7 @@ if __name__ == "__main__":
             print("t and l amplitudes NOT converged after {} iteration".format(ite))
             break
     if conv:
-        print("Newton's method with Lamdba = 0 from random initial guess")
+        print("Newton's method with Lambda = 0 from random initial guess")
         print("t and l amplitudes converged after {} iteration".format(ite))
         print()
 
@@ -2074,10 +2135,11 @@ if __name__ == "__main__":
     conv_thre = 1.
     ite = 1
     norm = 0.
+    L = 0.1
     while conv_thre > 10**-5:
         norm_old = norm
-        tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, 0.5)
-        #tsnew, lsnew = mgrad.Gradient_Descent(0.01, ts_G, ls_G, gfs, 0)
+        tsnew, lsnew = mgrad.Newton(ts_G, ls_G, gfs, L)
+        #tsnew, lsnew = mgrad.Gradient_Descent(0.01, ts_G, ls_G, gfs, L)
         ts_G = tsnew
         ls_G = lsnew
         norm = np.concatenate((ts_G.flatten(), ls_G.flatten()))
@@ -2100,13 +2162,14 @@ if __name__ == "__main__":
     print('gamma for GS')
     g1 = mccsg.gamma(gts, gls)  # symetrized rdm1
     g2 = mccsg.gamma_unsym(gts, gls)  # unsymetrized rdm1
-    print(g2)
+
     print('Difference in Ek between symetrized and unsymetrized rdm1:')
     print('DEk= ', np.subtract(utilities.Ekin(mol, g1, aobasis=False, mo_coeff=mgf.mo_coeff),
                                utilities.Ekin(mol, g2, aobasis=False, mo_coeff=mgf.mo_coeff)))
+
     print()
     print(" Difference between GS gamma and ES gamma with r1=0, r0=0")
-    g1 = mccsg.gamma_es(gts, gls, np.zeros_like(gts), 0., 1.)
+    g1 = mccsg.gamma_es(gts, gls, None, 1, 0)
     print(np.max(np.subtract(g1, g2)))
 
     print()
@@ -2115,27 +2178,19 @@ if __name__ == "__main__":
     t1 = np.random.random((gnocc, gnvir))*0.1
     r1 = np.random.random((gnocc, gnvir))*0.1
     l1 = np.random.random((gnocc, gnvir))*0.1
-    # orthogonalize r and l amp
-    Matvec = np.zeros((gnocc*gnvir, 2))
-    Matvec[:, 0] = np.ravel(r1)
-    Matvec[:, 1] = np.ravel(l1)
-    Matvec = utilities.ortho_QR(Matvec)
-    rk = Matvec[:, 0].reshape(gnocc, gnvir)
-    ln = Matvec[:, 1].reshape(gnocc, gnvir)
-    # get r0 and l0 with E = 0.1
-    r0k = mccsg.R0eq(0.1, t1, rk, np.zeros_like(gfs))
-    l0n = mccsg.L0eq(0.1, t1, ln, np.zeros_like(gfs))
-    tr_rdm1 = mccsg.gamma_tr(t1, ln, rk, r0k, l0n)
+    r0 = mccsg.r0_fromE(0.1, t1, r1, np.zeros_like(gfs))
+    l0 = mccsg.l0_fromE(0.1, t1, l1, np.zeros_like(gfs))
+    tr_rdm1 = mccsg.gamma_tr(t1, l1, r1, r0, l0)
     print(tr_rdm1.trace())
     print()
     
     print('trace of rdm1 for excited state - nelec')
     # normalize r and l
-    c = utilities.get_norm(r1, l1, r0k, l0n)
+    c = utilities.get_norm(r1, l1, r0, l0)
     l1 /= c
     # get r0 and l0
-    r0 = mccsg.R0eq(0.1, t1, r1, np.zeros_like(gfs))
-    l0 = mccsg.L0eq(0.1, t1, l1, np.zeros_like(gfs))
+    r0 = mccsg.r0_fromE(0.1, t1, r1, np.zeros_like(gfs))
+    l0 = mccsg.l0_fromE(0.1, t1, l1, np.zeros_like(gfs))
     rdm1 = mccsg.gamma_es(t1, l1, r1, r0, l0)
     print(rdm1.trace()-np.sum(mol.nelec))
 
@@ -2153,59 +2208,70 @@ if __name__ == "__main__":
     r0 = 0.1
     l0 = 0.1
 
-    print('Difference between R1 and L1 inter for t=0 (should be zero)')
-    print('-------------------------------------------------------------')
+    print('Difference between R1 and L1 inter for t=0 (should be zero except Tia)')
+    print('----------------------------------------------------------------------')
     ts = np.zeros((gnocc, gnvir))
-    Rinter = mccsg.R1inter(ts, gfs, vn)    #Fab, Fji, W, F, Zia, Pia
-    Linter = mccsg.es_L1inter(ts, gfs, vn) #Fba, Fij, W, F, Zia, P
+    Rinter = mccsg.R1inter(ts, gfs, vn)    #Fab, Fji, W, E, Tia, Pia
+    Linter = mccsg.es_L1inter(ts, gfs, vn) #Fba, Fij, W, E, Tia, P
+    inter = ['Fba', 'Fij', 'W', 'E', 'Tia', 'P']
+    i = 0
     for R, L in zip(Rinter, Linter):
-        print('Inter')
+        print('Inter ', inter[i])
         print(np.max(np.subtract(R, L)))
+        i += 1
 
     print()
-    print('Difference between R1 and L1 equations for t=0 and ls=rs (should be zero)')
-    print('-------------------------------------------------------------------------')
+    print('Difference between R1 and L1 equations for t=0 and ls=rs')
+    print('--------------------------------------------------------')
+    print()
+
+    print('Symmetric f matrix (should be zero)')
+    Rinter = mccsg.R1inter(np.zeros_like(gts), gfs_sym, vn)
+    Linter = mccsg.es_L1inter(np.zeros_like(gts), gfs_sym, vn)
     print('with intermediates')
-    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), mccsg.es_L1eq(ls, l0, Linter))))
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), mccsg.es_L1eq(rs, r0, Linter))))
     print('raw equations')
-    print(np.max(np.subtract(CC_raw_equations.R1eq(ts, rs, r0, geris), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
+    print(np.max(np.subtract(CC_raw_equations.R1eq(ts, rs, r0, geris),
+                             CC_raw_equations.es_L1eq(ts, rs, r0, geris))))
 
     print()
-    print('Difference between R0 and L0 equations for t=0 and l0=r0 (should be zero)')
-    print('-------------------------------------------------------------------------')
-    tmp = np.zeros_like(t1)
-    En = 0.5
+    print('Random f matrix')
+    Rinter = mccsg.R1inter(np.zeros_like(gts), gfs, vn)
+    Linter = mccsg.es_L1inter(np.zeros_like(gts), gfs, vn)
+    print('with intermediates')
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), mccsg.es_L1eq(rs, r0, Linter))))
     print('raw equations')
-    print(np.max(np.subtract(mccsg.R0eq(En, tmp, rs, gfs), mccsg.L0eq(En, tmp, ls, gfs))))
-    print('r0 and l0 update')
-    v = np.zeros_like(gfs)
-    R0inter = mccsg.R0inter(tmp, gfs, v)
-    L0inter = mccsg.L0inter(tmp, gfs, v)
-    print(np.max(np.subtract(mccsg.r0update(rs, r0, En, R0inter), mccsg.l0update(ls, l0, En, L0inter))))
+    print(np.max(np.subtract(CC_raw_equations.R1eq(np.zeros_like(gts), rs, r0, geris, fsp=gfs),
+                             CC_raw_equations.es_L1eq(np.zeros_like(gts), rs, r0, geris, fsp=gfs))))
 
     print()
     print('Difference between inter and raw equations for t=0 (should be zero)')
     print('-------------------------------------------------------------------')
 
+    Rinter = mccsg.R1inter(np.zeros_like(gts), gfs, vn)
+    Linter = mccsg.es_L1inter(np.zeros_like(gts), gfs, vn)
     print('R1 difference')
-    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris))))
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris, fsp=gfs))))
     print('L1 difference')
-    print(np.max(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris))))
+    print(np.max(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris, fsp=gfs))))
 
     print()
     print('Difference between inter and raw equations for t random (should be zero)')
     print('------------------------------------------------------------------------')
 
-    ts = np.random.random((gnocc//2, gnvir//2))*0.1
-    ts = utilities.convert_r_to_g_amp(ts)
-
-    Rinter = mccsg.R1inter(ts, gfs, np.zeros_like(gfs))
-    Linter = mccsg.es_L1inter(ts, gfs, np.zeros_like(gfs))
-
+    Rinter = mccsg.R1inter(gts, gfs, vn)
+    Linter = mccsg.es_L1inter(gts, gfs, vn)
     print('R1 difference')
-    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(ts, rs, r0, geris, fsp=gfs))))
+    print(np.max(np.subtract(mccsg.R1eq(rs, r0, Rinter), CC_raw_equations.R1eq(gts, rs, r0, geris, fsp=gfs))))
     print('L1 difference')
-    print(np.max(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(ts, ls, l0, geris, fsp=gfs))))
+    print(np.max(np.subtract(mccsg.es_L1eq(ls, l0, Linter), CC_raw_equations.es_L1eq(gts, ls, l0, geris, fsp=gfs))))
+
+    R0inter = mccsg.R0inter(gts, gfs, vn)
+    L0inter = mccsg.L0inter(gts, gfs, vn)
+    print('R0 difference')
+    print(np.max(np.subtract(mccsg.R0eq(rs, r0, R0inter), CC_raw_equations.R10eq(gts, rs, r0, geris, fsp=gfs))))
+    print('L0 difference')
+    print(np.max(np.subtract(mccsg.L0eq(ls, l0, L0inter), CC_raw_equations.es_L10eq(gts, ls, l0, geris, fsp=gfs))))
 
     print()
     print('Energy from R1 and R0 equations')

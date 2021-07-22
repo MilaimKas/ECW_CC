@@ -15,8 +15,6 @@ from pyscf.ccn.util import p
 # CCS
 ##########
 
-# Energy
-# -----------------
 def energy_s(t1, eris):
 
     nocc,nvir = t1.shape
@@ -28,9 +26,16 @@ def energy_s(t1, eris):
 
     return scalar
 
-# T equation
-# -----------------
-def T1eq(t1, eris,fsp=None):
+def T1eq(t1, eris, fsp=None):
+    """
+    PySCF T1 equations
+    Check against Stasis: same if eris ijab = -jiab
+
+    :param t1:
+    :param eris:
+    :param fsp:
+    :return:
+    """
 
     nocc,nvir = t1.shape
     if fsp is None:
@@ -52,11 +57,19 @@ def T1eq(t1, eris,fsp=None):
     hE += e("jabi,jb->ia", eris.ovvo, t1)  # d5_ov
     hE -= e("jkbc,jb,ka,ic->ia", eris.oovv, t1, t1, t1)  # d6_ov
     hE -= e("jiak,ja,ib->kb", eris.oovo, t1, t1)  # d7_ov
+
     return hE
 
-# Lambda equation
-# -----------------
-def La1eq(t1, a1, eris,fsp=None):
+def La1eq(t1, l1, eris,fsp=None):
+    """
+    Lambda 1 equation from PySCF ccn module
+
+    :param t1:
+    :param l1:
+    :param eris:
+    :param fsp:
+    :return:
+    """
     
     nocc,nvir = t1.shape
     if fsp is None:
@@ -69,24 +82,23 @@ def La1eq(t1, a1, eris,fsp=None):
     ov = f[:nocc, nocc:].copy()
 
     He = 0
-    He += e("ba,ib->ia", vv, a1)  # d0_ov
-    He -= e("ij,ia->ja", oo, a1)  # d1_ov
+    He += e("ba,ib->ia", vv, l1)  # d0_ov
+    He -= e("ji,ja->ia", oo, l1)  # d1_ov
     He += e("ia->ia", ov)  # d2_ov
-    He -= e("jb,ia,ja->ib", ov, a1, t1)  # d3_ov
-    He -= e("jb,ia,ib->ja", ov, a1, t1)  # d4_ov
-    He -= e("jabc,ia,ib->jc", eris.ovvv, a1, t1)  # d5_ov
-    He += e("jabc,ia,jb->ic", eris.ovvv, a1, t1)  # d6_ov
-    He += e("jabi,ia->jb", eris.ovvo, a1)  # d7_ov
+    He -= e("jb,ia,ja->ib", ov, l1, t1)  # d3_ov
+    He -= e("jb,ia,ib->ja", ov, l1, t1)  # d4_ov
+    He -= e("jabc,ia,ib->jc", eris.ovvv, l1, t1)  # d5_ov
+    He += e("jabc,ia,jb->ic", eris.ovvv, l1, t1)  # d6_ov
+    He += e("jabi,ia->jb", eris.ovvo, l1)  # d7_ov
     He += e("ijab,ia->jb", eris.oovv, t1)  # d8_ov
-    He += e("kiab,jc,ia,kc->jb", eris.oovv, a1, t1, t1)  # d9_ov
-    He += e("ikba,jc,ia,jb->kc", eris.oovv, a1, t1, t1)  # d10_ov
-    He -= e("jkac,ib,ia,jb->kc", eris.oovv, a1, t1, t1)  # d11_ov
-    He -= e("jkbi,ia,jb->ka", eris.oovo, a1, t1)  # d12_ov
-    He -= e("kibj,ja,ia->kb", eris.oovo, a1, t1)  # d13_ov
+    He += e("kiab,jc,ia,kc->jb", eris.oovv, l1, t1, t1)  # d9_ov
+    He += e("ikba,jc,ia,jb->kc", eris.oovv, l1, t1, t1)  # d10_ov
+    He -= e("jkac,ib,ia,jb->kc", eris.oovv, l1, t1, t1)  # d11_ov
+    He -= e("jkbi,ia,jb->ka", eris.oovo, l1, t1)  # d12_ov
+    He -= e("kibj,ja,ia->kb", eris.oovo, l1, t1)  # d13_ov
+
     return He
 
-# R equation
-# -----------------
 def R1eq(t1, r1, r0, eris, fsp=None):
     # commented lines are terms to be included if f are kinetic operator elements
 
@@ -106,9 +118,9 @@ def R1eq(t1, r1, r0, eris, fsp=None):
     Ria += e('ab,ib->ia', vv, r1)
     Ria -= e('ji,ja->ia', oo, r1)
     Ria += e('jb,ajib->ia', r1, eris.voov)
-    #Ria -= e('ja,jkik->ia', r1, eris.oooo)  ##
-    #Ria += e('ib,akbk->ia', r1, eris.vovo)  ##
-    #Ria += r0*e('akik->ia', eris.vooo)  ##
+    # Ria -= e('ja,jkik->ia', r1, eris.oooo)  ##
+    # Ria += e('ib,akbk->ia', r1, eris.vovo)  ##
+    # Ria += r0*e('akik->ia', eris.vooo)  ##
 
     # t terms
     Ria += e('jb,jb,ia->ia', t1, ov, r1)
@@ -117,28 +129,28 @@ def R1eq(t1, r1, r0, eris, fsp=None):
     Ria += r0*e('ib,ab->ia', t1, vv)
     Ria -= r0*e('ja,ji->ia', t1, oo)
     Ria += r0*e('jb,jabi->ia', t1, eris.ovvo)
-    #Ria -= r0*e('ja,jkik->ia', t1, eris.oooo)  ##
-    #Ria += r0*e('ib,akbk->ia', t1, eris.vovo)  ##
-    Ria += e('ia,jb,jkbk->ia', r1, t1, eris.oovo)
+    # Ria -= r0*e('ja,jkik->ia', t1, eris.oooo)  ##
+    # Ria += r0*e('ib,akbk->ia', t1, eris.vovo)  ##
+    # Ria += e('ia,jb,jkbk->ia', r1, t1, eris.oovo)
     Ria -= e('ka,jb,jkbi->ia', r1, t1, eris.oovo)
-    Ria += e('ib,ja,jacb->ia', r1, t1, eris.ovvv)
-    #Ria -= e('ib,ja,jkbk->ia', r1, t1, eris.oovo)  ##
+    Ria += e('ib,jc,jacb->ia', r1, t1, eris.ovvv)
+    # Ria -= e('ib,ja,jkbk->ia', r1, t1, eris.oovo)  ##
     Ria -= e('kc,ja,jkic->ia', r1, t1, eris.ooov)
-    #Ria -= e('ka,ib,kjbj->ia', r1, t1, eris.oovo)  ##
+    # Ria -= e('ka,ib,kjbj->ia', r1, t1, eris.oovo)  ##
     Ria += e('kc,ib,akbc->ia', r1, t1, eris.vovv)
 
     # t.t terms
     Ria -= r0 * e('ib,ja,jb->ia', t1, t1, ov)
     Ria -= r0*e('jb,ka,jkbi->ia', t1, t1, eris.oovo)
     Ria += r0*e('jb,ic,jabc->ia', t1, t1, eris.ovvv)
-    #Ria -= r0*e('ib,ka,kjbj->ia', t1, t1, eris.oovo)  ##
+    # Ria -= r0*e('ib,ka,kjbj->ia', t1, t1, eris.oovo)  ##
     Ria += 0.5*e('ia,jb,kc,jkbc->ia', r1, t1, t1, eris.oovv)
     Ria -= e('ka,jb,ic,jkbc->ia', r1, t1, t1, eris.oovv)
     Ria -= e('ic,jb,ka,jkbc->ia', r1, t1, t1, eris.oovv)
     Ria -= e('jc,ib,ka,kjbc->ia', r1, t1, t1, eris.oovv)
     
     # t.t.t
-    Ria -= r0*e('ka,jb,ic,kjbc->ia', t1, t1, t1, eris.oovv)  # recheck sign
+    Ria += r0*e('ja,kb,ic,jkbc->ia', t1, t1, t1, eris.oovv)
 
     return Ria
 
@@ -166,8 +178,6 @@ def R10eq(t1, r1, r0, eris, fsp=None):
 
     return R0
 
-# L equation
-# -----------------
 def es_L1eq(t1, l1, l0, eris, fsp=None):
 
     nocc, nvir = t1.shape
@@ -193,9 +203,9 @@ def es_L1eq(t1, l1, l0, eris, fsp=None):
     Lia += e('jb,jb,ia->ia', t1, ov, l1)
     Lia -= e('jb,ib,ja->ia', t1, ov, l1)
     Lia -= e('jb,ja,ib->ia', t1, ov, l1)
-    Lia += l0*e('jb,jiba->ia',t1, eris.oovv)
+    Lia += l0*e('jb,jiba->ia', t1, eris.oovv)
     #Lia += e('ia,jb,jkbk->ia', l1, t1, eris.oovo)  ##
-    Lia -= e('ka,jb,jibk->ia', l1, t1, eris.oovo)  ##
+    Lia -= e('ka,jb,jibk->ia', l1, t1, eris.oovo)
     Lia += e('ic,jb,jcba->ia', l1, t1, eris.ovvv)
     #Lia -= e('ib,jb,jkak->ia', l1, t1, eris.oovo)  ##
     Lia -= e('kc,jc,jika->ia', l1, t1, eris.ooov)
@@ -219,17 +229,17 @@ def es_L10eq(t1, l1, l0, eris, fsp=None):
         f = fsp
 
     ov = f[:nocc, nocc:].copy()
+    vo = f[nocc:, :nocc].copy()
     vv = f[nocc:, nocc:].copy()
     oo = f[:nocc, :nocc].copy()
 
     # no t
-    L0  = e('ia,ia', ov, l1)
+    L0  = e('ai,ia', vo, l1)
     #L0 += e('ia,akik', l1, eris.vooo)
 
     # t
     L0 += e('ia,ib,ab', l1, t1, vv)
     L0 += l0*e('ia,ia', t1, ov)
-    L0 += l0*e('ia,ia', l1, ov)
     L0 -= e('ia,ja,ji', l1, t1, oo)
     #L0 += l0*e('jb,jkbk', t1, eris.oovo)
     L0 += e('ia,jb,jabi', l1, t1, eris.ovvo)
@@ -237,15 +247,14 @@ def es_L10eq(t1, l1, l0, eris, fsp=None):
     #L0 += e('ia,ib,akbk',l1, t1, eris.vovo)
 
     # t.t
-    L0 -= e('ia,ja,ji', l1, t1, oo)
-    L0 += e('ib,ia,jb,ja', l1, t1, t1,ov)
+    L0 -= e('ib,ia,jb,ja', l1, t1, t1, ov)
     L0 += 0.5*l0*e('jb,kc,jkbc', t1, t1, eris.oovv)
     L0 -= e('ia,jb,ka,jkbi', l1, t1, t1, eris.oovo)
     L0 += e('ia,jb,ic,jabc', l1, t1, t1, eris.ovvv)
     #L0 -= e('ia,ib,ka,kjbj', l1, t1, t1, eris.oovo)
 
     # t.t.t
-    L0 += e('ia,ka,jb,ic,kjbc', l1, t1, t1,t1, eris.oovv)
+    L0 += e('ia,ka,jb,ic,kjbc', l1, t1, t1, t1, eris.oovv)
 
     return L0
 
@@ -253,8 +262,6 @@ def es_L10eq(t1, l1, l0, eris, fsp=None):
 # CCSD and CCD
 ###############
 
-# Energy
-# -----------------
 def energy_sd(t1, t2, eris, fsp=None):
 
     nocc,nvir = t1.shape
@@ -274,8 +281,6 @@ def energy_d(t2, eris):
     scalar += 1./4 * e("ijba,ijba", eris.oovv, t2)  # s0
     return scalar
 
-# T1 and T2 equation
-# -----------------
 def T1T2eq(t1, t2, eris, fsp=None, equation=True):
     
     nocc,nvir = t1.shape
@@ -361,8 +366,6 @@ def T2eq(t2, eris, fsp=None):
     hhEE += 1./2 * e("ijkl,ijba->klba", eris.oooo, t2)  # d9_oovv
     return hhEE
 
-# Lambda equation
-# -----------------
 def La1La2eq(t1, t2, a1, a2, eris, fsp=None):
     
     nocc,nvir = t1.shape

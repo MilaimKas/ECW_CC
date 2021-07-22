@@ -430,7 +430,7 @@ class Solver_ES:
                 # ------------------------
 
                 #r0new[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
-                r0new[i] = mycc.R0eq(En_r, ts, rn[i], vexp, fsp=fsp[i+1])
+                r0new[i] = mycc.r0_fromE(En_r, ts, rn[i], vexp, fsp=fsp[i + 1])
                 #del R0inter
                 print()
                 print('update r0')
@@ -476,7 +476,7 @@ class Solver_ES:
                 # ------------------------
 
                 #l0new[i] = mycc.l0update(ln[i], l0n[i], En_l, L0inter)
-                l0new[i] = mycc.L0eq(En_l, ts, ln[i], vexp, fsp=fsp[i + 1])
+                l0new[i] = mycc.l0_fromE(En_l, ts, ln[i], vexp, fsp=fsp[i + 1])
                 #del L0inter
                 del vexp
                 print()
@@ -806,7 +806,7 @@ class Solver_ES:
                 # Update r0
                 # ----------------------------------------------
 
-                r0n[i] = mycc.R0eq(En_r, ts, rn[i], vexp, fsp=fsp[i+1])
+                r0n[i] = mycc.r0_fromE(En_r, ts, rn[i], vexp, fsp=fsp[i + 1])
 
                 #
                 # Left Vexp
@@ -848,7 +848,7 @@ class Solver_ES:
                 #
                 # Update l0
                 # ----------------------------------------------
-                l0n[i] = mycc.L0eq(En_l, ts, ln[i], vexp, fsp=fsp[i+1])
+                l0n[i] = mycc.l0_fromE(En_l, ts, ln[i], vexp, fsp=fsp[i + 1])
 
                 #
                 # Update ES energies

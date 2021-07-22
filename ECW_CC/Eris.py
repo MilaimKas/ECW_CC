@@ -223,3 +223,9 @@ if __name__ == "__main__":
     print('gto.getints s1')
     print(gto.getints('int2e', mol._atm, mol._bas, mol._env, aosym='s1' ).shape)
 
+    print()
+    print(' Test symmetries')
+    print('o1o2v1v2 - (-o2o1v1v2) = ', np.max(np.subtract(eris_1.oovv, -1*eris_1.oovv.transpose(1, 0, 2, 3))))
+    print('o1o2v1v2 - (-o1o2v2v1) = ', np.max(np.subtract(eris_1.oovv, -1 * eris_1.oovv.transpose(0, 1, 3, 2))))
+    print('o1o2v1v2 - o2o1v2v1 = ', np.max(np.subtract(eris_1.oovv, eris_1.oovv.transpose(1, 0, 3, 2))))
+

@@ -60,8 +60,8 @@ vm0 = np.zeros_like(gfs)
 # initial r0 and l0
 #r0ini = [mccsg.Extract_r0(r, ts, gfs, np.zeros_like(gfs)) for r in rnini]
 #l0ini = [mccsg.Extract_l0(l, ts, gfs, np.zeros_like(gfs)) for l in lnini]
-r0ini = [mccsg.R0eq(de, ts, r, vm0) for r, de in zip(rnini, DE)]
-l0ini = [mccsg.R0eq(de, ts, l, vm0) for l, de in zip(lnini, DE)]
+r0ini = [mccsg.r0_fromE(de, ts, r, vm0) for r, de in zip(rnini, DE)]
+l0ini = [mccsg.r0_fromE(de, ts, l, vm0) for l, de in zip(lnini, DE)]
 # normalize
 rnini, lnini, r0ini, l0ini = utilities.ortho_norm(rnini, lnini, r0ini, l0ini, ortho=False)
 
