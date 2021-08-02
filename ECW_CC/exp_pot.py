@@ -10,6 +10,7 @@
 # Calculate Vexp potential and X2 statistic from either rdm1_exp or
 # one electron properties
 #
+# todo: add std deviation sig_j
 #
 ###################################################################
 
@@ -28,11 +29,11 @@ class Exp:
         :param exp_data: nn square matrix of list ('text',A) where 'text' indicates which property or if a rdm1 is given
                     text = 'mat','Ek','dip','v1e','F'
                     Vexp = exp-calc
-                    Vexp[0,0] -> GS
+                    Vexp[0,0] -> GS prop
                     Vexp[n,0] and Vexp[0,n] -> transition case
-                    Vexp[n,n] -> ES
+                    Vexp[n,n] -> ES prop
                     Vexp[n,m] = ('text', A) or list of prop (('text', prop1),('text', prop2),('text', prop3), ...)
-                                Note that dipole has 3 components
+                                Note that dipole has 3 components ['dip': [x,y,z]]
                                 Note that structure factor ['F', F] where F=[[h1,F1],[h2,F2], ...] and h=(hx,hy,hz)
                     'mat' is either a rdm1 or transition rdm1
                       -> must be given in MOs basis
@@ -190,7 +191,7 @@ class Exp:
                     self.Vexp[0, 0] = np.zeros_like(rdm1)
 
                     # if prop = dip or F
-                    if isinstance(exp_prop[1], list):
+                    if isinstance(exp_prop[1], (list, np.ndarray)):
 
                         # if prop = dip
                         if len(exp_prop[1]) == 3:
@@ -217,7 +218,7 @@ class Exp:
 
             # use given list of properties
 
-            elif isinstance(self.check[check_idx], list):
+            elif isinstance(self.check[check_idx], (list, np.ndarray)):
                 self.Vexp[0, 0] = np.zeros_like(rdm1)
                 X2 = 0.
                 M = 0. # nbr of prop
@@ -226,14 +227,14 @@ class Exp:
                     calc_prop = self.calc_prop(exp_prop[0], rdm1)
 
                     # dip case -> 3 components
-                    if isinstance(calc_prop, list) and len(calc_prop) == 3:
+                    if isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == 3:
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
                             self.Vexp[0, 0] += np.abs((d_exp - d_calc))*self.dic_int[exp_prop[0]][j]
                             X2 += (d_exp - d_calc)**2
                             M += 1
 
                     # structure factor
-                    elif isinstance(calc_prop, list) and len(calc_prop) == len(self.h):
+                    elif isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == len(self.h):
                         # loop over structure factors
                         for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:], calc_prop, self.dic_int['F']):
                             self.Vexp[0, 0] += np.abs((F_exp - F_calc)) * F_int_mo
@@ -283,7 +284,7 @@ class Exp:
                     self.Vexp[n, m] = np.zeros_like(rdm1)
                     X2 = 0.
                     # if prop = dip
-                    if isinstance(exp_prop[1], list):
+                    if isinstance(exp_prop[1], (list, np.ndarray)):
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
                             self.Vexp[n, m] += np.abs((d_exp - d_calc))*self.dic_int[prop][j]
                             X2 += (d_exp - d_calc)**2
@@ -305,7 +306,7 @@ class Exp:
                 for exp_prop in self.exp_data[n, m]:
                     calc_prop = self.calc_prop(exp_prop[0], rdm1)
                     # dip case -> 3 components
-                    if isinstance(exp_prop[1], list):
+                    if isinstance(exp_prop[1], (list, np.ndarray)):
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
                             self.Vexp[n, m] += np.abs((d_exp - d_calc))*self.dic_int[exp_prop[0]][j]
                             X2 += (d_exp - d_calc)**2
@@ -325,7 +326,7 @@ class Exp:
 
     def Vexp_update_norm2(self, rdm1, rdm1_2, index):
         # todo: Problem with complex number: Vexp is complex ?
-        '''
+        """
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
         assumes that square norm for the expectation value are compared
 
@@ -339,7 +340,7 @@ class Exp:
              -> index = (0,n) and (n,0) for left and right transition prop. of excited state n
                         if prop are given (not mat.), the square or the norm is taken as |prop|^2 = prop_l*prop_r
         :return: (positive) Vexp(index) potential
-        '''
+        """
 
         n, m = index
         k, l = np.sort(index)   # index of the upper triangle exp_data
@@ -383,7 +384,7 @@ class Exp:
                     self.Vexp[0, 0] = np.zeros_like(rdm1)
 
                     # if prop = dip or F
-                    if isinstance(exp_prop[1], list):
+                    if isinstance(exp_prop[1], (list, np.ndarray)):
 
                         # if prop = dip
                         if len(exp_prop[1]) == 3:
@@ -412,7 +413,7 @@ class Exp:
 
             # use given list of properties
 
-            elif isinstance(self.check[check_idx], list):
+            elif isinstance(self.check[check_idx], (list, np.ndarray)):
                 self.Vexp[0, 0] = np.zeros_like(rdm1)
                 X2 = 0.
                 M = 0.  # nbr of prop
@@ -421,14 +422,14 @@ class Exp:
                     calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_2)
 
                     # dip case -> 3 components
-                    if isinstance(calc_prop, list) and len(calc_prop) == 3:
+                    if isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == 3:
                         for d_calc, d_exp, j, A in zip(calc_prop, exp_prop[1], [0, 1, 2], A_scale):
                             self.Vexp[0, 0] += (d_exp - d_calc) * self.dic_int[exp_prop[0]][j] * A
                             X2 += (d_exp - d_calc) ** 2
                             M += 1
 
                     # structure factor
-                    elif isinstance(calc_prop, list) and len(calc_prop) == len(self.h):
+                    elif isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == len(self.h):
                         # loop over structure factors
                         for F_exp, F_calc, F_int_mo, A in zip(exp_prop[1][:], calc_prop, self.dic_int['F'], A_scale):
                             self.Vexp[0, 0] += (F_exp - np.abs(F_calc)**2) * F_int_mo * A
@@ -479,7 +480,7 @@ class Exp:
                     self.Vexp[n, m] = np.zeros_like(rdm1)
                     X2 = 0.
                     # if prop = dip
-                    if isinstance(exp_prop[1], list):
+                    if isinstance(exp_prop[1], (list, np.ndarray)):
                         for d_calc, d_exp, j, A in zip(calc_prop, exp_prop[1], [0, 1, 2], A_scale):
                             self.Vexp[k, l] += (d_exp - d_calc) * self.dic_int[prop][j] * A
                             X2 += (d_exp - d_calc) ** 2
@@ -498,7 +499,9 @@ class Exp:
                 self.Vexp[n, m] = np.zeros_like(rdm1)
                 X2 = 0.
                 M = 0.
+                # loop over properties
                 for exp_prop in self.exp_data[k, l]:
+                    # returns |A|^2, A if rdm1_2 is given
                     calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_2)
                     # dip case -> 3 components
                     if isinstance(exp_prop[1], list):
@@ -526,9 +529,9 @@ class Exp:
 
         :param prop: one-electron prop to calculate -> 'Ek', 'v1e' or 'dip'
         :param rdm1: reduced one body density matrix in MO basis in G format
-        :return: calculated one-electron property A**2 and/or A
         :param rdm1_2: left rdm1, if given, the norm squared of the prop is calculated using both right and left rdm1
                         where rdm1_2 is the rdm1^mn if Vnm
+        :return: calculated one-electron property A**2 and/or A
         """
 
         if prop == 'Ek':
@@ -582,6 +585,7 @@ if __name__ == "__main__":
     # test on water
 
     from pyscf import gto, scf
+    import CCS
 
     mol = gto.Mole()
     mol.atom = [
@@ -604,52 +608,72 @@ if __name__ == "__main__":
     nvir = mvir.shape[1]
     dim = nocc+nvir
 
-    # build exp list for 3 states: 1 GS + 2 ES
+    # build simulated properties given ts and rs amplitudes
     nbr_os_states = 3
     exp_data = np.full((nbr_os_states, nbr_os_states), None)
-    GS_exp_mo = np.random.random((dim//2, dim//2))
-    GS_exp_mo = utilities.convert_r_to_g_rdm1(GS_exp_mo)
-    exp_data[0, 0] = ['mat', GS_exp_mo]
-    exp_data[0, 1] = ['dip', [0., 0., 0.8]]
-    exp_data[1, 1] = [['Ek', 75.97], ['dip', [0.1, 0.2, 0.]], ['v1e', -70.]]
-    exp_data[0, 2] = ['dip', [0.5, 0.2, 0.]]
+    # amplitudes for GS (ts) and 2 ES (rs1, rs2)
+    ts = np.random.random((nocc, nvir))*0.01
+    rs1 = np.zeros_like(ts)
+    rs1[0, 0] = 1.
+    rs2 = np.zeros_like(ts)
+    rs2[0, 3] = 1.
+    # GS rdm1
+    gamma_exp = CCS.gamma_unsym_CCS(ts, ts)
+    exp_data[0, 0] = ['mat', gamma_exp]
+    # ES 1 rdm1
+    gamma_exp_es1 = CCS.gamma_es_CCS(ts, rs1, rs1, 0., 0.)
+    Ek_11 = utilities.Ekin(mol, gamma_exp_es1, aobasis=False, mo_coeff=mo_coeff)
+    dip_11 = utilities.dipole(mol, gamma_exp_es1, aobasis=False, mo_coeff=mo_coeff)
+    v1e_11 = utilities.v1e(mol, gamma_exp_es1, aobasis=False, mo_coeff=mo_coeff)
+    exp_data[1, 1] = [['Ek', Ek_11], ['dip', dip_11], ['v1e', v1e_11]]
+    # tr-ES 1
+    gamma_exp_tr_es1 = CCS.gamma_tr_CCS(ts, rs1, 0., 0., 0.)
+    exp_data[0, 1] = ['dip', utilities.dipole(mol, gamma_exp_tr_es1, aobasis=False, mo_coeff=mo_coeff)]
+    # tr-ES 2
+    gamma_exp_tr_es2 = CCS.gamma_tr_CCS(ts, rs2, 0., 0., 0.)
+    exp_data[0, 2] = ['dip', utilities.dipole(mol, gamma_exp_tr_es2, aobasis=False, mo_coeff=mo_coeff)]
+
+    print()
+    print('Check gamma traces (should be 0)')
+    print(np.trace(gamma_exp)-10., np.trace(gamma_exp_es1)-10.)
+    print(np.trace(gamma_exp_tr_es1), np.trace(gamma_exp_tr_es2))
+    print()
+
+    print()
+    print('Exp data')
+    print(np.asarray([['mat', 'dip', ''], ['', 'Ek, dip, v1e', ''], ['', '', 'dip']]))
+    print()
 
     L = 0
 
     # initialize Vexp object
     myVexp = Exp(exp_data, mol, mo_coeff)
 
-    print()
-    print('nocc and nvir')
-    print(nocc, nvir)
-    print()
-    print('Initial Vexp matrix')
-    print(myVexp.Vexp)
-    print()
-    
-    print('##################################')
-    print(" A: Experimental potential and X2 ")
-    print('##################################')
-    
+    print('#############################################')
+    print(" |Aexp-Acalc|: Experimental potential and X2 ")
+    print('#############################################')
+
+    # calculated gamma: slightly different from gamma_exp
+    rs1_calc = np.zeros_like(ts)
+    rs2_calc = np.zeros_like(ts)
+    rs1_calc[0, 0] = 0.98
+    rs1_calc[0, 3] = np.sqrt(1-0.98**2)
+    rs2_calc[0, 0] = np.sqrt(1-0.98**2)
+    rs2_calc[0, 3] = 0.98
+    gamma_calc = CCS.gamma_unsym_CCS(ts*1.15, ts*1.15)
+    gamma_calc_es1 = CCS.gamma_es_CCS(ts*1.15, rs1_calc, rs1_calc, 0., 0.)
+    gamma_calc_tr_es1 = CCS.gamma_tr_CCS(ts*1.15, rs1_calc, 0., 0., 0.)
+    gamma_calc_tr_es2 = CCS.gamma_tr_CCS(ts*1.15, rs2_calc, 0., 0., 0.)
+
     #######
     # GS
     #######
 
-    # GS calc rdm1
-    rdm1_GS = np.random.random((dim//2, dim//2))*0.1
-    rdm1_GS = rdm1_GS + rdm1_GS.T - 2*np.diag(rdm1_GS)
-    idx = np.array([[i, i] for i in range(sum(mol.nelec))])
-    rdm1_GS[idx] += 1.
-    rdm1_GS = utilities.convert_r_to_g_rdm1(rdm1_GS)
-    print('Trace - nelec: ', np.trace(rdm1_GS)-sum(mol.nelec))
-
-    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, (0, 0))
+    V, X2, vmax = myVexp.Vexp_update(gamma_calc, (0, 0))
     
     print('--------')
     print('GS case')
     print('--------')
-    print()
-    print('Prop = {}'.format(exp_data[0, 0][0]))
     print()
     print('Vexp')
     print('X2, vmax =', X2, vmax)
@@ -666,26 +690,25 @@ if __name__ == "__main__":
     print('ES case')
     print('--------')
 
-    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, (1, 1))
+    V, X2, vmax = myVexp.Vexp_update(gamma_calc_es1, (1, 1))
 
     print('ES 1,1')
-    print('prop = {}'.format(exp_data[1, 1]))
-    print()
     print('Vexp')
-    print()
     print('X2, vmax =', X2, vmax)
-    print('Vexp shape=', V.shape)
     print()
 
-    V, X2, vmax = myVexp.Vexp_update(rdm1_GS, (0, 1))
+    V, X2, vmax = myVexp.Vexp_update(gamma_calc_es1, (0, 1))
 
     print('ES 0,1')
-    print('prop = {}'.format(exp_data[0, 1][1]))
-    print()
     print('Vexp')
-    print()
     print('X2, vmax =', X2, vmax)
-    print('Vexp shape=', V.shape)
+    print()
+
+    V, X2, vmax = myVexp.Vexp_update(gamma_calc_tr_es2, (0, 2))
+
+    print('ES 0,2')
+    print('Vexp')
+    print('X2, vmax =', X2, vmax)
     print()
 
     print('#####################################')
@@ -693,5 +716,14 @@ if __name__ == "__main__":
     print('#####################################')
     print()
 
-    V, X2, vmax = myVexp.Vexp_update_norm2(rdm1_GS, rdm1_GS, (1, 1))
+    # The value for X2 are large because the input data are Ek, v1e and dip
+    # whereas the function calculates their norm squared
+
+    print('---------')
+    print('ES 0,1')
+    print('---------')
+
+    V, X2, vmax = myVexp.Vexp_update_norm2(gamma_calc_tr_es1, gamma_calc_tr_es1, (0, 1))
     print('X2=', X2)
+
+

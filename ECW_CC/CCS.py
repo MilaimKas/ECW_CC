@@ -74,7 +74,7 @@ def gamma_es_CCS(ts, ln, rk, r0k, l0n):
     nocc, nvir = ts.shape
 
     # GS case:
-    if rk is None:
+    if rk is None or isinstance(rk, float) or isinstance(rk, int):
         rk = np.zeros_like(ts)
         r0k = 1.
         l0n = 0.
@@ -129,7 +129,7 @@ def gamma_tr_CCS(ts, ln, rk, r0k, l0n):
     nocc, nvir = ts.shape
 
     # GS case:
-    if rk is None:
+    if rk is None or isinstance(rk, float) or isinstance(rk, int):
         rk = np.zeros_like(ts)
         r0k = 1.
 
@@ -1414,7 +1414,7 @@ class Gccs:
 
         :param ls: l1 amplitudes
         :param l0: l0 amplitude
-        :param L1inter: intermediates for the L1 equation of state m
+        :param es_L1inter: intermediates for the L1 equation of state m
         :return:
         """
 
@@ -1453,7 +1453,6 @@ class Gccs:
         Returns Lia (lia*E) values
 
         :param ls: l1 amplitudes for state m
-        :param Em: energy for state m
         :param L0inter: L1 intermediates for state m
         :return: Lia
         """
@@ -1527,17 +1526,14 @@ class Gccs:
 #   ECW-GCCS old gradient equations #
 #####################################
 
-# todo: need exp_pot class for Aj
-# todo: different formulation for Vexp terms
-
 class ccs_gradient:
-    def __init__(self, eris, exp_pot):
+    def __init__(self, eris, exp_pot=None, Vexp_model=1):
         """
         Gradient of the ECW-CCS equations and Newton's method
 
         :param eris: two electron integrals
-        :param M_tot: scale of the Vexp potential (number of measurements)
-        :param sum_sig: sum of all sig_i, means for each sets of measurements
+        :param exp_pot: exp_pot class containing the exp_data and needed MO matrices
+        :param Vexp_model: form of the Vexp model
         """
 
         self.fock = eris.fock
@@ -1546,7 +1542,22 @@ class ccs_gradient:
         self.nocc = eris.nocc
         self.nvir = self.fock.shape[0]-self.nocc
 
-        self.exp_pot = exp_pot
+        self.exp_data = exp_pot.exp_data[0, 0]   # ['Aj':Aj]
+        self.A = exp_pot.dic_int   # {'Aj':<p|Aj|q>, ...}
+
+        # form of Vexp
+        if Vexp_model == 1:
+            self.DV = self.DV1
+        elif Vexp_model == 2:
+            self.DV = self.DV2
+            if exp_pot is None:
+                raise ValueError('exp_pot class is needed')
+        elif Vexp_model == 3:
+            self.DV = self.DV3
+            if exp_pot is None:
+                raise ValueError('exp_pot class is needed')
+        else:
+            raise ValueError('Vexp model is 1,2 or 3')
 
     ################
     # T1 equations
@@ -1658,18 +1669,14 @@ class ccs_gradient:
     # T1 and Lambda 1 derivatives
     ###############################
 
-    # todo: loop should be vectorized
-
-    def dT(self, ts, fsp, dV, L):
+    def dT(self, ts, fsp, L):
         """
         dTai/dtog = dTdt_pq and dTai/dlog = dTdl_pq
         with p running through a and i
         and q through o and g
 
-        :param ts:
-        :param ls:
-        :param fsp:
-        :param dV: dV.shape = (ndim*ndim*nocc*nvir) rsog
+        :param ts: t1 amplitudes
+        :param fsp: effective fock matrix
         :return:
         """
         nocc, nvir = ts.shape
@@ -1681,6 +1688,11 @@ class ccs_gradient:
         foo = fsp[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
+
+        dV = self.DV(ts, ls)
+        dVoo = dV[nocc:, :nocc, :, :].copy()
+        dVvv = dV[nocc:, nocc:, :, :].copy()
+        dVov = dV[:nocc, nocc:, :, :].copy()
 
         # dio terms
         dio = fvv.copy()
@@ -1697,10 +1709,10 @@ class ccs_gradient:
         dag += np.einsum('ib,ob->io', ts, tmp)
 
         # Vexp terms
-        Voagi = dV[nocc:, :nocc, :, :]
-        Voagi -= np.einsum('abog,ib->oagi', dV[nocc:, nocc:, :, :], ts)
-        Voagi += np.einsum('jiog,ja->oagi', dV[:nocc, :nocc, :, :], ts)
-        tmp = np.einsum('jbog,ja->boga', dV[:nocc, nocc:, :, :], ts)
+        Voagi = dVov.copy()
+        Voagi -= np.einsum('abog,ib->oagi', dVvv, ts)
+        Voagi += np.einsum('jiog,ja->oagi', dVoo, ts)
+        tmp = np.einsum('jbog,ja->boga', dVov, ts)
         Voagi += np.einsum('boga,ib->oagi', tmp, ts)
 
         # oagi terms
@@ -1728,7 +1740,7 @@ class ccs_gradient:
 
         return dTdt_pq, dTdl_pq
 
-    def dL(self, ts, ls, fsp, dV, L):
+    def dL(self, ts, ls, fsp, L):
         """
         dLai/dtog and dLai/dlog
         with x running through a and i
@@ -1748,6 +1760,11 @@ class ccs_gradient:
         foo = fsp[:nocc, :nocc].copy()
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
+
+        dV = self.DV(ts, ls)
+        dVoo = dV[nocc:, :nocc, :, :].copy()
+        dVvv = dV[nocc:, nocc:, :, :].copy()
+        dVov = dV[:nocc, nocc:, :, :].copy()
 
         # dio terms
         dio = fvv.copy()
@@ -1769,14 +1786,14 @@ class ccs_gradient:
         diodag -= 0.5*np.einsum('jb, jb', ts, tmp)
 
         # Vexp terms
-        Voagi = -dV[:nocc, nocc:, :, :]
-        Voagi -= np.einsum('baog,ib->oagi', dV[nocc:, nocc:, :, :], ls)
-        Voagi += np.einsum('ijog,ja->oagi', dV[:nocc, :nocc, :, :], ls)
-        tmp = np.einsum('jaog,jb->aogb', dV[:nocc, nocc:, :, :], ts)
+        Voagi = -dVov.copy()
+        Voagi -= np.einsum('baog,ib->oagi', dVvv, ls)
+        Voagi += np.einsum('ijog,ja->oagi', dVoo, ls)
+        tmp = np.einsum('jaog,jb->aogb', dVov, ts)
         Voagi += np.einsum('aogb,ib->oagi', tmp, ls)
         tmp = np.einsum('ja,jb->ab', ls, ts)
-        Voagi += np.einsum('ab,ibog->oagi', tmp, dV[:nocc, nocc:, :, :])
-        Voagi += np.einsum('ia, jbog, jb->oagi', ls, dV[:nocc, nocc:, :, :], ts)  # energy term
+        Voagi += np.einsum('ab,ibog->oagi', tmp, dVov)
+        Voagi += np.einsum('ia, jbog, jb->oagi', ls, dVov, ts)  # energy term
 
         # gioa terms for dLdl
         gioa_l = self.eris.voov.copy()
@@ -1908,15 +1925,17 @@ class ccs_gradient:
 
         return dVdt, dVdl
 
-    def DV_2(self, ts, ls):
+    def DV2(self, ts, ls):
         """
         CCS gradient of Vexp with
         Vexp,rs = K*sum_j A_rs,j*(A_exp,j-sum(gamma_calc*A_calc,j)/sig_j
 
         :return:
         """
-        Nr = self.exp_pot.Nr  # total number of exp data (prop)
+
+        Nr = self.Nr  # total number of exp data (prop)
         sig = self.exp_pot.sig  # array of sigma values for each prop
+        A = self.exp_pot  # needed <p|hat(A)|q> matrices
 
         nocc, nvir = ts.shape
         dim = nocc+nvir
@@ -1925,14 +1944,110 @@ class ccs_gradient:
         dVdl = np.zeros((dim, dim, nocc, nvir))
 
         for j in range(Nr):
-            dVdt[] = A[j]
-            dVdl[] =
 
+            Aoo = A[j][:nocc, :nocc].copy()
+            Aov = A[j][:nocc, nocc:].copy()
+            Avv = A[j][nocc:, nocc:].copy()
+            Avo = A[j][nocc:, :nocc].copy()
 
-        return
+            tmp = -np.einsum('lo,lg->og', Aoo, ls)
+            tmp += np.einsum('ga,oa->og', Avv, ls)
+            tmp += Avo
+            tmp -= np.einsum('gl,lc,oc->og', Avo, ts, ls)
+            tmp -= np.einsum('bo,mb,mg->og', Avo, ts, ls)
+            dVdt += np.einsum('rs,og->rsog', A[j], tmp) / sig[j]
 
-    def DV_3(self):
-        return
+            tmp = -np.einsum('oj,jg->og', Aoo, ts)
+            tmp += np.einsum('ag,oa->og', Avv, ts)
+            tmp += Aov
+            contr = np.einsum('aj,oj->ao', Avo, ts)
+            tmp += np.einsum('ao,ag->og', contr, ts)
+            dVdl += np.einsum('rs,og->rsog', A[j], tmp) / sig[j]
+
+        return (2./Nr)*dVdt, (2./Nr)*dVdl
+
+    def DV3(self, ts, ls, gamma_calc):
+        """
+        CCS gradient of Vexp with
+        K_j = (2/Nr*sig_j)*A_rs,j*(sum_pq A_pq,j gamma_qp)
+        Vexp_rs = sum_j K_j*(A_exp,j-sum_pqtu (A_pq,j*A_tu.conj,j*gamma_pq*gamma_ut)
+
+        where |Aj|^2, the squared norm of the expectation values are being compared
+        :return:
+        """
+
+        Nr = self.exp_pot.Nr  # total number of exp data (prop)
+        sig = self.exp_pot.sig  # array of sigma values for each prop
+        A = self.exp_pot  # list of needed <p|hat(A)|q> matrices
+        Aexp = self.exp_pot.Aexp  # list of experimental data
+
+        nocc, nvir = ts.shape
+        dim = nocc+nvir
+
+        dVdt = np.zeros((dim, dim, nocc, nvir))
+        dVdl = np.zeros((dim, dim, nocc, nvir))
+
+        for j in range(Nr):
+
+            Aoo = A[j][:nocc, :nocc].copy()
+            Aov = A[j][:nocc, nocc:].copy()
+            Avv = A[j][nocc:, nocc:].copy()
+            Avo = A[j][nocc:, :nocc].copy()
+
+            Kp = np.einsum('qp, pq', A[j].conj, gamma_calc)
+            K = np.einsum('pq, pq', A[j], gamma_calc)
+            Kexp = Aexp[j] - Kp*K
+
+            # dVdl
+
+            dVdl -= np.einsum('po,pg->rsog', Aoo, ts)
+            dVdl += np.einsum('gq,oq->rsog', Avv, ts)
+            tmp = np.einsum('pq,oq->po', Aov, ts)
+            dVdl += np.einsum('po,pg->rsog', tmp, ts)
+            dVdl += np.einsum('go->rsog', Avo)
+            dVdl *= Kp
+
+            dV_tmp = np.zeros_like(dVdl)
+            dV_tmp -= np.einsum('oq,qg->rsog', Aoo.conj, ts)
+            dV_tmp += np.einsum('pg,op->rsog', Avv.conj, ts)
+            dV_tmp += np.einsum('og->rsog', Aov)
+            tmp = np.einsum('pq,op->qo', Avo, ts)
+            dV_tmp += np.einsum('qo,qg->rsog', tmp, ts)
+
+            dVdl += K*dV_tmp
+            dVdl *= Kp
+            dVdl += Kexp*dV_tmp
+            dVdl *= np.einsum('rs->rsog', A[j])/sig[j]
+
+            # dVdt
+
+            dVdt -= np.einsum('oq,qg->rsog', Aoo, ls)
+            dVdt += np.einsum('pg,op->rsog', Avv, ls)
+            dVdt += np.einsum('go->rsog', Aov)
+            tmp = np.einsum('pb,ob->po', ts, ls)
+            dVdt -= np.einsum('po,pg->rsog', tmp, Aov)
+            tmp = np.einsum('jq,jg->qg', ts, ls)
+            dVdt -= np.einsum('qg,oq->rsog', tmp, Aov)
+
+            dVdt *= Kp
+
+            dV_tmp = np.zeros_like(dVdl)
+            dV_tmp -= np.einsum('po,pg->rsog', Aoo.conj, ls)
+            dV_tmp += np.einsum('gq,oq->rsog', Avv.conj, ls)
+            dV_tmp += np.einsum('go->rsog', Avo.conj)
+            tmp = np.einsum('qb,ob->po', ts, ls)
+            dV_tmp -= np.einsum('po,gq->rsog', tmp, Avo.conj)
+            tmp = np.einsum('jp,jg->pg', ts, ls)
+            dV_tmp -= np.einsum('pg,po->rsog', tmp, Avo.conj)
+
+            dVdt += K*dV_tmp
+            dVdt *= Kp
+            dVdt += Kexp*dV_tmp
+            dVdt *= np.einsum('rs->rsog', A[j])/sig[j]
+
+        del dV_tmp, tmp
+
+        return (2./Nr)*dVdt, (2./Nr)*dVdl
 
     ################################
     # Jacobian and Gradient methods
@@ -1942,21 +2057,33 @@ class ccs_gradient:
         """
         Build Jacobian matrix
 
-        :param ts:
-        :param ls:
-        :param fsp:
-        :param L:
+        :param ts: t1 amplitudes
+        :param ls: l1 aamplitudes
+        :param fsp: effective fock matrix
+        :param L: weight of the experimental data lambda
         :return:
         """
 
-        J00 = self.dTdt(ts, ls, fsp, L)
-        J01 = self.dTdl(ts, L)
-        J10 = self.dLdt(ts, ls, fsp, L)
-        J11 = self.dLdl(ts, ls, fsp, L)
+        dTdt, dTdl = self.dT(ts, fsp, L)
+        dLdt, dLdl = self.dL(ts, ls, fsp, L)
+
+        J00 = dTdt.copy()
+        J01 = dTdl.copy()
+        J10 = dLdt.copy()
+        J11 = dLdl.copy()
 
         return np.block([[J00, J01], [J10, J11]])
 
     def Newton(self, ts, ls, fsp, L):
+        """
+        Apply Newton's method to the ECW-CCS model
+
+        :param ts: t1 amplitudes
+        :param ls: l1 aamplitudes
+        :param fsp: effective fock matrix
+        :param L: weight of the experimental data lambda
+        :return:
+        """
 
         nocc, nvir = ts.shape
 
@@ -1980,6 +2107,16 @@ class ccs_gradient:
         return tsnew, lsnew
 
     def Gradient_Descent(self, beta, ts, ls, fsp, L):
+        """
+        Apply Graident descend method to the ECW-CCS model
+
+        :param beta: gradient step
+        :param ts: t1 amplitudes
+        :param ls: l1 aamplitudes
+        :param fsp: effective fock matrix
+        :param L: weight of the experimental data lambda
+        :return:
+        """
 
         nocc, nvir = ts.shape
 

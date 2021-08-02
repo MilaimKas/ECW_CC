@@ -30,9 +30,10 @@ import numpy as np
 # L1 regularization related functions
 #######################################
 
+
 def subdiff(eq,var,alpha, R_format=False):
     # todo: R_format's conversion does not work
-    '''
+    """
     Calculates the sub-gradient value of a functional
     see equations (17) in Ivanov et al, Molecular Physics, 115(21–22)
 
@@ -40,7 +41,7 @@ def subdiff(eq,var,alpha, R_format=False):
     :param var: matrix of variables (t or l amplitudes) given in amp format
     :param alpha: L1 threshold
     :return: subdifferential W in amp format
-    '''
+    """
     
     # check shape
     if eq.shape != var.shape:
@@ -75,15 +76,16 @@ def subdiff(eq,var,alpha, R_format=False):
         dW = convert_r_to_g_amp(dW)
 
     return dW
-    
+
+
 def prox_l1(x_J, alpha):
-    '''
+    """
     proximal point mapping method of the L1 regularization approach
 
     :param x_J: matrix of parameters
     :param alpha: proximal point factor
     :return: matrix of the proximal point function dh
-    '''
+    """
 
     dim1, dim2 = x_J.shape
     ans = np.zeros((dim1, dim2))
@@ -102,15 +104,13 @@ def prox_l1(x_J, alpha):
 # Use TDHF methods to get initial r amplitudes
 ###############################################
 
+
 def get_init_r(mol, roots=10):
-
-    import scipy.spatial.distance
-
-    '''
+    """
     Performs TDHF calculation and extract coeff for initial r value
     :param mol: mol object
     :param roots: number of states to print
-    '''
+    """
 
     # RHF calc
     mol.verbose = 0
@@ -136,8 +136,9 @@ def get_init_r(mol, roots=10):
 # Functions to deal with G, R and U format
 #############################################
 
+
 def convert_r_to_g_amp(amp):
-    '''
+    """
     Converts amplitudes in restricted format into generalized, spin-orbital format
     amp must be given in nocc x nvir shape
     !!! Convert into [0 1 0 1] spin format !!!
@@ -145,28 +146,29 @@ def convert_r_to_g_amp(amp):
 
     :param amp: amplitudes in restricted format
     :return: amp in generalized spin-orb format
-    '''
+    """
 
     if amp.ndim == 2:
-        g_amp = np.zeros((amp.shape[0]*2,amp.shape[1]*2))
+        g_amp = np.zeros((amp.shape[0]*2, amp.shape[1]*2))
         for i in range(amp.shape[0]):
             for j in range(amp.shape[1]):
-                a = amp[i,j]
-                g_amp[i*2:i*2+2,j*2:j*2+2] = np.diag(np.asarray([a,a]))  #np.asarray([[0,a],[a,0]])
+                a = amp[i, j]
+                g_amp[i*2:i*2+2, j*2:j*2+2] = np.diag(np.asarray([a, a]))  #np.asarray([[0,a],[a,0]])
     elif amp.ndim == 4:
         g_amp = cc.addons.spatial2spin(amp)
     else:
         raise ValueError('amplitudes must be 2 or 4 dim')
     return g_amp
 
+
 def convert_g_to_r_amp(amp):
-    '''
+    """
     Converts G format amplitudes into R format
     !!! Only works for G amplitudes with [0 1 0 1] spin format !!!
 
     :param amp:CC single or double amplitudes
     :return:
-    '''
+    """
 
     if amp.ndim == 2:
         tmp = np.delete(amp, np.s_[1::2], 0)
@@ -182,24 +184,26 @@ def convert_g_to_r_amp(amp):
 
     return r_amp
 
+
 def convert_g_to_ru_rdm1(rdm1_g):
-    '''
+    """
     Transform generalised rdm1 to R and U rdm1
 
     :param rdm1_g: one-electron reduced density matrix in AOs basis
     :return: rdm1 in R and U format
-    '''
+    """
 
     nao = rdm1_g.shape[0]//2
 
-    rdm_a = rdm1_g[:nao,:nao]
-    rdm_b = rdm1_g[nao:,nao:]
+    rdm_a = rdm1_g[:nao, :nao]
+    rdm_b = rdm1_g[nao:, nao:]
 
-    rdm_u = (rdm_a,rdm_b)
+    rdm_u = (rdm_a, rdm_b)
 
     rdm_r = rdm_a + rdm_b
 
-    return rdm_r,rdm_u
+    return rdm_r, rdm_u
+
 
 def convert_u_to_g_rdm1(rdm_u):
     """
@@ -218,7 +222,7 @@ def convert_u_to_g_rdm1(rdm_u):
     return rdm_g
 
 def convert_r_to_g_rdm1(rdm_r):
-    # todo: trace of the transformed rdm1 is not = nelec
+    # todo: check that the trace remains the same
     """
     convert R rdm1 to G rdm1
 
@@ -234,9 +238,10 @@ def convert_r_to_g_rdm1(rdm_r):
 
     return rdm_g
 
+
 def convert_r_to_g_coeff(mo_coeff):
     # todo: trace of the transformed rdm1 is not = nelec
-    '''
+    """
     Convert mo_coeff in spatial format into spin-orbital format
 
     example:
@@ -250,7 +255,7 @@ def convert_r_to_g_coeff(mo_coeff):
 
     :param mo_coeff: mo_coeff in spatial format (R format)
     :return: mo_coeff in spin-orbital format (G format)
-    '''
+    """
 
     dim = mo_coeff.shape[0]*2
     new_coeff = np.zeros((dim, dim))
@@ -259,13 +264,14 @@ def convert_r_to_g_coeff(mo_coeff):
 
     return new_coeff
 
+
 def convert_g_to_r_coeff(mo_coeff):
-    '''
+    """
     convert MO coeff from spin-orbital (G) to spatial (R) format
 
     :param mo_coeff: MO coeff in G format
     :return:
-    '''
+    """
 
     dim = mo_coeff.shape[0] // 2
     new_coeff = mo_coeff[:dim,0::2]
@@ -274,13 +280,13 @@ def convert_g_to_r_coeff(mo_coeff):
 
 
 def convert_aoint(int_ao, mo_coeff):
-    '''
+    """
     Transform AO integrals into spin-orbital (G) MO integrals
 
     :param int_ao: matrix A_mu,nu
     :param mo_coeff: mo_coeff in G format
     :return:
-    '''
+    """
 
     # dipole case
     if int_ao.shape[0] == 3:
@@ -302,26 +308,30 @@ def convert_aoint(int_ao, mo_coeff):
 # Quantum chemistry
 #####################
 
+
 def cis_rdm1(c1):
-    '''
+    """
     Calculates the cis rdm1 given a set of c1 coefficients
 
     :param c1: CIS or TDA coeff
     :return: oo and vv contribution to RHF MO rdm1
-    '''
-    doo  =2-np.einsum('ia,ka->ik', c1.conj(), c1)
-    dvv  = np.einsum('ia,ic->ac', c1, c1.conj())
+    """
+
+    doo = 2-np.einsum('ia,ka->ik', c1.conj(), c1)
+    dvv = np.einsum('ia,ic->ac', c1, c1.conj())
+
     return doo, dvv
 
+
 def ao_to_mo(rdm1_ao, mo_coeff):
-    '''
+    """
     transform given rdm1 from AOs to MOs basis.
     Both have to be given in the same format: either R (spatial) or G (spin-orbital)
 
     :param rdm1_ao: one-particle reduced density matrix given in AOs basis
     :param mo_coeff: MOs coefficients
     :return: rdm1 in MOs basis
-    '''
+    """
 
     # check dimension
     if rdm1_ao.shape != mo_coeff.shape:
@@ -332,14 +342,15 @@ def ao_to_mo(rdm1_ao, mo_coeff):
     
     return rdm1_mo
 
+
 def mo_to_ao(rdm1_mo, mo_coeff):
-    '''
+    """
     transform given rdm1 from MOs to AOs basis
 
     :param rdm1_mo: one-particle reduced density matrix given in MOs basis
     :param mo_coeff: MOs coefficients
     :return: rdm1 in AOs basis
-    '''
+    """
 
     if rdm1_mo.shape != mo_coeff.shape:
         raise ValueError('rdm1 and mo coeff must have the same size')
@@ -347,8 +358,9 @@ def mo_to_ao(rdm1_mo, mo_coeff):
 
     return rdm1_ao
 
+
 def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
-    '''
+    """
     Generates list of koopman guesses for r1 vectors in G format
     The guess is obtained in the r format to avoid breaking symmetry
 
@@ -357,7 +369,7 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
     :param nstates: number of states valence and core excited states
     :param core_ene_thresh: energy threshold for the definition of core
     :return: list of r_ini and koopman's excitation
-    '''
+    """
 
     # convert to R format
     mo_energy = mo_energy[0::2]
@@ -407,8 +419,9 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
 
     return x0, DE
 
+
 def tdm_slater(TcL, TcR, occ_diff):
-    '''
+    """
     Express a bi-orthogonal transition density matrix in AOs basis
 
     math:
@@ -421,15 +434,16 @@ def tdm_slater(TcL, TcR, occ_diff):
     :param occ_diff: occupation difference in MO spin-orbitals basis between the two Slater states
            --> ex: a single excitation i->a for i=2 and a=5, occ_diff = [0,0,1,0,0,1,0]
     :return: transition density matrix in AOs basis
-    '''
+    """
     
     Tgamma = np.diag(occ_diff)
     gamma_ao = np.einsum('pi,ij,qj->pq',TcL,Tgamma,TcR.conj())
     
     return gamma_ao
 
+
 def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
-    '''
+    """
     Returns the r0 amplitudes for n excited states for the EOM case
     see Bartlett's book: Figure 13.2 page 439 (R equations)
 
@@ -440,7 +454,7 @@ def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
     :param fsp: fock matrix
     :param eris_oovv: two-electron integral <oo||vv>
     :return: list of r0 amp for n ES
-    '''
+    """
 
     nbr_of_states = len(r1)
     nocc,nvir = r1[0].shape
@@ -460,8 +474,9 @@ def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
 
     return r0n
 
+
 def check_spin(amp_r,amp_l):
-    '''
+    """
     Calculates the total spin of a CC vector in spin-orbital format
     In our simplest case, the elements corresponding to a->a, b->b, b->a and a->b transition
     are fixed in the amplitudes matrix
@@ -470,7 +485,7 @@ def check_spin(amp_r,amp_l):
 
     :param vec: ci/r/l vector in G format
     :return: S
-    '''
+    """
 
     # vector of alpha (0) and beta(1) spin
     spin_mat = np.zeros_like(amp_r)
@@ -482,9 +497,10 @@ def check_spin(amp_r,amp_l):
 
     return S
 
+
 def spin_square(rdm1, mo_coeff, ovlp=1):
     # todo: verify and test
-    '''
+    """
     Converts rdm1 and mo_coeff in U format and
     uses the PySCF function in fci.spin_op to calculate spin squared for a WF in G format
 
@@ -492,7 +508,7 @@ def spin_square(rdm1, mo_coeff, ovlp=1):
     :param mo_coeff: MO coefficients in G format
     :param S: AO overlap (1 if degenerate)
     :return:
-    '''
+    """
     from functools import reduce
     #from pyscf.fci.spin_op import spin_square_general
     #spin_square_general(dma, dmb, dmaa, dmab, dmbb, mo_coeff, s)
@@ -531,15 +547,16 @@ def spin_square(rdm1, mo_coeff, ovlp=1):
 # linear algebra
 #################
 
+
 def get_norm(rs, ls, r0, l0):
-    '''
+    """
     Return the linear product between two sets of amplitudes
     c = |<Psi_r|Psi_l>|**2
 
     :param rs: set of amplitudes
     :param ls: set of amplitudes
     :return:
-    '''
+    """
 
     # check shape
     if rs.shape != ls.shape:
@@ -548,27 +565,29 @@ def get_norm(rs, ls, r0, l0):
 
     return c
 
+
 def ortho_QR(Mvec):
-    '''
+    """
     Use numpy QR factorisation to orthogonalize a set of vectors
     math: Mvec = Q.R
     wher Q has orthonormal column vectors and R is a a upper triangular matrix
 
     :param Mvec: NxM matrix where the columns are the vectors to orthogonalize
     :return:
-    '''
+    """
     Q, R = np.linalg.qr(Mvec)
     return Q
 
+
 def ortho_SVD(mol, cL, cR):
-    '''
+    """
     Orthogonalize two vectors using singular value decomposition
     See Molecular Physics, 105(9), 1239–1249. https://doi.org/10.1080/00268970701326978
 
     :param mol: PySCF mol object for AOs overlap matrix or overlap matrix
     :param cL,cR: set of MOs coefficients for bra (Left) and ket (Right) vectors
     :return:
-    '''
+    """
 
     # Get AOs overlap
     if isinstance(mol, gto.Mole):
@@ -633,7 +652,7 @@ def ortho_GS(U, eps=1e-12):
 
 
 def check_ortho(rn, ln, r0n, l0n):
-    '''
+    """
     Check the norm for a list of r and l vectors
 
     :param ln: list of l vectors
@@ -641,7 +660,7 @@ def check_ortho(rn, ln, r0n, l0n):
     :param l0n: list of l0 values
     :param r0n: list of r0 values
     :return:
-    '''
+    """
 
     nbr_of_states = len(rn)
 
@@ -660,8 +679,9 @@ def check_ortho(rn, ln, r0n, l0n):
 
     return C_norm
 
+
 def ortho_es(rn, ln, r0n, l0n):
-    '''
+    """
     Orthogonalizes rn and ln vectors
 
     :param rn: list of r1 vectors
@@ -669,7 +689,7 @@ def ortho_es(rn, ln, r0n, l0n):
     :param r0n: list of r0n values
     :param l0n: list of l0n values
     :return: orthogonalized (r0, rn) and (l0, ln)
-    '''
+    """
 
     nocc, nvir = rn[0].shape
     nbr_states = len(rn)
@@ -702,8 +722,9 @@ def ortho_es(rn, ln, r0n, l0n):
 
     return ortho_rn, ortho_ln, ortho_r0n, ortho_l0n
 
+
 def biortho_es(r1, l1, r0, l0):
-    '''
+    """
     Orthogonormalized rn with ln vectors to construct a bi-orthonormal set
     math: <Psi_n|Psi_k> = 0
 
@@ -712,7 +733,7 @@ def biortho_es(r1, l1, r0, l0):
     :param r0: r0 value for state k
     :param l0: l0 value for state n
     :return: orthogonalized (r0, rn) and (l0, ln)
-    '''
+    """
 
     nocc, nvir = r1.shape
 
@@ -734,7 +755,7 @@ def biortho_es(r1, l1, r0, l0):
 
 
 def ortho_norm(rn, ln, rn0, ln0, ortho=True):
-    '''
+    """
     normalize vectors r and l
     orthogonalize r and l if biorthogonal set (len(rn)=2)
 
@@ -746,7 +767,7 @@ def ortho_norm(rn, ln, rn0, ln0, ortho=True):
     :param ln0: list of l0 amplitudes for each state
     :param ortho: True if a biorthogonalization is to be performed
     :return:
-    '''
+    """
 
     C_norm = check_ortho(rn, ln, rn0, ln0)
 
@@ -780,9 +801,10 @@ def ortho_norm(rn, ln, rn0, ln0, ortho=True):
 # Printing density and orbitals
 #################################
 
-def printNO(rdm1,mf,mol,fout):
+
+def printNO(rdm1, mf, mol, fout):
     # todo: extend for transition rdm1 -> NTOs. Use SVD since tr_rdm1 is not squared
-    '''
+    """
     Calculates the natural orbitals and prints them in Molden format
 
     :param rdm1: reduced one-particle density matrix
@@ -790,7 +812,7 @@ def printNO(rdm1,mf,mol,fout):
     :param mol: PySCF mol object
     :param fout: output molden file
     :return:
-    '''
+    """
 
     mo_ene = mf.mo_energy
     fout = fout + '.molden'
@@ -814,7 +836,7 @@ def printNO(rdm1,mf,mol,fout):
 
 
 def cube(rdm1,mo_coeff,mol,fout, g=True):
-    '''
+    """
 
     :param rdm1: reduced one-particle density matrix in MOs basis
     :param mo_coeff: LCAO coefficients of the MOs
@@ -822,7 +844,7 @@ def cube(rdm1,mo_coeff,mol,fout, g=True):
     :param fout: name of the cube output file
     :param g: True if G format, false if R format
     :return:
-    '''
+    """
 
     fout = fout+'.cube'
 
@@ -835,15 +857,16 @@ def cube(rdm1,mo_coeff,mol,fout, g=True):
 
     cubegen.density(mol,fout,rdm1)
 
+
 def diff_cube(file1,file2,out):
-    '''
+    """
     Takes the difference between two cube files
 
     :param file1: name of first file
     :param file2: name of second file
     :param out: name of output cube file
     :return:
-    '''
+    """
 
     # see Diff_cube file
 
@@ -876,8 +899,9 @@ def diff_cube(file1,file2,out):
 # One electron properties
 ###########################
 
+
 def Ekin(mol, rdm1, g=True, aobasis=True, mo_coeff=None, ek_int=None):
-    '''
+    """
 
     :param mol: PySCF mol object
     :param rdm1: reduced one-particle density matrix
@@ -886,7 +910,7 @@ def Ekin(mol, rdm1, g=True, aobasis=True, mo_coeff=None, ek_int=None):
     :param mo_coeff: MOs coefficients in same format as rdm1
     :param ek_int: Kinetic energy AO integrals
     :return:
-    '''
+    """
 
     # dm1 must be in AOs basis
     if aobasis is False:
@@ -909,7 +933,7 @@ def Ekin(mol, rdm1, g=True, aobasis=True, mo_coeff=None, ek_int=None):
 
 
 def v1e(mol, rdm1, g=True, aobasis=True, mo_coeff=None, v1e_int=None):
-    '''
+    """
     Calculates the one-electron potential Ve for a given rdm1
 
     :param mol: PySCF mol object
@@ -918,7 +942,7 @@ def v1e(mol, rdm1, g=True, aobasis=True, mo_coeff=None, v1e_int=None):
     :param aobasis: True if rdm1 given in AO basis
     :param mo_coeff: MOs coefficients
     :return:
-    '''
+    """
 
     # rdm1 must be in AOs basis
     if aobasis is False:
@@ -941,7 +965,7 @@ def v1e(mol, rdm1, g=True, aobasis=True, mo_coeff=None, v1e_int=None):
 
 
 def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
-    '''
+    """
     Calculates the dipole or transition dipole moment vector for a given rdm1
     or transition rdm1
 
@@ -953,7 +977,7 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     :param dip_int: dipole integral in AOs basis
     :return:
 
-    '''
+    """
     
     # rdm1 must be in AOs basis
     if aobasis is False:
@@ -982,7 +1006,7 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
 
 
 def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None, rec_vec=np.asarray([10., 10., 10.])):
-    '''
+    """
     Calculates the structure factors for a given rdm1 and list of Miller indices
 
     :param mol: PySCF mol object
@@ -994,7 +1018,7 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
     :param rec_vec: reciprocal lattice lengths (a,b,c)
     :return: array of structure factors F corresponding to Miller indices in h
 
-    '''
+    """
 
     # rdm1 must be in AOs basis
     if aobasis is False:
@@ -1019,7 +1043,7 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
 
 
 def FT_MO(mol, h, mo_coeff, rec_vec=np.asarray([10., 10., 10.])):
-    '''
+    """
     Calculates the FT over AO, transforms it into MO basis in G format
 
     math: F_pq = <p|F(h)|q>
@@ -1028,7 +1052,7 @@ def FT_MO(mol, h, mo_coeff, rec_vec=np.asarray([10., 10., 10.])):
     :param h: Miller indices, list of triples [[h1x,h1y,h1z],[h2x,h2y,h2z], ...]
     :param rec_vec: reciprocal lattice length (a,b,c)
     :return: Fmo_pq and Fao_ij
-    '''
+    """
 
     # convert to spatial (R) basis
     if mo_coeff.shape[0] != mol.nao:
@@ -1053,6 +1077,7 @@ def FT_MO(mol, h, mo_coeff, rec_vec=np.asarray([10., 10., 10.])):
     ft_mo = np.einsum('pi,hij,qj->hpq', mo_coeff_inv, ft_ao, mo_coeff_inv.conj())
 
     return ft_mo, ft_ao
+
 
 if __name__ == '__main__':
     mol = gto.Mole()
