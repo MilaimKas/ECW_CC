@@ -18,7 +18,7 @@ import utilities
 from pyscf import lib
 
 class Solver_CCS:
-    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=tuple(),
+    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=[],
                  maxiter=40, maxdiis=15, CCS_grad=None):
         '''
         
@@ -28,7 +28,7 @@ class Solver_CCS:
         :param conv_thres: convergence threshold 
         :param tsini: initial values for ts
         :param lsini: initial values for ls
-        :param diis: tuple 'rdm1', 't' and/or 'l'
+        :param diis: list 'rdm1', 't' and/or 'l'
         :param maxiter: max number of SCF iteration
         :param maxdiis: maximum space for DIIS
         :param CCS_grad: object containing the XCW-CCS gradient and Newton's method
@@ -242,7 +242,7 @@ class Solver_CCS:
     # Gradient method
     ###################
 
-    def Gradient(self, L, method='newton', ts=None, ls=None, diis=tuple(), beta=0.1, store_ite=False):
+    def Gradient(self, L, method='newton', ts=None, ls=None, diis=[], beta=0.1, store_ite=False):
 
         '''
         Solver the ECW-CCS equations with gradient based methods
@@ -376,7 +376,7 @@ class Solver_CCS:
     # ECW-CCS_L1 solver 
     ################################
 
-    def L1_grad(self, L, alpha, chi, ts=None, ls=None, diis=tuple()):
+    def L1_grad(self, L, alpha, chi, ts=None, ls=None, diis=[]):
 
         '''
         CCS+L1 solver as described in Ivanov et al. Molecular Physics, 115(21–22), 2017
@@ -528,15 +528,15 @@ class Solver_CCS:
 ####################################
 
 class Solver_CCSD:
-    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, tdini=None, ldini=None, diis=tuple(),
-                 maxiter=50, maxdiis=15):
-        '''
+    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, tdini=None, ldini=None,
+                 diis=[], maxiter=50, maxdiis=15):
+        """
         Solver Class for the ECW-CCSD equations
-        
+
         :param mycc: class containing the CCSD functions and equations
         :param VX_exp: object containing the functions to calculate Vexp and X2
         :param conv: string of the parameter for convergence check: 'Ep' or 'tl'
-        :param conv_thres: convergence threshold 
+        :param conv_thres: convergence threshold
         :param tsini: initial values for t1, if None = 0
         :param lsini: initial values for l1, if None = 0
         :param tdini: initial values for t2, if None taken from mp2
@@ -544,7 +544,7 @@ class Solver_CCSD:
         :param diis: tuple 'rdm1', 't' and/or 'l'
         :param maxiter: max number of SCF iteration, default = 50
         :param maxdiis: maximum space for DIIS, default = 15
-        '''
+        """
 
         # get nocc,nvir from ccs object
         self.nocc = mycc.nocc
@@ -653,7 +653,6 @@ class Solver_CCSD:
         if td is None:
             td = self.tdini
             ld = self.ldini
-        Conv_text = ''
         if diis is None:
             diis = self.diis
 
@@ -828,7 +827,7 @@ if __name__ == "__main__":
 
     # convergence options
     conv_thres = 10 ** -6
-    diis = ('rdm1')  # must be tuple
+    diis = ['rdm1']
 
     # initialise Solver_CCS Class
     Solver_CCS = Solver_CCS(mccsg, VXexp, 'tl', conv_thres, tsini=tsini, lsini=lsini, diis=diis, CCS_grad=mygrad)
@@ -853,7 +852,7 @@ if __name__ == "__main__":
     print('=================================')
     print()
 
-    Results = Solver_CCS.Gradient(L, method='descend', beta=0.01, diis=tuple())
+    Results = Solver_CCS.Gradient(L, method='descend', beta=0.01)
     print(Results[0])
     print('X2= ', Results[2][-1])
     print()
@@ -888,7 +887,7 @@ if __name__ == "__main__":
     # convergence options
     maxiter = 20
     conv_thres = 10 ** -5
-    diis = ('')  # must be tuple
+    diis = []  # must be tuple
 
     # initialise Solver_CCS Class
     Solver = Solver_CCSD(mccsd, VXexp, conv='tl', conv_thres=conv_thres, diis=diis, maxiter=maxiter, maxdiis=20)

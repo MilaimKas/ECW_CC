@@ -17,6 +17,7 @@
 ###################################################################
 import copy
 import sys
+from scipy import optimize
 
 import numpy as np
 # from . import utilities
@@ -2142,6 +2143,14 @@ class ccs_gradient:
 
         return tsnew, lsnew
 
+    def NK(self):
+        """
+        scipy library for Newton-Krylov solver
+        :return:
+        """
+        ans = optimize.newton_krylov()
+
+        return
 
 #####################################
 #   ECW-GCCS old gradient equations #

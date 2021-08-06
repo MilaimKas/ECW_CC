@@ -11,7 +11,7 @@
 # one electron properties
 #
 # todo: add std deviation sig_j
-#
+# todo: Problem with complex number: Vexp is complex ?
 ###################################################################
 
 import numpy
@@ -136,8 +136,7 @@ class Exp:
 
 
     def Vexp_update(self, rdm1, index):
-
-        '''
+        """
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
         Here, norm of expectation value are compared
 
@@ -149,7 +148,7 @@ class Exp:
              -> index = (0,n) and (n,0) for left and right transition prop. of excited state n
                         if prop are given (not mat.), the square or the norm is take |prop|^2 = prop_l*prop_r
         :return: (positive) Vexp(index) potential
-        '''
+        """
 
         n, m = index
 
@@ -238,7 +237,7 @@ class Exp:
                         # loop over structure factors
                         for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:], calc_prop, self.dic_int['F']):
                             self.Vexp[0, 0] += np.abs((F_exp - F_calc)) * F_int_mo
-                            X2 += (F_exp - F_calc) ** 2
+                            X2 += np.abs((F_exp - F_calc)) ** 2
                             M += 1
                     # other prop
                     elif isinstance(calc_prop, float):
@@ -324,16 +323,15 @@ class Exp:
 
             return self.Vexp[n, m], X2, vmax
 
-    def Vexp_update_norm2(self, rdm1, rdm1_2, index):
-        # todo: Problem with complex number: Vexp is complex ?
+    def Vexp_update_norm2(self, rdm1, rdm1_left, index):
         """
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
         assumes that square norm for the expectation value are compared
 
         rdm can be a transition rdm. In this case the right and left tr_rdm must be given
 
-        :param rdm1: calculated nm rdm1 or tr_rdm1 in MO basis
-        :param rdm1_2: calculated mn rdm1 or tr_rdm1 in MO basis
+        :param rdm1: rdm1 or nm tr_rdm1 in MO basis
+        :param rdm1_left: transpose rdm1 or left (mn) tr_rdm1 in MO basis
         :param index: nm index of the potential Vexp
              -> index = (0,0) for GS
              -> index = (n,n) for prop. of excited state n
@@ -352,8 +350,8 @@ class Exp:
         # -> check_idx = index to retrieve the name of the property from self.check list
         check_idx = np.ravel_multi_index((k, l), self.exp_data.shape)
 
-        # Ground state case
-        # -------------------
+        # Ground state case: nm = 00 and rdm1-left = rdm1.transpose
+        # ------------------------------------------------------------
 
         if index == (0, 0):
 
@@ -379,7 +377,7 @@ class Exp:
                 # use given single experimental property
 
                 else:
-                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_2)  # returns A.g1*A.g2, A.g2
+                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_left)  # returns A.g1*A.g2, A.g2
                     exp_prop = self.exp_data[0, 0]
                     self.Vexp[0, 0] = np.zeros_like(rdm1)
 
@@ -419,7 +417,7 @@ class Exp:
                 M = 0.  # nbr of prop
 
                 for exp_prop in self.exp_data[0, 0]:
-                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_2)
+                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_left)
 
                     # dip case -> 3 components
                     if isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == 3:
@@ -475,7 +473,7 @@ class Exp:
 
                 # use given single experimental property
                 else:
-                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_2)
+                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_left)
                     exp_prop = self.exp_data[k, l]
                     self.Vexp[n, m] = np.zeros_like(rdm1)
                     X2 = 0.
@@ -502,7 +500,7 @@ class Exp:
                 # loop over properties
                 for exp_prop in self.exp_data[k, l]:
                     # returns |A|^2, A if rdm1_2 is given
-                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_2)
+                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_left)
                     # dip case -> 3 components
                     if isinstance(exp_prop[1], list):
                         for d_calc, d_exp, j, A in zip(calc_prop, exp_prop[1], [0, 1, 2], A_scale):

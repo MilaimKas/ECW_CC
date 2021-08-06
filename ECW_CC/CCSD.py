@@ -12,7 +12,11 @@
 # - L1/T1 and T2/L2 intermediates
 # - t and l updates
 #
-
+# todo: add energy term to the Lambda equation and intermediates
+# todo: recast Lambda intermediates in a class (like for T)
+# todo: L1 regularization term only for doubles
+# todo: add EOM(1)-CCSD equations
+#
 ###################################################################
 
 import numpy as np
@@ -91,6 +95,7 @@ def tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter=None):
     :param inter: intermediates
     :return:
     """
+
     if inter is None:
        Yijem, Yabn, Yim, Yea, Yea_p, Yanef, Yainf = tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0)
     else:
@@ -134,7 +139,7 @@ def tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter=None):
 def gamma_CCSD(t1, t2, l1, l2):
     """
     Construct symetrized CCSD reduced density matrix for the ground state
-    PySCF GCCSD_rdm1 file
+    Taken from PySCF GCCSD_rdm1 file
 
     (Give the same result has CCS.gamma_ccs with t2 and l2 = 0)
 
@@ -187,6 +192,7 @@ class GCC:
         if fock is None:
             self.fock = eris.fock
         self.nvir = self.fock.shape[0]-self.nocc
+
 #######
 # rdm1
 #######
@@ -212,14 +218,14 @@ class GCC:
 ##########
 
     def energy(self, t1, t2, fsp):
-        '''
+        """
         CCSD energy equation
 
         :param t1:
         :param t2:
         :param fsp: one-electron operator
         :return:
-        '''
+        """
 
         nocc, nvir = t1.shape
 
@@ -236,7 +242,7 @@ class GCC:
 ###########
 
     def tupdate(self, t1, t2, fsp=None, alpha=None, equation=False):
-        '''
+        """
         SCF update of the t1 and t2 amplitudes
         See PySCF.cc.gccsd
 
@@ -246,7 +252,7 @@ class GCC:
         :param alpha: L1 reg coefficient
         :param equation: True if T1 is to be calculate
         :return:
-        '''
+        """
 
         eris = self.eris
         fock = self.fock.copy()
@@ -406,7 +412,7 @@ class GCC:
 ###########
 
     def lupdate(self, t1, t2, l1, l2, fsp=None, alpha=None, equation=False):
-        '''
+        """
         SCF update of the Lambda amplitudes
         see pyscf.cc.gccsd_lambda file
 
@@ -418,7 +424,7 @@ class GCC:
         :param alpha: L1 reg coefficient
         :param equation: True if the Lambda equations are to be returned
         :return: updates l1 and l2 amplitudes or L1 and L2 equations
-        '''
+        """
 
         eris = self.eris
         fock = self.fock.copy()

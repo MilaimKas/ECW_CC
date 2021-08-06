@@ -31,7 +31,7 @@ format_float = '{:10.5e}'
 
 class ECW:
     def __init__(self, molecule, basis, int_thresh=1e-13, out_dir=None, G_format=False):
-        '''
+        """
         Build the PySCF mol object and performs HF calculation
 
         :param molecule: string with name of molecule to be used
@@ -40,7 +40,7 @@ class ECW:
         :param out_dir: path to the directory where the cube file are saved (string), if None do not print cube files
         :param G_format: if True, the spin-orbital basis are obtained from a GHF calculation,
                          if False, the spin-orbital are converted from a RHF calc (a and b SO are degenerate)
-        '''
+        """
 
         # Use generalized format
         self.G_format = G_format
@@ -205,7 +205,7 @@ class ECW:
         print('*** Molecule build ***')
 
     def Build_GS_exp(self, prop, posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
-        '''
+        """
         Build "experimental" or "target" data for the GS
 
         :param prop: property to include in exp_data
@@ -219,7 +219,7 @@ class ECW:
         :param max_def: maximum bond length deformation in au
         :basis: basis used for the calculation of properties
         :return: update exp_data matrix
-        '''
+        """
 
         # if 'mat' basis must be self.basis
         if prop == 'mat' and basis is not None:
@@ -254,12 +254,12 @@ class ECW:
             self.exp_data[0, 0] = ['mat', gamma_mo]
 
         # other properties (F, Ek, dip, etc)
-        elif isinstance(prop, list):
+        elif isinstance(prop, (list, np.ndarray)):
             self.exp_data[0,0] = []
             for p in prop:
 
                 # Structure Factor p=['F', F]
-                if isinstance(p, list):
+                if isinstance(p, (list, np.ndarray)):
                     if p[0] == 'F':
                         h = p[1]
                         self.h = h
@@ -304,14 +304,14 @@ class ECW:
         print('*** GS data stored ***')
 
     def Build_ES_exp_MOM(self, nbr_of_es=(1, 0), field=None):
-        '''
+        """
         Build excited states data from MOM calculation
 
         :param nbr_of_es: tuple with number of valence and core excited states from which rdm1 and tr_rdm1 have
         to be calculated
         :param field: additional external electric field to be added
         :return: updated exp_data matrix and list of initial r1 vectors
-        '''
+        """
 
         es_exp = gamma_exp.ESexp(self.mol, Vext=field, nbr_of_states=nbr_of_es)
         es_exp.MOM()
@@ -343,7 +343,7 @@ class ECW:
             i += 1
 
     def Build_ES_exp(self, dip_list, nbr_of_states, rini_list=None):
-        '''
+        """
         Build excited states data from given transition properties
 
         :param dip_list: list with transition dipole moment values np.array(x,y,z) for the target states
@@ -355,7 +355,7 @@ class ECW:
         :param rini_list: initial i->a one-electron excitation for each target states
                -> if rini are not given, they are taken from Koopman's initial guess
         :return: updated exp_data matrix
-        '''
+        """
 
         # check length
         if len(dip_list) != sum(nbr_of_states):
@@ -411,9 +411,9 @@ class ECW:
 
     def CCS_GS(self, Larray ,alpha=None, Alpha=None, method='scf', graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
                beta=None, diis_max=15, conv='tl', conv_thres=10**-6, maxiter=40, tablefmt='rst'):
-        '''
+        """
         Call CCS solver for the ground state using SCF+DIIS or gradient (steepest descend/Newton) method
-        
+
         :param Larray: array of L value for which the CCS equations have to be solved
         :param alpha: L1 reg term applied at micro-iteration
         :param Alpha: L1 reg term applied at macro-iteration
@@ -422,8 +422,8 @@ class ECW:
         :param graph: True if a final plot X2(L) is shown
         :param diis: apply diis to rdm1 ('rdm1'), t amplitudes ('t'), l amplitudes ('l') or both ('tl')
         :param diis_max: max diis space
-        :param nbr_cube_file: number of cube file to be printed for equaly spaced L values
-        :param tl1ini: initial value for t1 and l1 amplitudes (0=zero, 1=perturbtaion thery, 2=random)
+        :param nbr_cube_file: number of cube file to be printed for equally spaced L values
+        :param tl1ini: initial value for t1 and l1 amplitudes (0=zero, 1=perturbation theory, 2=random)
         :param print_ite_info: True if iteration step are to be printed
         :param conv: convergence variable ('l', 'tl' or 'Ep')
         :param conv_thres: threshold for convergence
@@ -433,10 +433,10 @@ class ECW:
                  [0] = convergence text
                  [1] = Ep(it)
                  [2] = X2(it) list of tuple: (X2, vmax, X2_Ek)
-                 [3] = conv(it) 
+                 [3] = conv(it)
                  [4] = final gamma (rdm1) calc
                  [5] = final ts and ls amplitudes
-        '''
+        """
 
         if method == 'L1_grad' and beta is None:
             raise ValueError('A value for beta (gradient step) must be given for the L1_grad method')
@@ -572,17 +572,17 @@ class ECW:
 
     def CCSD_GS(self, Larray , alpha=None, Alpha=None, graph=True, diis=('',), nbr_cube_file=2, tl1ini=0, print_ite_info=False,
                 diis_max=15, conv='tl', conv_thres=10**-6, maxiter=40, tablefmt='rst'):
-        '''
+        """
         Call CCSD solver for the ground state using SCF+DIIS method
-        
+
         :param Larray: array of L value for which the CCS equations have to be solved
         :param alpha: L1 reg term applied at each micro-iteration
         :param Alpha: L1 reg term applied at each macro-iteration
         :param graph: True if a final plot X2(L) is shown
         :param diis: apply diis to rdm1 ('rdm1'), t amplitudes ('t'), l amplitudes ('l') or both ('tl')
         :param diis_max: max diis space
-        :param nbr_cube_file: number of cube file to be printed for equaly spaced L values
-        :param tl1ini: initial value for t1 and l1 amplitudes (0=zero, 1=perturbtaion thery, 2=random)
+        :param nbr_cube_file: number of cube file to be printed for equally spaced L values
+        :param tl1ini: initial value for t1 and l1 amplitudes (0=zero, 1=perturbation theory, 2=random)
         :param print_ite_info: True if iteration step are to be printed
         :param conv: convergence variable ('l', 'tl' or 'Ep')
         :param conv_thres: threshold for convergence
@@ -595,7 +595,7 @@ class ECW:
                  [3] = conv(it)
                  [4] = last gamma (rdm1) calc
                  [5] = list [t1,l2,t2,l2] with final amplitudes
-        '''
+        """
         
         if self.exp_data.shape[0] > 1:
             raise Warning('Data for excited states have been found but a ground state solver is used, '
@@ -717,12 +717,12 @@ class ECW:
         return Result, plot
 
     def CCS_ES(self, L, exp_data=None, conv_thres=10**-6, maxiter=40, diis=('')):
-        '''
+        """
 
-        :param L: matrix of lambda values (weigth of exp data)
+        :param L: matrix of lambda values (weight of exp data)
         :param exp_data: matrix of ex
         :return:
-        '''
+        """
 
         if exp_data is None:
             exp_data = self.exp_data
@@ -748,15 +748,15 @@ class ECW:
         Solver.SCF(Lambda)
 
 def plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek=None):
-    '''
+    """
     Plot Ep, X2, vax and DEk as a function of L
-    
-    :param Larray: experimental weigth array 
+
+    :param Larray: experimental weigth array
     :param Ep_lamb: Ep array
     :param X2_lamb: X2 array
     :param vmax_lamb: vmax array
     :param X2_Ek: DEk array
-    '''
+    """
     
     fig, axs = plt.subplots(2, sharex='col')
     # Plot Ep, X2 and vmax only for converged lambdas
