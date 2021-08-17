@@ -121,9 +121,10 @@ def gamma_tr_CCS(ts, ln, rk, r0k, l0n):
     <Psi_n|ap.aq|Psi_0>: rk = 0 and r0k = 1
 
     :param ts: t1 amplitudes
-    :param ln: l1 amplitudes
+    :param ln: l1 amplitudes or lambda1 amplitudes
     :param rk: r1 amplitudes
-    :param r0k: r0 amplitude
+    :param r0k: r0 amplitude or 0 or None (for the GS case)
+    :param l0n: l0 amplitude or 1 (GS case)
     :return:
     """
 
@@ -224,7 +225,7 @@ class Gccs:
         self.eris = eris
 
         self.nocc = eris.nocc  
-        self.nvir = self.fock.shape[0]-self.nocc 
+        self.nvir = self.fock.shape[0]-self.nocc
 
     # -----------------------------------------
     # Energy
@@ -1528,7 +1529,7 @@ class Gccs:
 #####################################
 
 class ccs_gradient:
-    def __init__(self, eris, exp_pot=None, Vexp_model=1):
+    def __init__(self, eris, Vexp_model=1, exp_pot=None):
         """
         Gradient of the ECW-CCS equations and Newton's method
 
@@ -1543,9 +1544,6 @@ class ccs_gradient:
         self.nocc = eris.nocc
         self.nvir = self.fock.shape[0]-self.nocc
 
-        self.exp_data = exp_pot.exp_data[0, 0]   # ['Aj':Aj]
-        self.A = exp_pot.dic_int   # {'Aj':<p|Aj|q>, ...}
-
         # form of Vexp
         if Vexp_model == 1:
             self.DV = self.DV1
@@ -1553,10 +1551,14 @@ class ccs_gradient:
             self.DV = self.DV2
             if exp_pot is None:
                 raise ValueError('exp_pot class is needed')
+            self.exp_data = exp_pot.exp_data[0, 0]  # ['Aj':Aj]
+            self.A = exp_pot.dic_int  # {'Aj':<p|Aj|q>, ...}
         elif Vexp_model == 3:
             self.DV = self.DV3
             if exp_pot is None:
                 raise ValueError('exp_pot class is needed')
+            self.exp_data = exp_pot.exp_data[0, 0]  # ['Aj':Aj]
+            self.A = exp_pot.dic_int  # {'Aj':<p|Aj|q>, ...}
         else:
             raise ValueError('Vexp model is 1,2 or 3')
 
@@ -1670,11 +1672,9 @@ class ccs_gradient:
     # T1 and Lambda 1 derivatives
     ###############################
 
-    def dT(self, ts, fsp, L):
+    def dT(self, ts, ls, fsp, L):
         """
         dTai/dtog = dTdt_pq and dTai/dlog = dTdl_pq
-        with p running through a and i
-        and q through o and g
 
         :param ts: t1 amplitudes
         :param fsp: effective fock matrix
@@ -1682,7 +1682,7 @@ class ccs_gradient:
         """
         nocc, nvir = ts.shape
 
-        # aiog -> xy
+        # iaog -> xy
         dTdt_pq = np.zeros((nocc * nvir, nocc * nvir))
         dTdl_pq = np.zeros((nocc * nvir, nocc * nvir))
 
@@ -1690,10 +1690,13 @@ class ccs_gradient:
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
 
-        dV = self.DV(ts, ls)
-        dVoo = dV[nocc:, :nocc, :, :].copy()
-        dVvv = dV[nocc:, nocc:, :, :].copy()
-        dVov = dV[:nocc, nocc:, :, :].copy()
+        dVt, dVl = self.DV(ts, ls)
+        dVoo_t = dVt[:nocc, :nocc, :, :].copy()
+        dVvv_t = dVt[nocc:, nocc:, :, :].copy()
+        dVov_t = dVt[:nocc, nocc:, :, :].copy()
+        dVoo_l = dVl[:nocc, :nocc, :, :].copy()
+        dVvv_l = dVl[nocc:, nocc:, :, :].copy()
+        dVov_l = dVl[:nocc, nocc:, :, :].copy()
 
         # dio terms
         dio = fvv.copy()
@@ -1710,42 +1713,47 @@ class ccs_gradient:
         dag += np.einsum('ib,ob->io', ts, tmp)
 
         # Vexp terms
-        Voagi = dVov.copy()
-        Voagi -= np.einsum('abog,ib->oagi', dVvv, ts)
-        Voagi += np.einsum('jiog,ja->oagi', dVoo, ts)
-        tmp = np.einsum('jbog,ja->boga', dVov, ts)
-        Voagi += np.einsum('boga,ib->oagi', tmp, ts)
+        # dVdt
+        Viaog_t = dVov_t.copy()
+        Viaog_t -= np.einsum('abog,ib->iaog', dVvv_t, ts)
+        Viaog_t += np.einsum('jiog,ja->iaog', dVoo_t, ts)
+        tmp = np.einsum('jbog,ja->boga', dVov_t, ts)
+        Viaog_t += np.einsum('boga,ib->iaog', tmp, ts)
+        # dVdl
+        Viaog_l = dVov_l.copy()
+        Viaog_l -= np.einsum('abog,ib->iaog', dVvv_l, ts)
+        Viaog_l += np.einsum('jiog,ja->iaog', dVoo_l, ts)
+        tmp = np.einsum('jbog,ja->boga', dVov_l, ts)
+        Viaog_l += np.einsum('boga,ib->iaog', tmp, ts)
 
         # oagi terms
-        oagi = self.eris.ovvo.copy
+        oagi = self.eris.ovvo.copy()
         oagi -= np.einsum('ja,ojgi->oagi', ts, self.eris.oovo)
         oagi += np.einsum('ib,oagb->oagi', ts, self.eris.ovvv)
         tmp = np.einsum('ja,jogb->ogba', ts, self.eris.oovv)
         oagi += np.einsum('ib,ogba->oagi', ts, tmp)
         del tmp
 
-        for x in range(0, nvir * nocc):
-            for y in range(0, nocc * nvir):
-                o, g = np.unravel_index(y, (nocc, nvir))
-                i, a = np.unravel_index(x, (nocc, nvir))
+        for p in range(0, nvir * nocc):
+            for q in range(0, nocc * nvir):
+                o, g = np.unravel_index(q, (nocc, nvir))
+                i, a = np.unravel_index(p, (nocc, nvir))
 
                 if o == i:
-                    dTdt_pq[x, y] += dio[i, o]
+                    dTdt_pq[p, q] += dio[a, g]
                 if a == g:
-                    dTdt_pq[x, y] += dag[a, g]
+                    dTdt_pq[p, q] += dag[i, o]
 
-                dTdt_pq[x, y] += L*Voagi[o, a, g, i]
-                dTdt_pq[x, y] += L*oagi[o, a, g, i]
+                dTdt_pq[q, p] += L*Viaog_t[i, a, o, g]
+                dTdt_pq[q, p] += L*oagi[o, a, g, i]
 
-                dTdl_pq[x, y] = L*Voagi[o, a, g, i]
+                dTdl_pq[q, p] = L*Viaog_l[i, a, o, g]
 
         return dTdt_pq, dTdl_pq
 
     def dL(self, ts, ls, fsp, L):
         """
         dLai/dtog and dLai/dlog
-        with x running through a and i
-        and y through o and g
 
         :param ts:
         :param ls:
@@ -1762,39 +1770,52 @@ class ccs_gradient:
         fov = fsp[:nocc, nocc:].copy()
         fvv = fsp[nocc:, nocc:].copy()
 
-        dV = self.DV(ts, ls)
-        dVoo = dV[nocc:, :nocc, :, :].copy()
-        dVvv = dV[nocc:, nocc:, :, :].copy()
-        dVov = dV[:nocc, nocc:, :, :].copy()
+        dVt, dVl = self.DV(ts, ls)
+        dVoo_t = dVt[:nocc, :nocc, :, :].copy()
+        dVvv_t = dVt[nocc:, nocc:, :, :].copy()
+        dVov_t = dVt[:nocc, nocc:, :, :].copy()
+        dVoo_l = dVl[:nocc, :nocc, :, :].copy()
+        dVvv_l = dVl[nocc:, nocc:, :, :].copy()
+        dVov_l = dVl[:nocc, nocc:, :, :].copy()
 
         # dio terms
         dio = fvv.copy()
         dio -= np.einsum('jg,ja->ag', ts, fov)
         dio -= np.einsum('jgba,jb->ag', self.eris.ovvv, ts)
-        tmp = np.einsum('kjba,jb->ka', self.eris.ovvv, ts)
+        tmp = np.einsum('kjba,jb->ka', self.eris.oovv, ts)
         dio += np.einsum('ka,kg->ag', tmp, ts)
 
         # dag terms
         dag = -foo.copy()
         dag -= np.einsum('ob,ib->io', ts, fov)
         dag -= np.einsum('jibo,jb->io', self.eris.oovo, ts)
-        tmp = np.einsum('kibc,kc->ib', self.eris.ovvv, ts)
+        tmp = np.einsum('kibc,kc->ib', self.eris.oovv, ts)
         dag += np.einsum('ib,ob->io', tmp, ts)
 
         # diodag terms (energy terms)
         diodag = - np.einsum('jb, jb', ts, fov)
-        tmp = np.einsum('jkbc, kc->jb', ts, self.eris.oovv)
+        tmp = np.einsum('jkbc, kc->jb', self.eris.oovv, ts)
         diodag -= 0.5*np.einsum('jb, jb', ts, tmp)
 
         # Vexp terms
-        Voagi = -dVov.copy()
-        Voagi -= np.einsum('baog,ib->oagi', dVvv, ls)
-        Voagi += np.einsum('ijog,ja->oagi', dVoo, ls)
-        tmp = np.einsum('jaog,jb->aogb', dVov, ts)
-        Voagi += np.einsum('aogb,ib->oagi', tmp, ls)
+        # dVdl
+        Viaog_l = -dVov_l.copy()
+        Viaog_l -= np.einsum('baog,ib->iaog', dVvv_l, ls)
+        Viaog_l += np.einsum('ijog,ja->iaog', dVoo_l, ls)
+        tmp = np.einsum('jaog,jb->aogb', dVov_l, ts)
+        Viaog_l += np.einsum('aogb,ib->iaog', tmp, ls)
         tmp = np.einsum('ja,jb->ab', ls, ts)
-        Voagi += np.einsum('ab,ibog->oagi', tmp, dVov)
-        Voagi += np.einsum('ia, jbog, jb->oagi', ls, dVov, ts)  # energy term
+        Viaog_l += np.einsum('ab,ibog->iaog', tmp, dVov_l)
+        Viaog_l += np.einsum('ia, jbog, jb->iaog', ls, dVov_l, ts)  # energy term
+        # dVdt
+        Viaog_t = -dVov_t.copy()
+        Viaog_t -= np.einsum('baog,ib->iaog', dVvv_t, ls)
+        Viaog_t += np.einsum('ijog,ja->iaog', dVoo_t, ls)
+        tmp = np.einsum('jaog,jb->aogb', dVov_t, ts)
+        Viaog_t += np.einsum('aogb,ib->iaog', tmp, ls)
+        tmp = np.einsum('ja,jb->ab', ls, ts)
+        Viaog_t += np.einsum('ab,ibog->iaog', tmp, dVov_t)
+        Viaog_t += np.einsum('ia, jbog, jb->iaog', ls, dVov_t, ts)  # energy term
 
         # gioa terms for dLdl
         gioa_l = self.eris.voov.copy()
@@ -1804,7 +1825,7 @@ class ccs_gradient:
         gioa_l -= np.einsum('oija,og->gioa', self.eris.ooov, ts)
 
         # oiga terms for dLdt
-        oiga_t = self.eris.oovv
+        oiga_t = self.eris.oovv.copy()
         oiga_t -= np.einsum('oa,ig->oiga', fov, ls)
         oiga_t -= np.einsum('ig,oa->oiga', fov, ls)
         oiga_t += np.einsum('ciga,oc->oiga', self.eris.vovv, ls)
@@ -1813,10 +1834,10 @@ class ccs_gradient:
         oiga_t += np.einsum('ojga,io->oiga', self.eris.oovv, tmp)
         tmp = np.einsum('ojba,ob->oja', self.eris.oovv, ts)
         oiga_t += np.einsum('oja,ig->oiga', tmp, ls)
-        tmp = np.einsum('oibg,jb->oijb', self.eris.oovv, ts)
-        oiga_t += np.einsum('oijb,ja->oiga', tmp, ls)
+        tmp = np.einsum('oibg,jb->oijg', self.eris.oovv, ts)
+        oiga_t += np.einsum('oijg,ja->oiga', tmp, ls)
         tmp = np.einsum('kigc,kc->ig', self.eris.oovv, ts)
-        oiga_t += np.einsum('kc,oa->oiga', tmp, ls)
+        oiga_t += np.einsum('ig,oa->oiga', tmp, ls)
         tmp = np.einsum('jiga,jb->iga', self.eris.oovv, ts)
         oiga_t -= np.einsum('iga,ok->oiga', tmp, ls)
         tmp = np.einsum('oica,kc->oika', self.eris.oovv, ts)
@@ -1824,7 +1845,7 @@ class ccs_gradient:
         oiga_t -= np.einsum('oigk,ka->oiga', self.eris.oovo, ls)
         oiga_t -= np.einsum('oija,jg->oiga', self.eris.ooov, ls)
         oiga_t -= np.einsum('ia,og->oiga', ls, fov)  # energy term
-        oiga_t -= 0.5*np.einsum('ia,kc,jkbc->oiga', ls, ts, self.eris.oovv)  # energy term
+        oiga_t -= 0.5*np.einsum('ia,kc,okgc->oiga', ls, ts, self.eris.oovv)  # energy term
         oiga_t -= 0.5 * np.einsum('ia,jb,jobg->oiga', ls, ts, self.eris.oovv)  # energy term
         del tmp
 
@@ -1834,16 +1855,16 @@ class ccs_gradient:
                 i, a = np.unravel_index(x, (nocc, nvir))
 
                 if o == i:
-                    dLdl_pq[x, y] += dio[i, o]
+                    dLdl_pq[x, y] += dio[a, g]
                 if a == g:
-                    dLdl_pq[x, y] += dag[a, g]
+                    dLdl_pq[x, y] += dag[i, o]
                 if a == g and o ==i:
                     dLdl_pq[x, y] += diodag
 
-                dLdl_pq[x, y] += L*Voagi[o, a, g, i]
+                dLdl_pq[x, y] += L*Viaog_l[i, a, o, g]
                 dLdl_pq[x, y] += gioa_l[g, i, o, a]
 
-                dLdt_pq[x, y] = L*Voagi[o, a, g, i]
+                dLdt_pq[x, y] = L*Viaog_t[i, a, o, g]
                 dLdt_pq[x, y] = oiga_t[o, i, g, a]
 
         return dLdt_pq, dLdl_pq
@@ -1967,7 +1988,7 @@ class ccs_gradient:
 
         return (2./Nr)*dVdt, (2./Nr)*dVdl
 
-    def DV3(self, ts, ls, gamma_calc):
+    def DV3(self, ts, ls):
         """
         CCS gradient of Vexp with
         K_j = (2/Nr*sig_j)*A_rs,j*(sum_pq A_pq,j gamma_qp)
@@ -1981,6 +2002,7 @@ class ccs_gradient:
         sig = self.exp_pot.sig  # array of sigma values for each prop
         A = self.exp_pot  # list of needed <p|hat(A)|q> matrices
         Aexp = self.exp_pot.Aexp  # list of experimental data
+        gamma_calc = self.exp_data.gamma_calc
 
         nocc, nvir = ts.shape
         dim = nocc+nvir
@@ -2065,7 +2087,7 @@ class ccs_gradient:
         :return:
         """
 
-        dTdt, dTdl = self.dT(ts, fsp, L)
+        dTdt, dTdl = self.dT(ts, ls, fsp, L)
         dLdt, dLdl = self.dL(ts, ls, fsp, L)
 
         J00 = dTdt.copy()
@@ -2142,15 +2164,6 @@ class ccs_gradient:
         lsnew = lsnew.reshape(nocc, nvir)
 
         return tsnew, lsnew
-
-    def NK(self):
-        """
-        scipy library for Newton-Krylov solver
-        :return:
-        """
-        ans = optimize.newton_krylov()
-
-        return
 
 #####################################
 #   ECW-GCCS old gradient equations #
@@ -2643,7 +2656,6 @@ if __name__ == "__main__":
     La1eq_raw = CC_raw_equations.La1eq(gts, gls, geris, fsp=gfs)
 
     print()
-    print("--------------------------------------------------")
     print(" Difference between raw eq and with intermediates ")
     print("--------------------------------------------------")
     print()
@@ -2654,8 +2666,16 @@ if __name__ == "__main__":
     print(np.max(np.subtract(La1eq, La1eq_raw)))
     print()
 
+    print('Difference between T1 and L1 inter for t=0 (should be zero)')
+    print('-----------------------------------------------------------')
+    ts = np.zeros((gnocc, gnvir))
+    Tinter = mccsg.T1inter(ts, gfs)  # Fab, Fji, Fai
+    Linter = mccsg.L1inter(ts, gfs)  # Fia, Fba, Fij, Wbija, E
+    print('Fba: ', np.max(np.subtract(Tinter[0], Linter[1])))
+    print('Fij: ', np.max(np.subtract(Tinter[1], Linter[2])))
     print()
-    print("----------------------------------------------------------------")
+    del ts, Tinter, Linter
+
     print(" Difference between updated amp with different intermediates    ")
     print("----------------------------------------------------------------")
     print()
@@ -2734,6 +2754,9 @@ if __name__ == "__main__":
     print()
 
     mgrad = ccs_gradient(geris)
+    # print(np.diag(mgrad.Jacobian(gts, gls, gfs, 0.)))
+    print(np.diag(mgrad.dT(np.zeros_like(gts), np.zeros_like(gls), gfs, 0.)[0]))
+    print(np.diag(gfs[gnocc:])[:, None] - np.diag(gfs[:gnocc]))
 
     ts_G = gts.copy()*0.1
     ls_G = gls.copy()*0.1
@@ -2749,9 +2772,9 @@ if __name__ == "__main__":
         ts_G = tsnew
         ls_G = lsnew
         norm = np.concatenate((ts_G.flatten(), ls_G.flatten()))
-        conv = np.linalg.norm(norm-norm_old)
+        conv_thre = np.linalg.norm(norm-norm_old)
         ite += 1
-        if ite > 50:
+        if ite > 20:
             conv = False
             print("t and l amplitudes NOT converged after {} iteration".format(ite))
             break
@@ -2773,9 +2796,9 @@ if __name__ == "__main__":
         ts_G = tsnew
         ls_G = lsnew
         norm = np.concatenate((ts_G.flatten(), ls_G.flatten()))
-        conv = np.linalg.norm(norm-norm_old)
+        conv_thre = np.linalg.norm(norm-norm_old)
         ite += 1
-        if ite > 50:
+        if ite > 20:
             conv = False
             print("t and l amplitudes NOT converged after {} iteration".format(ite))
             break
@@ -2838,12 +2861,12 @@ if __name__ == "__main__":
     r0 = 0.1
     l0 = 0.1
 
-    print('Difference between R1 and L1 inter for t=0 (should be zero except Tia)')
-    print('----------------------------------------------------------------------')
+    print('Difference between R1 and L1 inter for t=0 ')
+    print('-------------------------------------------')
     ts = np.zeros((gnocc, gnvir))
-    Rinter = mccsg.R1inter(ts, gfs, vn)    #Fab, Fji, W, E, Tia, Pia
-    Linter = mccsg.es_L1inter(ts, gfs, vn) #Fba, Fij, W, E, Tia, P
-    inter = ['Fba', 'Fij', 'W', 'E', 'Tia', 'P']
+    Rinter = mccsg.R1inter(ts, gfs, vn)[:3]    # Fab, Fji, W, E, Tia, Pia
+    Linter = mccsg.es_L1inter(ts, gfs, vn) # Fba, Fij, W, E, Tia, P
+    inter = ['Fba', 'Fij', 'W', 'E']
     i = 0
     for R, L in zip(Rinter, Linter):
         print('Inter ', inter[i])

@@ -72,10 +72,11 @@ def La1eq(t1, l1, eris,fsp=None):
     """
     
     nocc,nvir = t1.shape
+
     if fsp is None:
         f = eris.fock
     else:
-        f = fsp
+        f = fsp.copy()
 
     vv = f[nocc:, nocc:].copy()
     oo = f[:nocc, :nocc].copy()
@@ -83,19 +84,23 @@ def La1eq(t1, l1, eris,fsp=None):
 
     He = 0
     He += e("ba,ib->ia", vv, l1)  # d0_ov
-    He -= e("ji,ja->ia", oo, l1)  # d1_ov
+    He -= e("ij,ja->ia", oo, l1)  # d1_ov
     He += e("ia->ia", ov)  # d2_ov
     He -= e("jb,ia,ja->ib", ov, l1, t1)  # d3_ov
     He -= e("jb,ia,ib->ja", ov, l1, t1)  # d4_ov
     He -= e("jabc,ia,ib->jc", eris.ovvv, l1, t1)  # d5_ov
+    # He += e("ajbc,ia,ib->jc", eris.vovv, l1, t1)  # d5_ov
     He += e("jabc,ia,jb->ic", eris.ovvv, l1, t1)  # d6_ov
     He += e("jabi,ia->jb", eris.ovvo, l1)  # d7_ov
     He += e("ijab,ia->jb", eris.oovv, t1)  # d8_ov
     He += e("kiab,jc,ia,kc->jb", eris.oovv, l1, t1, t1)  # d9_ov
+    # He -= e("ikab,jc,ia,kc->jb", eris.oovv, l1, t1, t1)  # d9_ov
     He += e("ikba,jc,ia,jb->kc", eris.oovv, l1, t1, t1)  # d10_ov
+    # He -= e("ikab,jc,ia,jb->kc", eris.oovv, l1, t1, t1)  # d10_ov
     He -= e("jkac,ib,ia,jb->kc", eris.oovv, l1, t1, t1)  # d11_ov
     He -= e("jkbi,ia,jb->ka", eris.oovo, l1, t1)  # d12_ov
     He -= e("kibj,ja,ia->kb", eris.oovo, l1, t1)  # d13_ov
+    # He -= e("ikjb,ja,ia->kb", eris.ooov, l1, t1)  # d13_ov
 
     return He
 

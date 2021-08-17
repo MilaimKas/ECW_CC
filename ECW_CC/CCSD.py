@@ -25,13 +25,10 @@ import utilities
 
 einsum = lib.einsum
 
-#############
-# FUNCTIONS
-#############
-
 ##################
 # Transition rdm1
 ##################
+
 
 def tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0):
     """
@@ -187,6 +184,13 @@ def gamma_inter(t1, t2, l1, l2):
 
 class GCC:
     def __init__(self,eris, fock=None):
+        """
+        Class for the ECW-CCSD equations
+
+        :param eris: 2 electron integrals
+        :param fock: fock matrix
+        """
+
         self.eris = eris
         self.nocc = eris.nocc
         if fock is None:
@@ -201,17 +205,17 @@ class GCC:
         return gamma_CCSD(t1, t2, l1, l2)
 
     def gamma_inter(self, t1, t2, l1, l2):
-        return gamma_inter(t1,t2,l1,l2)
+        return gamma_inter(t1, t2, l1, l2)
 
 ##################
 # Transition rdm1
 ##################
 
-    def tr_rdm1_inter(self,t1, t2, l1, l2, r1, r2, r0):
+    def tr_rdm1_inter(self, t1, t2, l1, l2, r1, r2, r0):
         return tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0)
 
-    def tr_rdm1(self,t1, t2, l1, l2, r1, r2, r0, inter):
-        return tr_rdm1(t1,t2,l1,l2,r1,r2,r0,inter)
+    def tr_rdm1(self, t1, t2, l1, l2, r1, r2, r0, inter):
+        return tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter)
 
 ##########
 # energy
@@ -219,11 +223,11 @@ class GCC:
 
     def energy(self, t1, t2, fsp):
         """
-        CCSD energy equation
+        CCSD energy equation in spin-orbital basis
 
-        :param t1:
-        :param t2:
-        :param fsp: one-electron operator
+        :param t1: t1 amplitude
+        :param t2: t2 amplitude
+        :param fsp: one-electron operator matrix
         :return:
         """
 
@@ -243,13 +247,13 @@ class GCC:
 
     def tupdate(self, t1, t2, fsp=None, alpha=None, equation=False):
         """
-        SCF update of the t1 and t2 amplitudes
+        SCF update of the t1 and t2 amplitudes with L1 regularization
         See PySCF.cc.gccsd
 
         :param t1: t1 amplitudes in spin-orbital basis
         :param t2: t2 amplitudes in spin-orbital basis
         :param fsp: effective fock matrix in MO basis
-        :param alpha: L1 reg coefficient
+        :param alpha: L1 regularization coefficient
         :param equation: True if T1 is to be calculate
         :return:
         """
@@ -413,8 +417,10 @@ class GCC:
 
     def lupdate(self, t1, t2, l1, l2, fsp=None, alpha=None, equation=False):
         """
-        SCF update of the Lambda amplitudes
+        SCF update of the Lambda amplitudes with L1 regularization
         see pyscf.cc.gccsd_lambda file
+
+        Note that the pesence of the energy term
 
         :param t1: t1 amplitudes in spin-orbital basis
         :param t2: t2 amplitudes in spin-orbital basis
@@ -496,6 +502,9 @@ class GCC:
         l1new -= np.einsum('ik,ka->ia', mij, tmp)
         l1new -= np.einsum('ca,ic->ia', mba, tmp)
 
+        # energy terms
+
+        # L1 regularization
         if alpha is not None:
 
             dW1 = utilities.subdiff(l1new, l1, alpha)
@@ -589,6 +598,8 @@ class GCC:
         wvvvo -= np.einsum('jacb->bcaj', np.asarray(eris.ovvv).conj()) * .5
         wvvvo += einsum('kbad,jkcd->bcaj', eris.ovvv, t2)
 
+        # todo: add energy term
+
         class _IMDS: pass
         imds = _IMDS()
         imds.woooo = woooo
@@ -600,6 +611,7 @@ class GCC:
         imds.w3 = w3
 
         return imds
+
 
 if __name__ == "__main__":
     # execute only if run as a script
@@ -635,7 +647,7 @@ if __name__ == "__main__":
 
     print()
     print("nocc x nvir")
-    print(gnocc,gnvir)
+    print(gnocc, gnvir)
     print()
 
     mycc = cc.GCCSD(mgf)
@@ -650,8 +662,8 @@ if __name__ == "__main__":
     l1 = t1*0.05
     l2 = t2*0.05
 
-    T1,T2 = myccsd.tupdate(t1, t2, fsp, equation=True)
-    L1,L2 = myccsd.lupdate(t1, t2, l1, l2, fsp, equation=True)
+    T1, T2 = myccsd.tupdate(t1, t2, fsp, equation=True)
+    L1, L2 = myccsd.lupdate(t1, t2, l1, l2, fsp, equation=True)
 
     T1_eq, T2_eq = CC_raw_equations.T1T2eq(t1, t2, eris)
     L1_eq, L2_eq = CC_raw_equations.La1La2eq(t1, t2, l1, l2, eris)
@@ -662,7 +674,7 @@ if __name__ == "__main__":
     print('###############################################')
     print()
     print("T1 - T1_eq")
-    print(np.sum(np.subtract(T1_eq,T1)))
+    print(np.sum(np.subtract(T1_eq, T1)))
 
     print()
     print("T2 - T2_eq")

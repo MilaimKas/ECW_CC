@@ -95,15 +95,16 @@ class Solver_CCS:
 
     def SCF(self, L, ts=None, ls=None, diis=None, alpha=None, store_ite=False):
 
-        '''
+        """
         SCF+DISS solver for the ECW-CCS equations with L1 regularization term
+        This method corresponds to a quasi Newton method.
 
         :param L: Lambda, weight of the experimental potential
         :param ts: initial t1 amplitudes
         :param ls: initial l1 amplitudes
         :param diis: tuple of 'rdm1', 't' and/or 'l'
         :param alpha: L1 regularization parameter
-        :param store_ite: print ts and ls at ite in addition
+        :param store_ite: store ts and ls at each ite
         :return: [0] = convergence text
                  [1] = Ep(it)
                  [2] = X2(it) list of tuple: (X2,vmax,X2_Ek)
@@ -111,16 +112,18 @@ class Solver_CCS:
                  [4] = final gamma_calc
                  [5] = final ts and ls
 
-        '''
+        """
 
-        # ts and ls are initial value
-
-        # initialize
+        # initialize amplitudes
         if ts is None:
             ts = self.tsini
             ls = self.lsini
+
+        # store diis option
         if diis is None:
             diis = self.diis
+
+        # initialize 1 body reduced density matrix
         rdm1 = self.mycc.gamma(ts, ls)
 
         nocc = self.nocc
@@ -137,7 +140,7 @@ class Solver_CCS:
         Ep_ite = []
         conv_ite = []
 
-        # initialze diis for ts,ls, rdm1
+        # initialize diis for ts,ls, rdm1
         if diis:
             if 'rdm1' in diis:
                 adiis = lib.diis.DIIS()
@@ -152,12 +155,14 @@ class Solver_CCS:
                 ldiis.space = self.maxdiis
                 ldiis.min_space = 2
 
-        # initialize list of ts and ls
+        # initialize list of ts and ls for each iteration
         if store_ite:
             ts_ite = []
             ls_ite = []
 
-        # Main loop
+        # MAIN LOOP
+        # -------------------------------------------------
+
         while Dconv > self.conv_thres:
 
             conv_old = conv
@@ -173,7 +178,7 @@ class Solver_CCS:
             T1inter = mycc.T1inter(ts, fsp)
             if alpha is None:
                 ts = mycc.tsupdate(ts, T1inter)
-            else:
+            else:  # use L1 regularization
                 ts = mycc.tsupdate_L1(ts, T1inter, alpha)
             # apply DIIS
             if 't' in diis:
@@ -185,7 +190,7 @@ class Solver_CCS:
             L1inter = mycc.L1inter(ts, fsp)
             if alpha is None:
                 ls = mycc.lsupdate(ts, ls, L1inter)
-            else:
+            else:  # use L1 regularization
                 ls = mycc.lsupdate_L1(ls, L1inter, alpha)
             # apply DIIS
             if 'l' in diis:
@@ -235,6 +240,7 @@ class Solver_CCS:
             ts_ite = np.asarray(ts_ite)
             ls_ite = np.asarray(ls_ite)
             return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, ts_ite, ls_ite
+
         else:
             return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
 
@@ -420,7 +426,7 @@ class Solver_CCS:
         conv_ite = []
         ls_norm = []
 
-        # initialze diis for ts,ls, rdm1
+        # initialize diis for ts,ls, rdm1
         if diis:
             if 'rdm1' in diis:
                 adiis = lib.diis.DIIS()
@@ -521,7 +527,7 @@ class Solver_CCS:
 
         return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
 
-#-----------------------------------------------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------------------------------------------------
 
 ####################################
 # CCSD SOLVER
@@ -594,7 +600,6 @@ class Solver_CCSD:
         else:
             raise ValueError('Accepted convergence parameter is Ep, l or tl')
 
-
     #####################
     # Convergence check
     #####################
@@ -609,7 +614,7 @@ class Solver_CCSD:
     def l_check(self, dic):
         ls = dic.get('ls')
         ld = dic.get('ld')
-        arr = np.concatenate((ls.flatten(),ld.flatten()))
+        arr = np.concatenate((ls.flatten(), ld.flatten()))
         return arr
 
     def tl_check(self, dic):
@@ -617,7 +622,7 @@ class Solver_CCSD:
         ts = dic.get('ts').flatten()
         ld = dic.get('ld').flatten()
         td = dic.get('td').flatten()
-        arr = np.concatenate((ls+ts,ld+td))
+        arr = np.concatenate((ls+ts, ld+td))
         return arr
 
     def x2_check(self, ts, ls, fsp):
@@ -628,15 +633,16 @@ class Solver_CCSD:
     #############
 
     def SCF(self, L, ts=None, ls=None, td=None, ld=None, alpha=None, diis=None):
-        '''
+        """
         Standard SCF+DIIS solver for the GS-ECW-CCSD equations with additional L1 reg term
-        
-        :param L: weigth of experimental potential    
+        Corresponds to a quasi Newton method
+
+        :param L: weigth of experimental potential
         :param ts: t1 amplitude
         :param ls: lambda amplitudes
         :param td: t2 amplitudes
         :param ld: lambda2 amplitudes
-        :param alpha: L1 reg parameter 
+        :param alpha: L1 reg parameter
         :param diis: tuple ('t','l','tl' and/or 'rdm1')
         :return: [0] = convergence text
                  [1] = Ep(it)
@@ -644,7 +650,7 @@ class Solver_CCSD:
                  [3] = conv(it)
                  [4] = last gamma_calc
                  [5] = list [t1,l2,t2,l2] with final amplitudes
-        '''
+        """
 
         # initialize
         if ts is None:
@@ -757,7 +763,7 @@ class Solver_CCSD:
         else:
             Conv_text = 'Convergence reached for lambda= {} and alpha={}, after {} iteration'.format(L, alpha, ite)
 
-        return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, [ts,ls,td,ld]
+        return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, [ts, ls, td, ld]
 
 
 if __name__ == "__main__":
@@ -772,7 +778,7 @@ if __name__ == "__main__":
         [1, (0., -0.757, 0.587)],
         [1, (0., 0.757, 0.587)]]
 
-    mol.basis = '6-31g'
+    mol.basis = '6-31g*'
     mol.spin = 0
     mol.build()
 
@@ -799,7 +805,7 @@ if __name__ == "__main__":
     gexp.build()
     rdm1_exp = gexp.gamma_ao
     exp = np.full((2, 2), None)
-    exp[0,0] = ['mat', rdm1_exp]
+    exp[0, 0] = ['mat', rdm1_exp]
 
     print()
     print('################')
@@ -813,8 +819,8 @@ if __name__ == "__main__":
 
     # GCCS object
     mccsg = CCS.Gccs(geris)
-    # Gradient object
-    mygrad = CCS.ccs_gradient(geris)
+    # CCS gradient object
+    mygrad = CCS.ccs_gradient_old(geris)
 
     # Vexp object
     VXexp = exp_pot.Exp(exp, mol, mgf.mo_coeff)
@@ -835,7 +841,6 @@ if __name__ == "__main__":
     # Solve for L = 0
     L = 0.01
     Results = Solver_CCS.SCF(L)
-    #Results = Solver_CCS.Gradient(L,method='newton')
     print(Results[0])
     print('X2= ', Results[2][-1])
     print()
@@ -846,7 +851,6 @@ if __name__ == "__main__":
     print(Results[3])
     print()
     print()
-
 
     print('     Newton/Gradient descend     ')
     print('=================================')
@@ -893,8 +897,9 @@ if __name__ == "__main__":
     Solver = Solver_CCSD(mccsd, VXexp, conv='tl', conv_thres=conv_thres, diis=diis, maxiter=maxiter, maxdiis=20)
 
     # Solve for L
+    print('L = 0')
     L = 0
-    Results = Solver.SCF(L,alpha=0.)
+    Results = Solver.SCF(L, alpha=0.)
     print(Results[0])
     print()
     print('conv')
@@ -902,4 +907,13 @@ if __name__ == "__main__":
     print()
 
     print('PySCF ECCSD difference=', mygcc.kernel()[0]-Results[1][-1])
+    print()
+
+    print('L = 0.01')
+    L = 0.01
+    Results = Solver.SCF(L, alpha=0.)
+    print(Results[0])
+    print()
+    print('conv')
+    print(Results[3])
     print()

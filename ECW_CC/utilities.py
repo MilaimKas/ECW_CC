@@ -359,10 +359,10 @@ def mo_to_ao(rdm1_mo, mo_coeff):
     return rdm1_ao
 
 
-def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
+def koopman_init_guess(mo_energy, mo_occ, nstates=(1, 0), core_ene_thresh=10.):
     """
     Generates list of koopman guesses for r1 vectors in G format
-    The guess is obtained in the r format to avoid breaking symmetry
+    The guess is obtained in the restricted R format to avoid breaking symmetry
 
     :param mo_energy: MOs energies
     :param: mo_occ: occupation array
@@ -383,8 +383,8 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
 
     x0 = [] # np.zeros((nroot, nov))
     DE = []
-    eia_val = e_ia[ncore:,:].ravel()
-    eia_core = e_ia[:ncore,:].ravel()
+    eia_val = e_ia[ncore:, :].ravel()
+    eia_core = e_ia[:ncore, :].ravel()
     if nstates[0] > eia_val.size or nstates[1] > eia_core.size :
         raise Warning('The size of the basis is smaller than the number of requested states')
 
@@ -394,8 +394,8 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
     nocc_val = nocc-ncore
     for i in range(nroot):
         tmp = np.zeros(eia_val.size)
-        tmp[idx[i]]   = 1
-        tmp = tmp.reshape((nocc_val,nvir))
+        tmp[idx[i]] = 1
+        tmp = tmp.reshape((nocc_val, nvir))
         tmp = np.vstack((np.zeros((ncore, nvir)), tmp))
         tmp = convert_r_to_g_amp(tmp)
         id = tuple(np.transpose(np.nonzero(tmp))[0])
@@ -408,8 +408,8 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1,0), core_ene_thresh=10.):
     idx = np.argsort(eia_core)
     for i in range(nroot):
         tmp = np.zeros(eia_core.size)
-        tmp[idx[i]]   = 1
-        tmp = tmp.reshape((ncore,nvir))
+        tmp[idx[i]] = 1
+        tmp = tmp.reshape((ncore, nvir))
         tmp = np.vstack((tmp, np.zeros((nocc_val, nvir))))
         tmp = convert_r_to_g_amp(tmp)
         id = np.transpose(np.nonzero(tmp))
@@ -437,7 +437,7 @@ def tdm_slater(TcL, TcR, occ_diff):
     """
     
     Tgamma = np.diag(occ_diff)
-    gamma_ao = np.einsum('pi,ij,qj->pq',TcL,Tgamma,TcR.conj())
+    gamma_ao = np.einsum('pi,ij,qj->pq', TcL, Tgamma, TcR.conj())
     
     return gamma_ao
 
@@ -489,11 +489,11 @@ def check_spin(amp_r,amp_l):
 
     # vector of alpha (0) and beta(1) spin
     spin_mat = np.zeros_like(amp_r)
-    spin_mat[::2,1::2] = -1
-    spin_mat[1::2,0::2] = 1
+    spin_mat[::2, 1::2] = -1
+    spin_mat[1::2, 0::2] = 1
 
     # total spin
-    S = np.einsum('ia,ia,ia',amp_r, amp_l, spin_mat)
+    S = np.einsum('ia,ia,ia', amp_r, amp_l, spin_mat)
 
     return S
 
@@ -514,11 +514,11 @@ def spin_square(rdm1, mo_coeff, ovlp=1):
     #spin_square_general(dma, dmb, dmaa, dmab, dmbb, mo_coeff, s)
 
     # convert to U format
-    dm1a,dm1b        = convert_g_to_ru_rdm1(rdm1)[1]
+    dm1a, dm1b = convert_g_to_ru_rdm1(rdm1)[1]
     nao = mo_coeff.shape[0]//2
 
-    mo_coeff_a = mo_coeff[:nao,0::2]
-    mo_coeff_b = mo_coeff[nao:,1::2]
+    mo_coeff_a = mo_coeff[:nao, 0::2]
+    mo_coeff_b = mo_coeff[nao:, 1::2]
 
     #
     # PySCF spin_square function for single case

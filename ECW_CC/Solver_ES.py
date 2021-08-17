@@ -16,69 +16,62 @@ import numpy as np
 import scipy
 import copy
 from pyscf import lib
-#from . import utilities
 import utilities
 from tabulate import tabulate
-#import slepc4py
-#from petsc4py import PETSc
-#from slepc4py import SLEPc
 
 # print float format
 format_float = '{:.4e}'
 
+
 class Solver_ES:
-    def __init__(self, mycc, Vexp_class, rn_ini, r0_ini, ln_ini, l0_ini, tsini=None, lsini=None, conv_var='tl', conv_thres=10 ** -6, diis=tuple(),
-                 maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
-        '''
+    def __init__(self, mycc, Vexp_class, nbr_states, tsini=None, lsini=None, conv_var='tl',
+                 conv_thres=10 ** -6, diis=[], maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
+        """
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
         -> only state properties and GS-ES transition properties
 
         :param mycc: ECW.CCS object containing T, Lambda,R and L equations
         :param Vexp_class: ECW.Vexp_class, class containing the exp data
-        :param tsini: t and lambda initial values for the GS and r,l,r0,l0 initial values for all needed states
-                  --> list of matrix (for r and l) and float for r0 and l0
-                  --> must be numpy array
         :param conv_var: convergence criteria: 'Ep', 'l' or 'tl'
         :param conv_thres: convergence threshold
         :param tsini: initial value for t
         :param lsini: initial value for Lambda
-        :param diis: tuple containing the variables on which to apply diis: rdm1, t, L, r, l
-        :param maxiter: max number of SCF iteration
+        :param diis: list containing the variables on which to apply diis: rdm1, t, L, r, l
+        :param maxiter: max number of iteration
         :param maxdiis: max diis space
         :param mindiis: ite start for diis
         :param tablefmt: format for table printed using tabulate package (eg: 'rst' or 'latex')
-        '''
+        """
 
         # tabulate format
         self.tablefmt = tablefmt
 
-        # check length
-        if len(rn_ini) != len(Vexp_class.exp_data)-1:
-            raise ValueError('number of r matrix for the initial value must match the number of exp data')
+        # check length of exp_data and nbr of states
+        if sum(nbr_states) != len(Vexp_class.exp_data)-1:
+            raise ValueError('number of requested states must match the number of exp data')
+
+        self.nbr_states = nbr_states
 
         # get nocc,nvir from ccs object
         self.nocc = mycc.nocc
         self.nvir = mycc.nvir
+        self.dim = self.nocc+self.nvir
 
         # ts and Lambda initial
         if tsini is None:
             tsini = np.zeros((self.nocc, self.nvir))
         if lsini is None:
             lsini = np.zeros((self.nocc, self.nvir))
-        self.tsini = tsini.copy()
-        self.lsini = lsini.copy()
+        self.tsini = tsini
+        self.lsini = lsini
 
-        # l and r initial
-        if ln_ini is None:
-            ln_ini = copy.deepcopy(rn_ini)
-        self.rn_ini = copy.deepcopy(rn_ini)
-        self.ln_ini = copy.deepcopy(ln_ini)
-
-        # r0 and l0 initial
-        self.r0_ini = copy.deepcopy(r0_ini)
-        self.l0_ini = copy.deepcopy(l0_ini)
-
-        self.nbr_states = len(rn_ini)
+        # l and r initial values using Koopman's guess
+        rn_ini, DE = utilities.koopman_init_guess(mo_energy, mo_occ, nstates=(2, 0))
+        ln_ini = [i * 1 for i in rn_ini]
+        self.rn_ini = rn_ini
+        self.ln_ini = ln_ini
+        self.r0_ini = [mccsg.r0_fromE(de, ts, r, np.zeros((self.dim, self.dim))) for r, de in zip(rn_ini, DE)]
+        self.l0_ini = [mccsg.r0_fromE(de, ts, l, np.zeros((self.dim, self.dim))) for l, de in zip(ln_ini, DE)]
 
         # DIIS option
         self.diis = diis
@@ -103,8 +96,6 @@ class Solver_ES:
         else:
             raise ValueError('Accepted convergence parameter is Ep, tl or rl')
         self.conv_var = conv_var
-
-        self.nocc, self.nvir = tsini.shape
 
     #####################
     # Convergence check
@@ -134,23 +125,28 @@ class Solver_ES:
     #############
 
     def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None):
-        '''
+        """
         Rough SCF solver for T, Lam, R and L equations: takes care of the spin symmetry
 
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
             -> typically L would be the same for properties obtained from the same experiment
-        :param ts, ls, rn, ln, r0n, l0n: amplitudes
-            -> ln,rn,l0 and r0 are list with length = nbr of excited states
-        :param diis:
-        :param S_AO: AOs overlap matrix in G format
+        :param ts: initial t1 amplitudes
+        :param ls: initial lambda amplitudes
+        :param rn: list of initial r1 amplitudes for each excited states
+        :param ln: list of initial l1 amplitudes for each excited states
+        :param diis: list of variables on which to apply diis, if None takes the stored self.diis values
         :return:
-        '''
+        """
 
         Vexp_class = self.Vexp_class
-        nbr_states = self.nbr_states
+        nbr_states = sum(self.nbr_states)
 
-        # initialize r and l vectors
+        # check length
+        if L.shape != Vexp_class.Vexp.shape:
+            raise ValueError('Shape of weight factor must be equal to shape of Vexp vectors:', Vexp_class.Vexp.shape)
+
+        # initialize r and l vectors for iteration k-1
         if ts is None:
             ts = self.tsini
             ls = self.lsini
@@ -160,22 +156,20 @@ class Solver_ES:
         if r0n is None:
             r0n = self.r0_ini
             l0n = self.l0_ini
-        rnew = [None] * self.nbr_states
-        lnew = [None] * self.nbr_states
-        r0new = [None] * self.nbr_states
-        l0new = [None] * self.nbr_states
 
-        # initial o,v indices
+        # initialize amplitudes for iteration k
+        rnew = [None] * nbr_states
+        lnew = [None] * nbr_states
+        r0new = [None] * nbr_states
+        l0new = [None] * nbr_states
+
+        # initial o,v indices from koopman's excitation
         ov = []
         for r in rn:
             ov.append(np.where(r == 1))
 
         # initialize total spin list
         Spin = np.zeros(nbr_states)
-        
-        # check length
-        if L.shape != Vexp_class.Vexp.shape:
-            raise ValueError('Shape of weight factor must be equal to shape of Vexp vectors:', Vexp_class.Vexp.shape)
 
         # diis
         if diis is None:
@@ -242,7 +236,9 @@ class Solver_ES:
                 headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El',
                                 'Ortho wrt ES 1'])
 
+        #############
         # Main loop
+        #############
 
         while Dconv > self.conv_thres:
 
@@ -302,8 +298,8 @@ class Solver_ES:
 
             # GS
             if rdm1[0] is not None:
-                V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], L[0, 0], (0, 0))
-                fsp[0] = np.subtract(mycc.fock, V)
+                V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], (0, 0))
+                fsp[0] = np.subtract(mycc.fock, L[0, 0] * V)
                 X2[0, 0] = x2
             #else:
             #    fsp[0] = fock.copy()
@@ -313,8 +309,8 @@ class Solver_ES:
                 n = j+1
 
                 if rdm1[n] is not None:
-                    V, x2, vmax = Vexp_class.Vexp_update(rdm1[n], L[j, j], (n, n))
-                    fsp[n] = np.subtract(mycc.fock, V)
+                    V, x2, vmax = Vexp_class.Vexp_update(rdm1[n], (n, n))
+                    fsp[n] = np.subtract(mycc.fock, L[j, j] * V)
                     X2[n, n] = x2
                 #else:
                 #    fsp[n] = fock.copy()
@@ -326,15 +322,15 @@ class Solver_ES:
 
             X2_ite.append(X2)
 
-            # CARREFUL WITH THE SIGN OF Vexp !
+            # CAREFUL WITH THE SIGN OF Vexp !
             # for transition case vn = -Vexp
-            # CARREFUL: the Vexp elements are not scaled with lambda
+            # CAREFUL: the Vexp elements are not scaled with lambda
 
             #
             # update t amplitudes
             # ---------------------------------------------------
 
-            vexp = -L[0, 1:]*Vexp_class.Vexp[0, 1:]  # -lam * 0mV
+            vexp = -L[0, 1:]*Vexp_class.Vexp[0, 1:]  # -lambda * 0mV
             T1inter = mycc.T1inter(ts, fsp[0])
             ts = mycc.tsupdate(ts, T1inter, rsn=rn, r0n=r0n, vn=vexp)
 
@@ -350,7 +346,10 @@ class Solver_ES:
             # ----------------------------------------
 
             L1inter = mycc.L1inter(ts, fsp[0])
-            vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]
+            if Vexp_class.Vexp[1, 0] is not None:
+                vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]
+            else:
+                vexp = -L[0, 1:] * Vexp_class.Vexp[0, 1:]
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
             # apply DIIS
 
@@ -363,25 +362,8 @@ class Solver_ES:
             #
             # Update En_r/En_l and r, r0, l and l0 amplitudes for each ES
             # ------------------------------------------------------------
-            print()
-            print('-------------------')
-            print('START, ite ', ite)
-            print('-------------------')
 
             for i in range(nbr_states):
-                print()
-                print('State ', i)
-                print('initial r')
-                print(rn[i])
-                print('initial l')
-                print(ln[i])
-                print('initial t')
-                print(ts)
-                print('initial lambda')
-                print(ls)
-                print('initial r0 and l0')
-                print(r0n[i], l0n[i])
-                print()
 
                 # todo= most element in Rinter and Linter dot not depend on Vexp -> calculate ones for all states
 
@@ -399,9 +381,6 @@ class Solver_ES:
 
                 #En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
                 En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter, ov=ov[i])  # force alpha transition
-                print('Update E')
-                print(En_r)
-                print('o,v: ', o, v)
 
                 #
                 # Update r
@@ -409,21 +388,12 @@ class Solver_ES:
 
                 rnew[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r, idx=[o, v])
                 del Rinter
-                print()
-                print('UPDATE r')
-                print('rnew')
-                print(rnew[i])
 
                 #
                 # Get missing r ampl
                 # -------------------------
 
-                print()
-                print('UPDATE rov')
                 rnew[i][o, v] = mycc.get_ov(ln[i], l0n[i], rn[i], r0n[i], [o, v])
-
-                print('rnew')
-                print(rnew[i])
 
                 #
                 # update r0
@@ -432,15 +402,15 @@ class Solver_ES:
                 #r0new[i] = mycc.r0update(rn[i], r0n[i], En_r, R0inter)
                 r0new[i] = mycc.r0_fromE(En_r, ts, rn[i], vexp, fsp=fsp[i + 1])
                 #del R0inter
-                print()
-                print('update r0')
-                print(r0new[i])
                 
                 #
                 # L and L0 inter
                 # ------------------------
 
-                vexp = -L[i+1, 0]*Vexp_class.Vexp[i+1, 0]  # Vn0
+                if Vexp_class.Vexp[i+1, 0] is not None:
+                    vexp = -L[i+1, 0]*Vexp_class.Vexp[i+1, 0]  # Vn0
+                else:
+                    vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1]  # use V0n
                 Linter = mycc.es_L1inter(ts, fsp[i+1], vexp)
                 #L0inter = mycc.L0inter(ts, fsp[i+1], vexp)
 
@@ -457,19 +427,12 @@ class Solver_ES:
 
                 lnew[i] = mycc.es_lsupdate(ln[i], l0n[i], En_l, Linter, idx=[o, v])
                 del Linter
-                print()
-                print('UPDATE l')
-                print('lnew')
-                print(lnew[i])
+
                 #
                 # Get missing l amp
                 # ------------------------
-                print()
-                print('UPDATE lov')
-                lnew[i][o, v] = mycc.get_ov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
 
-                print('lnew')
-                print(lnew[i])
+                lnew[i][o, v] = mycc.get_ov(rn[i], r0n[i], ln[i], l0n[i], [o, v])
 
                 #
                 # Update l0
@@ -479,9 +442,6 @@ class Solver_ES:
                 l0new[i] = mycc.l0_fromE(En_l, ts, ln[i], vexp, fsp=fsp[i + 1])
                 #del L0inter
                 del vexp
-                print()
-                print('update l0')
-                print(l0new[i])
 
                 #
                 # Store excited states energies Ep = (En_r,En_l)
@@ -571,7 +531,7 @@ class Solver_ES:
                 print(tabulate(table, headers, tablefmt=self.tablefmt))
                 break
 
-            if Dconv > 300.:
+            if Dconv > 10.:
 
                 Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L.flatten(), ite)
                 print()
@@ -596,7 +556,7 @@ class Solver_ES:
     #############################################
 
     def SCF_diag(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, max_space=10, davidson=True):
-        '''
+        """
         SCF + davidson solver for the coupled T,Lam,R and L equations
         Diagonalizes the effective similarly transformed Hamiltonian at each iteration for each excited states and
         extract the target eigenvector and eigenvalue
@@ -604,15 +564,19 @@ class Solver_ES:
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
             -> typically L would be the same for properties obtained from the same experiment
-        :param ts, ls, rn, ln, r0n, l0n: amplitudes
-            -> ln,rn,l0 and r0 are list with length = nbr of excited states
+        :param ts: initial t1 amplitudes
+        :param ls: initial lambda amplitudes
+        :param rn: list of initial r1 amplitudes for each excited states
+        :param ln: list of initial l1 amplitudes for each excited states
+        :param l0n: list of l0 values
+        :param r0n: list of r0 values
         :param max_space: maximum size of the subspace used for the Davidson algorithm
-        :param davidson: False for standard eigh solver
+        :param davidson: if true uses davidson solver, if false use standard eigenvalue solver
         :return:
-        '''
+        """
 
         Vexp_class = self.Vexp_class
-        nbr_states = self.nbr_states
+        nbr_states = sum(self.nbr_states)
 
         # initialize r and l vectors
         if ts is None:
@@ -690,7 +654,7 @@ class Solver_ES:
                     # right tr_dm1 <Psi_k|aa|Psi_n>
                     tr_r = mycc.gamma_tr(ts, ln[n], None, None, l0n[n])
                     # left tr_dm1 <Psi_n|aa|Psi_k>
-                    tr_l = mycc.gamma_tr(ts, ls, rn[n], r0n[n], None)
+                    tr_l = mycc.gamma_tr(ts, ls, rn[n], r0n[n], 1.)
                     tr_rdm1[n] = list((tr_r, tr_l))
                 del tr_r, tr_l
 
@@ -701,7 +665,7 @@ class Solver_ES:
             # GS
             if rdm1[0] is not None:
                 v, x2, vmax = Vexp_class.Vexp_update(rdm1[0], (0, 0))
-                fsp[0] = np.subtract(mycc.fock, v)
+                fsp[0] = np.subtract(mycc.fock, L[0, 0], v)
                 X2[0, 0] = x2
             # else:
             #    fsp[0] = fock.copy()
@@ -712,7 +676,7 @@ class Solver_ES:
 
                 if rdm1[n] is not None:
                     v, x2, vmax = Vexp_class.Vexp_update(rdm1[n], (n, n))
-                    fsp[n] = np.subtract(mycc.fock, v)
+                    fsp[n] = np.subtract(mycc.fock, L[j, j] * v)
                     X2[n, n] = x2
                 #else:
                 #    fsp[n] = fock.copy()
@@ -743,7 +707,10 @@ class Solver_ES:
             # ----------------------------------------
 
             L1inter = mycc.L1inter(ts, fsp[0])
-            vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]  # use left Vexp
+            if Vexp_class.Vexp[1, 0] is not None:
+                vexp = -L[1:, 0] * Vexp_class.Vexp[1:, 0]  # use left Vexp
+            else:
+                vexp = -L[0, 1:] * Vexp_class.Vexp[0, 1:]  # use right Vexp
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
 
             del vexp, L1inter
@@ -787,7 +754,8 @@ class Solver_ES:
                     precond = lambda r, e, r0: r / (e-diag.flatten()+1e-12)
 
                     # Apply Davidson
-                    conv, de, rvec = lib.davidson_nosym1(matvec, vec_r, precond, max_space=max_space, nroots=nbr_states)
+                    conv, de, rvec = lib.davidson_nosym1(matvec, vec_r, precond, max_space=max_space,
+                                                         nroots=nbr_states*2)
 
                     for j in range(len(conv)):
                         if not conv[j]:
@@ -798,6 +766,7 @@ class Solver_ES:
                 #else:
                 #    mat =
                 #    scipy.linalg.eigh()
+
                 # store results
                 En_r = de[i]
                 rn[i] = rvec[i].reshape((nocc, nvir))
@@ -811,9 +780,11 @@ class Solver_ES:
                 #
                 # Left Vexp
                 # ---------------------------------------------
-                vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
-
-                #
+                if Vexp_class.Vexp[i + 1, 0] is not None:
+                    vexp = -L[i + 1, 0] * Vexp_class.Vexp[i + 1, 0]  # Vn0
+                else:
+                    vexp = -L[0, i + 1] * Vexp_class.Vexp[0, i + 1]  # use V0n
+                    #
                 # make H_i left matrix and diag terms
                 # ----------------------------------------------
 
@@ -900,7 +871,7 @@ class Solver_ES:
 
             for i in range(nbr_states):
 
-                if i == 0:
+                if i == 0:  # first state
                     tmp.extend(['', format_float.format(C_norm[i, i]), X2[0, i+1], X2[i+1, 0],
                                 2*Spin[i]+1, r0n[i], l0n[i], Ep[i + 1][0], Ep[i + 1][1]])
                 else:
@@ -935,7 +906,6 @@ class Solver_ES:
             print('Final energies: ', Ep_ite[-1])
 
         return Conv_text, dic
-
 
 
 if __name__ == "__main__":
@@ -996,17 +966,13 @@ if __name__ == "__main__":
     # Vexp object
     VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 
-    # initial rn, r0n and ln, l0n list
-    rnini, DE = utilities.koopman_init_guess(mo_energy,mo_occ,nstates=2)
-    lnini = [i * 1 for i in rnini]
-
     # convergence options
-    maxiter = 40
-    conv_thres = 10 ** -8
-    diis = ('',)  # must be tuple
+    maxiter = 50
+    conv_thres = 10 ** -5
+    diis = []
 
     # initialise Solver_CCS Class
-    Solver = Solver_ES(mccsg, VXexp, rnini, conv_var='rl', ln_ini=lnini, maxiter=maxiter, diis=diis)
+    Solver = Solver_ES(mccsg, VXexp, (2, 0), conv_var='rl', maxiter=maxiter, diis=diis)
 
     # CIS calc
     mrf = scf.RHF(mol).run()
@@ -1014,14 +980,28 @@ if __name__ == "__main__":
     mcis.kernel(nstates=2)
     print()
     print('CIS calc')
-    print('DE= ',mcis.e)
-    print('c1= ',mcis.xy)
+    print('DE= ', mcis.e)
+    print('c1= ', mcis.xy)
     print()
     print('initial guess')
-    print('DE= ', DE)
-    print('r1= ', rnini[0])
+    print('r1= ', Solver.rn_ini[0])
     print()
 
     # Solve for L = 0
-    L = np.zeros_like((exp_data))
+    L = np.zeros_like(exp_data)
+
+    print()
+    print("#####################")
+    print('SCF SOLVER')
+    print("#####################")
+    print()
+
     Solver.SCF(L)
+
+    print()
+    print("#####################")
+    print('DAVIDSON SOLVER')
+    print("#####################")
+    print()
+
+    Solver.SCF_diag(L)
