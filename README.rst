@@ -31,3 +31,14 @@ ES case correspond to Vexp = Vexp^{nm} and Vexp^{nn}
 The Couples Cluster formalism is applied to solve the set of couples SE.
 
 See Theory.pdf file for more detailed.
+
+Notation
+---------
+In order to stick with the notation used in the literature, several confusion may occur.
+These are shown in the following points:
+
+- "rdm1" and "gamma" are used indistinctly for the one-body reduced density matrix. Where "_calc" or "_pred" is added for the calculated one.
+- "T1"/"t1" are the singles T equations and the singles t amplitudes, respectively.
+- "L1"/"l1" may refer to the singles L or Lambda equations and the singles l or lambda amplitudes, respectively. When prone to confusion, "es_L1" may is used to specify the excited state case and/or "Lam" for the ground state.
+- "L1 reg" stands for the L1 regularization method, where "alpha" is the coefficient of the L1 regularization term.
+- "L" or "lambda" stands for the weight of the experimental potential.

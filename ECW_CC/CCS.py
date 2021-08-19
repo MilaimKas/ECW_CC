@@ -1700,7 +1700,7 @@ class ccs_gradient:
 
         # dio terms
         dio = fvv.copy()
-        dio += np.einsum('jg,ja->ag', fov, ts)
+        dio -= np.einsum('jg,ja->ag', fov, ts)
         dio += np.einsum('jc,jacg->ag', ts, self.eris.ovvv)
         tmp = np.einsum('kc,jkcg->jg', ts, self.eris.oovv)
         dio += np.einsum('ja,jg->ag', ts, tmp)
@@ -1734,6 +1734,7 @@ class ccs_gradient:
         oagi += np.einsum('ib,ogba->oagi', ts, tmp)
         del tmp
 
+        # todo: vectorize
         for p in range(0, nvir * nocc):
             for q in range(0, nocc * nvir):
                 o, g = np.unravel_index(q, (nocc, nvir))
@@ -1755,14 +1756,14 @@ class ccs_gradient:
         """
         dLai/dtog and dLai/dlog
 
-        :param ts:
-        :param ls:
-        :param fsp:
+        :param ts: t1 amplitudes
+        :param ls: lambda 1 amplitudes
+        :param fsp: effective fock matrix
         :return:
         """
         nocc, nvir = ts.shape
 
-        # aiog -> xy
+        # aiog -> pq
         dLdt_pq = np.zeros((nocc * nvir, nocc * nvir))
         dLdl_pq = np.zeros((nocc * nvir, nocc * nvir))
 
@@ -1822,7 +1823,7 @@ class ccs_gradient:
         gioa_l += np.einsum('giba,ob->gioa', self.eris.vovv, ts)
         tmp = np.einsum('jica,oc->jiao', self.eris.oovv, ts)
         gioa_l -= np.einsum('jiao,jg->gioa', tmp, ts)
-        gioa_l -= np.einsum('oija,og->gioa', self.eris.ooov, ts)
+        gioa_l -= np.einsum('kioa,kg->gioa', self.eris.ooov, ts)
 
         # oiga terms for dLdt
         oiga_t = self.eris.oovv.copy()
@@ -1830,16 +1831,16 @@ class ccs_gradient:
         oiga_t -= np.einsum('ig,oa->oiga', fov, ls)
         oiga_t += np.einsum('ciga,oc->oiga', self.eris.vovv, ls)
         oiga_t += np.einsum('ocga,ic->oiga', self.eris.ovvv, ls)
-        tmp = np.einsum('ic,oc->io', ls, ts)
-        oiga_t += np.einsum('ojga,io->oiga', self.eris.oovv, tmp)
-        tmp = np.einsum('ojba,ob->oja', self.eris.oovv, ts)
-        oiga_t += np.einsum('oja,ig->oiga', tmp, ls)
+        tmp = np.einsum('ic,kc->ik', ls, ts)
+        oiga_t += np.einsum('koga,ik->oiga', self.eris.oovv, tmp)
+        tmp = np.einsum('ojba,jb->oa', self.eris.oovv, ts)
+        oiga_t += np.einsum('oa,ig->oiga', tmp, ls)
         tmp = np.einsum('oibg,jb->oijg', self.eris.oovv, ts)
         oiga_t += np.einsum('oijg,ja->oiga', tmp, ls)
         tmp = np.einsum('kigc,kc->ig', self.eris.oovv, ts)
         oiga_t += np.einsum('ig,oa->oiga', tmp, ls)
-        tmp = np.einsum('jiga,jb->iga', self.eris.oovv, ts)
-        oiga_t -= np.einsum('iga,ok->oiga', tmp, ls)
+        tmp = np.einsum('jiga,jb->igab', self.eris.oovv, ts)
+        oiga_t -= np.einsum('igab,ob->oiga', tmp, ls)
         tmp = np.einsum('oica,kc->oika', self.eris.oovv, ts)
         oiga_t += np.einsum('oika,kg->oiga', tmp, ls)
         oiga_t -= np.einsum('oigk,ka->oiga', self.eris.oovo, ls)
@@ -1849,23 +1850,23 @@ class ccs_gradient:
         oiga_t -= 0.5 * np.einsum('ia,jb,jobg->oiga', ls, ts, self.eris.oovv)  # energy term
         del tmp
 
-        for x in range(0, nvir * nocc):
-            for y in range(0, nocc * nvir):
-                o, g = np.unravel_index(y, (nocc, nvir))
-                i, a = np.unravel_index(x, (nocc, nvir))
+        for p in range(0, nvir * nocc):
+            for q in range(0, nocc * nvir):
+                o, g = np.unravel_index(q, (nocc, nvir))
+                i, a = np.unravel_index(p, (nocc, nvir))
 
                 if o == i:
-                    dLdl_pq[x, y] += dio[a, g]
+                    dLdl_pq[p, q] += dio[a, g]
                 if a == g:
-                    dLdl_pq[x, y] += dag[i, o]
+                    dLdl_pq[p, q] += dag[i, o]
                 if a == g and o ==i:
-                    dLdl_pq[x, y] += diodag
+                    dLdl_pq[p, q] += diodag
 
-                dLdl_pq[x, y] += L*Viaog_l[i, a, o, g]
-                dLdl_pq[x, y] += gioa_l[g, i, o, a]
+                dLdl_pq[p, q] += L*Viaog_l[i, a, o, g]
+                dLdl_pq[p, q] += gioa_l[g, i, o, a]
 
-                dLdt_pq[x, y] = L*Viaog_t[i, a, o, g]
-                dLdt_pq[x, y] = oiga_t[o, i, g, a]
+                dLdt_pq[p, q] = L*Viaog_t[i, a, o, g]
+                dLdt_pq[p, q] = oiga_t[o, i, g, a]
 
         return dLdt_pq, dLdl_pq
 
@@ -1878,7 +1879,7 @@ class ccs_gradient:
         CCS gradient of Vexp with Vexp = K*gamma_esp-gamma_calc
 
         :param ts: t1 amplitudes
-        :param ls: l1 amplitudes
+        :param ls: lambda 1 amplitudes
         :return: dV[rs]dt[og] and dV[rs]dl[og] (l=lambda) tensors
         """
 

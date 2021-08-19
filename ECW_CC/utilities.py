@@ -1,21 +1,12 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-###################################################################
-#
-# ECW-CCS v1
-# -----------
-# Experimentaly constrained wave function coupled cluster single
-# ---------------------------------------------------------------
-#
-# Tools:
-# - get closest ci coefficient
-# - Print Natural orbitals using CC one particle rdm1
-# - Print Cube file: electron density on a grid
-# - Calculation of Ekin and V1e from rdm1
-# - convert G rdm1 into R and U
-#
-###################################################################
+"""
+ECW.utilities
+
+contains list of useful functions
+"""
+
 import copy
 
 import numpy
@@ -892,7 +883,7 @@ def diff_cube(file1,file2,out):
         string_out += ' '
     string_out += ("\n")
 
-    print >> file_out,string_out
+    print >> file_out, string_out
 
 
 ###########################
@@ -981,9 +972,9 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     
     # rdm1 must be in AOs basis
     if aobasis is False:
-       if mo_coeff is None:
-           raise ValueError('mo_coeff must be given if rdm is not in AOs basis')
-       rdm1 = np.einsum('pi,ij,qj->pq',mo_coeff,rdm1,mo_coeff.conj())
+        if mo_coeff is None:
+            raise ValueError('mo_coeff must be given if rdm is not in AOs basis')
+        rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
     
     # convert GHF rdm1 to RHF rdm1
     if g:
@@ -1005,7 +996,8 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     return ans
 
 
-def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None, rec_vec=np.asarray([10., 10., 10.])):
+def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None,
+                     rec_vec=np.asarray([10., 10., 10.])):
     """
     Calculates the structure factors for a given rdm1 and list of Miller indices
 

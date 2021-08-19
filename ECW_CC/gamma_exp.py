@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-'''
+"""
 
  ECW-CC
  -----------
@@ -11,7 +11,7 @@
  - Start from HF
  - Using CCSD or CCSD(T)
  - Adding external static field
- - simulate underfiting
+ - simulate under-fitting
 
  ESexp: excited state
  Class for the simulated experimental reduced transition density matrix
@@ -20,9 +20,9 @@
  - TDA (CIS): to implement
  - EOM-CCSD: to implement (L equations not implemented for EOM-EE)
 
- returns gamme_exp for excited states, initial guess for r and E'n
+ returns gamma_exp for excited states, initial guess for r and E'n
 
-'''
+"""
 
 # QChem H2O/AVTZ EOM-CCSD and CVS-EOM-CCSD calculation results:
 # ----------------------------------------------------------------------
@@ -92,6 +92,7 @@
 # ------------------------------------------------------------------------
 #
 ###################################################################
+
 import copy
 
 import numpy as np
@@ -101,9 +102,10 @@ import utilities
 
 from pyscf import scf, gto, cc, dft, tddft
 
+
 class Gexp:
     def __init__(self, mol, method, basis=None):
-        '''
+        """
         Returns the rdm1 in AOs basis (G format) from a GHF, GCCSD or GCCSD(T) calculation with deformed geometry
         and/or additional external static field
         --> called 'experimental' rdm1 (or 'target' rdm1 or gamma)
@@ -111,11 +113,13 @@ class Gexp:
         :param mol: PySCF mol object
         :param basis: basis set for the calculation, if not given, uses mol.basis
         :param method: string: 'HF', 'CCSD' or 'CCSD(T)'
-        '''
+        """
 
         # deformed HF object
         self.mol_def = gto.mole.copy(mol)
-        if isinstance(basis, str):
+        if basis:
+            if not isinstance(basis, str):
+                raise ValueError('basis must be a string')
             self.mol_def.basis = basis
             self.mol_def.build()
         self.mf_def = scf.GHF(self.mol_def)
@@ -136,11 +140,11 @@ class Gexp:
         self.Eexp = 0
 
     def deform(self, def_max):
-        '''
+        """
         Apply a geometry deformation on the molecule and update mol_def object
 
         :param def_max: max value of a deformed bond length
-        '''
+        """
 
         autoang = 0.529177
 
@@ -165,39 +169,37 @@ class Gexp:
         # re-initialize mf object
         self.mf_def = scf.GHF(self.mol_def)
 
-
-
     def Vext(self, field):
-        '''
+        """
         Add an external static electric field on the one-electron operator
-     
+
         :param field: (x,y,z) 3 components of the field in au
-        '''
+        """
 
         self.mol_def.set_common_orig([0, 0, 0])
 
         # set the origin of the dipole at center of charge
         # --> check center of charge, is it a general expression ?
-        #charges = self.mol_def.atom_charges()
-        #coords = self.mol_def.atom_coords()
-        #nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
-        #self.mol_def.set_common_orig_(nuc_charge_center)
+        # charges = self.mol_def.atom_charges()
+        # coords = self.mol_def.atom_coords()
+        # nuc_charge_center = np.einsum('z,zx->x', charges, coords) / charges.sum()
+        # self.mol_def.set_common_orig_(nuc_charge_center)
 
         h_def =(self.mol_def.intor('cint1e_kin_sph') + self.mol_def.intor('cint1e_nuc_sph')     # Ekin_e + Ve-n
-        + np.einsum('x,xij->ij', field,self.mol_def.intor('cint1e_r_sph',comp=3)))  # <psi|E.r|psi> dipole int.(comp ?)
+        + np.einsum('x,xij->ij', field,self.mol_def.intor('cint1e_r_sph', comp=3)))  # <psi|E.r|psi> dipole int.(comp ?)
         h_def = scipy.linalg.block_diag(h_def, h_def)  # make hcore in SO basis
         self.mf_def.get_hcore = lambda *args: h_def   # pass the new one electron hamiltonian
         self.mol_def.incore_anyway = True  # force to use new h1e even when memory is not enough
 
     def build(self):
-        '''
+        """
         Perform HF,CCSD or CCSD(T) calculation on mol_def
-        '''
+        """
 
         # HF calculation with new mol_def object
-        self.mf_def.conv_tol = 1e-09  # energy tolerence
-        self.mf_def.conv_tol_grad = np.sqrt(1e-09)  # gradient tolerence
-        self.mf_def.direct_scf_tol = 10e-13  # tolerence in discarding integrals
+        self.mf_def.conv_tol = 1e-09  # energy tolerance
+        self.mf_def.conv_tol_grad = np.sqrt(1e-09)  # gradient tolerance
+        self.mf_def.direct_scf_tol = 10e-13  # tolerance in discarding integrals
         self.mf_def.max_cycle = 100
         self.mf_def.max_memory = 1000
     
@@ -227,7 +229,7 @@ class Gexp:
             self.gamma_ao = utilities.mo_to_ao(tmp, moc)  # in AOs
   
         # CCSD(T) calculation
-        elif self.method == 'CCSD(T)':
+        elif self.method in ['CCSD(T)', 'CCSD(t)', 'CCSDT', "CCSDt"]:
       
             from pyscf.cc import gccsd_t_rdm
             from pyscf.cc import gccsd_t_lambda
@@ -244,7 +246,7 @@ class Gexp:
             self.Eexp = self.ECCSD_t_def+self.EHF_def
       
             # Solve Lambda
-            l1, l2 = gccsd_t_lambda.kernel(mycc, eris, t1, t2)[1:]
+            l1, l2 = gccsd_t_lambda.kernel(mycc, eris, t1, t2, verbose=0)[1:]
       
             # get rdm1
             tmp = gccsd_t_rdm.make_rdm1(mycc, t1, t2, l1, l2, eris=eris)  # in def MOs
@@ -253,15 +255,14 @@ class Gexp:
         elif self.method != 'HF':
             raise ValueError('Method not recognized')
 
-
     def underfit(self, para_factor):
-        '''
+        """
         Update gamma_ao
         Randomly distributed 0 elements --> under fitting n_exp is the final number of experimental parameters
         the number of optimized parameters is nocc*nvir*2 (t1+l1)
 
         :param para_factor: ratio between given exp elements in rdm1_exp and rdm1
-        '''
+        """
 
         import random
 

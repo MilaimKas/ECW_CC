@@ -1,23 +1,19 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-###################################################################
-#
-# ECW-CCS v1
-# -----------
-# Experimentally constrained wave function coupled cluster single
-# ---------------------------------------------------------------
-# Calculate Vexp potential and X2 statistic from either rdm1_exp or
-# one electron properties
-#
+"""
+ Calculate Vexp potential and X2 statistic from either rdm1_exp or one electron properties
+"""
+
 # todo: add std deviation sig_j
-# todo: Problem with complex number: Vexp is complex ?
-###################################################################
+# todo: Problem with complex number: when using structure factor, amplitudes, fock matrix and <||> must be complex
+
 
 import numpy
 import numpy as np
-#from . import utilities
+# from . import utilities
 import utilities
+
 
 class Exp:
     def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None, rec_vec=None, h=None):
@@ -65,6 +61,7 @@ class Exp:
         self.h = None
         self.charge_center = None
         self.check = []  # list of prop or mat for each state and transitions
+        # todo: write integrals on external file to save memory
         self.dic_int = {}  # dictionary containing needed MO integrals Ai_pq matrix
 
         for n in exp_data.flatten():
@@ -77,7 +74,7 @@ class Exp:
                     # construct list of prop names
                     tmp_list = []
                     for m in n:
-                      tmp_list.append(m[0])
+                        tmp_list.append(m[0])
                     self.check.append(tmp_list)
 
                 # only one property given
@@ -107,7 +104,7 @@ class Exp:
                 if 'v1e' in self.check[-1] and self.v1e_int is None:
                     self.v1e_int = mol.intor_symmetric('int1e_nuc')
                     v1e_int_mo = utilities.convert_aoint(self.v1e_int, mo_coeff)
-                    self.dic_int['v1e']= v1e_int_mo
+                    self.dic_int['v1e'] = v1e_int_mo
 
                 # Kinetic integrals
                 if 'Ek' in self.check[-1] and self.Ek_int is None:
@@ -134,7 +131,6 @@ class Exp:
         # ------------------------------------
         self.Vexp = np.full((self.nbr_of_states, self.nbr_of_states), None)
 
-
     def Vexp_update(self, rdm1, index):
         """
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
@@ -155,7 +151,7 @@ class Exp:
         X2 = 0.
         vmax = 0.
 
-        # check if prop or mat comparison
+        # check if prop or matrix comparison
         # -> check_idx = index to retrieve the name of the property from self.check list
         check_idx = np.ravel_multi_index((n, m), self.exp_data.shape)
 
@@ -174,13 +170,14 @@ class Exp:
                 # use given target rdm1
 
                 if prop == 'mat':
-                    self.Vexp[0, 0] = np.abs(np.subtract(self.exp_data[0, 0][1], rdm1))
+                    self.Vexp[0, 0] = np.subtract(self.exp_data[0, 0][1], rdm1)
                     X2 = np.sum(abs(self.Vexp[0, 0]))
                     vmax = np.max(abs(self.Vexp[0, 0]))
-                    # calculate Ek_calc
+                    # calculate kinetic energy Ek_calc
                     self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, aobasis=False,
                                                      mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
-                    self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS)**2
+                    # store Chi squared value for Ek
+                    self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS) ** 2
 
                 # use given single experimental property
 
@@ -195,24 +192,25 @@ class Exp:
                         # if prop = dip
                         if len(exp_prop[1]) == 3:
                             for d_calc, d_exp, d_int in zip(calc_prop, exp_prop[1], self.dic_int[prop]):
-                                self.Vexp[0, 0] += np.abs((d_exp - d_calc))*d_int
-                                X2 += (d_exp - d_calc)**2
+                                self.Vexp[0, 0] += np.abs((d_exp - d_calc)) * d_int
+                                X2 += (d_exp - d_calc) ** 2
                             X2 /= 3.
-                            self.Vexp[0, 0] *= 2/3
+                            self.Vexp[0, 0] *= 2 / 3
                             vmax = np.max(abs(self.Vexp[0, 0]))
 
                         # structure factor
                         else:
                             for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:, 1], calc_prop, self.dic_int[prop]):
-                                self.Vexp[0, 0] += np.abs((F_exp - F_calc))*F_int_mo
-                                X2 += (F_exp - F_calc)**2
-                            self.Vexp[0, 0] *= 2/(len(self.h))
+                                self.Vexp[0, 0] += np.abs((F_exp - F_calc)) * F_int_mo
+                                X2 += (F_exp - F_calc) ** 2
+                            self.Vexp[0, 0] *= 2 / (len(self.h))
                             vmax = np.max(abs(self.Vexp[0, 0]))
 
                     # other prop (Ek or v1e)
                     elif isinstance(exp_prop[1], float):
-                        self.Vexp[0, 0] = np.abs((exp_prop[1] - calc_prop))*self.dic_int[prop]  # self.dic_int = Aint matrix
-                        X2 = self.Vexp[0, 0]**2
+                        # self.dic_int = Aint matrix
+                        self.Vexp[0, 0] = np.abs((exp_prop[1] - calc_prop)) * self.dic_int[prop]
+                        X2 = self.Vexp[0, 0] ** 2
                         vmax = np.max(abs(self.Vexp[0, 0]))
 
             # use given list of properties
@@ -220,16 +218,17 @@ class Exp:
             elif isinstance(self.check[check_idx], (list, np.ndarray)):
                 self.Vexp[0, 0] = np.zeros_like(rdm1)
                 X2 = 0.
-                M = 0. # nbr of prop
+                M = 0.  # nbr of prop
 
+                # loop over properties
                 for exp_prop in self.exp_data[0, 0]:
                     calc_prop = self.calc_prop(exp_prop[0], rdm1)
 
                     # dip case -> 3 components
                     if isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == 3:
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
-                            self.Vexp[0, 0] += np.abs((d_exp - d_calc))*self.dic_int[exp_prop[0]][j]
-                            X2 += (d_exp - d_calc)**2
+                            self.Vexp[0, 0] += np.abs((d_exp - d_calc)) * self.dic_int[exp_prop[0]][j]
+                            X2 += (d_exp - d_calc) ** 2
                             M += 1
 
                     # structure factor
@@ -239,9 +238,10 @@ class Exp:
                             self.Vexp[0, 0] += np.abs((F_exp - F_calc)) * F_int_mo
                             X2 += np.abs((F_exp - F_calc)) ** 2
                             M += 1
-                    # other prop
+
+                    # other prop: Ek or v1e
                     elif isinstance(calc_prop, float):
-                        self.Vexp[0, 0] += np.abs((exp_prop[1] - calc_prop))*self.dic_int[exp_prop[0]]
+                        self.Vexp[0, 0] += np.abs((exp_prop[1] - calc_prop)) * self.dic_int[exp_prop[0]]
                         X2 += (exp_prop[1] - calc_prop) ** 2
                         M += 1
                     else:
@@ -249,13 +249,13 @@ class Exp:
                                          '{}: must be a list or a float'.format(calc_prop))
                 X2 /= float(M)
                 vmax = np.max(abs(self.Vexp[0, 0]))
-                self.Vexp[0, 0] *= 2/float(M)
+                self.Vexp[0, 0] *= 2 / float(M)
 
             else:
-                raise ValueError('Wrong format for exp_data')
+                raise SyntaxError('Wrong format for exp_data')
 
             return self.Vexp[0, 0], X2, vmax
-        
+
         else:
 
             # Excited state case
@@ -271,7 +271,7 @@ class Exp:
                 # direct comparison between rdm1
 
                 if prop == 'mat':
-                    self.Vexp[n, m] = np.abs(np.subtract(self.exp_data[n, m][1], rdm1))
+                    self.Vexp[n, m] = np.subtract(self.exp_data[n, m][1], rdm1)
                     X2 = np.sum(abs(self.Vexp[n, m]))
                     vmax = np.max(abs(self.Vexp[n, m]))
 
@@ -285,11 +285,11 @@ class Exp:
                     # if prop = dip
                     if isinstance(exp_prop[1], (list, np.ndarray)):
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
-                            self.Vexp[n, m] += np.abs((d_exp - d_calc))*self.dic_int[prop][j]
-                            X2 += (d_exp - d_calc)**2
+                            self.Vexp[n, m] += np.abs((d_exp - d_calc)) * self.dic_int[prop][j]
+                            X2 += (d_exp - d_calc) ** 2
                         self.Vexp[n, m] /= 3.
                     elif isinstance(exp_prop[1], float):
-                        self.Vexp[n, m] = np.abs((exp_prop[1] - calc_prop))*self.dic_int[prop]
+                        self.Vexp[n, m] = np.abs((exp_prop[1] - calc_prop)) * self.dic_int[prop]
                         X2 = np.abs(self.Vexp[n, m])
                     else:
                         raise ValueError('Wrong format for calculated property {}: '
@@ -307,18 +307,18 @@ class Exp:
                     # dip case -> 3 components
                     if isinstance(exp_prop[1], (list, np.ndarray)):
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
-                            self.Vexp[n, m] += np.abs((d_exp - d_calc))*self.dic_int[exp_prop[0]][j]
-                            X2 += (d_exp - d_calc)**2
+                            self.Vexp[n, m] += np.abs((d_exp - d_calc)) * self.dic_int[exp_prop[0]][j]
+                            X2 += (d_exp - d_calc) ** 2
                             M += 1
                     elif isinstance(exp_prop[1], float):
-                        self.Vexp[n, m] += np.abs((exp_prop[1] - calc_prop))*self.dic_int[exp_prop[0]]
+                        self.Vexp[n, m] += np.abs((exp_prop[1] - calc_prop)) * self.dic_int[exp_prop[0]]
                         X2 += (exp_prop[1] - calc_prop) ** 2
                         M += 1
                     else:
                         raise ValueError('Wrong format for calculated property {}: '
                                          'must be a list or float'.format(calc_prop))
                     X2 /= float(M)
-                    self.Vexp[n, m] *= 2/float(M)
+                    self.Vexp[n, m] *= 2 / float(M)
                     vmax = np.max(abs(self.Vexp[n, m]))
 
             return self.Vexp[n, m], X2, vmax
@@ -341,7 +341,7 @@ class Exp:
         """
 
         n, m = index
-        k, l = np.sort(index)   # index of the upper triangle exp_data
+        k, l = np.sort(index)  # index of the upper triangle exp_data
 
         X2 = 0.
         vmax = 0.
@@ -406,7 +406,7 @@ class Exp:
                     elif isinstance(exp_prop[1], float):
                         # self.dic_int = Aint matrix
                         self.Vexp[0, 0] = (exp_prop[1] - calc_prop) * self.dic_int[prop] * A_scale
-                        X2 = (exp_prop[1] - calc_prop)**2
+                        X2 = (exp_prop[1] - calc_prop) ** 2
                         vmax = np.max(abs(self.Vexp[0, 0]))
 
             # use given list of properties
@@ -430,7 +430,7 @@ class Exp:
                     elif isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == len(self.h):
                         # loop over structure factors
                         for F_exp, F_calc, F_int_mo, A in zip(exp_prop[1][:], calc_prop, self.dic_int['F'], A_scale):
-                            self.Vexp[0, 0] += (F_exp - np.abs(F_calc)**2) * F_int_mo * A
+                            self.Vexp[0, 0] += (F_exp - np.abs(F_calc) ** 2) * F_int_mo * A
                             X2 += (F_exp - F_calc) ** 2
                             M += 1
                     # other prop
@@ -467,9 +467,9 @@ class Exp:
                 # direct comparison between rdm1
                 if prop == 'mat':
                     raise NotImplementedError
-                    #self.Vexp[k, l] = np.subtract(self.exp_data[k, l][1], rdm1_r*rdm1_l)
-                    #X2 = np.sum(abs(self.Vexp[k, l]))
-                    #vmax = np.max(abs(self.Vexp[k, l]))
+                    # self.Vexp[k, l] = np.subtract(self.exp_data[k, l][1], rdm1_r*rdm1_l)
+                    # X2 = np.sum(abs(self.Vexp[k, l]))
+                    # vmax = np.max(abs(self.Vexp[k, l]))
 
                 # use given single experimental property
                 else:
@@ -520,7 +520,6 @@ class Exp:
 
             return self.Vexp[n, m], X2, vmax
 
-
     def calc_prop(self, prop, rdm1, g_format=True, rdm1_2=None):
         """
         Calculate A**2 and/or A using given rdm1
@@ -537,28 +536,28 @@ class Exp:
                                   ek_int=self.Ek_int)
             if rdm1_2 is not None:
                 ans2 = utilities.Ekin(self.mol, rdm1_2, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
-                                     ek_int=np.conj(self.Ek_int))
-                return ans1*ans2, ans2
+                                      ek_int=np.conj(self.Ek_int))
+                return ans1 * ans2, ans2
             else:
                 return ans1
 
         elif prop == 'v1e':
             ans1 = utilities.v1e(self.mol, rdm1, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
-                                v1e_int=self.v1e_int)
+                                 v1e_int=self.v1e_int)
             if rdm1_2 is not None:
                 ans2 = utilities.v1e(self.mol, rdm1_2, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                      v1e_int=np.conj(self.v1e_int))
-                return ans1*ans2, ans2
+                return ans1 * ans2, ans2
             else:
                 return ans1
 
         elif prop == 'dip':
             ans1 = utilities.dipole(self.mol, rdm1, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
-                                   dip_int=self.dip_int)
+                                    dip_int=self.dip_int)
             if rdm1_2 is not None:
                 ans2 = utilities.dipole(self.mol, rdm1_2, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                         dip_int=np.conj(self.dip_int))
-                return list(ans1*ans2), list(ans2)
+                return list(ans1 * ans2), list(ans2)
             else:
                 return list(ans1)
 
@@ -566,11 +565,11 @@ class Exp:
             if self.h is None:
                 raise ValueError('A list of Miller indices must be given')
             ans1 = utilities.structure_factor(self.mol, self.h, rdm1, aobasis=False, mo_coeff=self.mo_coeff,
-                                             F_int=self.F_int)
+                                              F_int=self.F_int)
             if rdm1_2 is not None:
                 ans2 = utilities.structure_factor(self.mol, self.h, rdm1_2, aobasis=False, mo_coeff=self.mo_coeff,
                                                   F_int=np.conj(self.F_int))
-                return list(ans1*ans2), list(ans2)
+                return list(ans1 * ans2), list(ans2)
             else:
                 return list(ans1)
 
@@ -587,9 +586,9 @@ if __name__ == "__main__":
 
     mol = gto.Mole()
     mol.atom = [
-        [8 , (0. , 0.     , 0.)],
-        [1 , (0. , -0.757 , 0.587)],
-        [1 , (0. , 0.757  , 0.587)]]
+        [8, (0., 0., 0.)],
+        [1, (0., -0.757, 0.587)],
+        [1, (0., 0.757, 0.587)]]
 
     mol.basis = '6-31g'
     mol.spin = 0
@@ -604,13 +603,13 @@ if __name__ == "__main__":
     mvir = mo_coeff[:, mo_occ == 0]
     nocc = mocc.shape[1]
     nvir = mvir.shape[1]
-    dim = nocc+nvir
+    dim = nocc + nvir
 
     # build simulated properties given ts and rs amplitudes
     nbr_os_states = 3
     exp_data = np.full((nbr_os_states, nbr_os_states), None)
     # amplitudes for GS (ts) and 2 ES (rs1, rs2)
-    ts = np.random.random((nocc, nvir))*0.01
+    ts = np.random.random((nocc, nvir)) * 0.01
     rs1 = np.zeros_like(ts)
     rs1[0, 0] = 1.
     rs2 = np.zeros_like(ts)
@@ -633,7 +632,7 @@ if __name__ == "__main__":
 
     print()
     print('Check gamma traces (should be 0)')
-    print(np.trace(gamma_exp)-10., np.trace(gamma_exp_es1)-10.)
+    print(np.trace(gamma_exp) - 10., np.trace(gamma_exp_es1) - 10.)
     print(np.trace(gamma_exp_tr_es1), np.trace(gamma_exp_tr_es2))
     print()
 
@@ -655,20 +654,20 @@ if __name__ == "__main__":
     rs1_calc = np.zeros_like(ts)
     rs2_calc = np.zeros_like(ts)
     rs1_calc[0, 0] = 0.98
-    rs1_calc[0, 3] = np.sqrt(1-0.98**2)
-    rs2_calc[0, 0] = np.sqrt(1-0.98**2)
+    rs1_calc[0, 3] = np.sqrt(1 - 0.98 ** 2)
+    rs2_calc[0, 0] = np.sqrt(1 - 0.98 ** 2)
     rs2_calc[0, 3] = 0.98
-    gamma_calc = CCS.gamma_unsym_CCS(ts*1.15, ts*1.15)
-    gamma_calc_es1 = CCS.gamma_es_CCS(ts*1.15, rs1_calc, rs1_calc, 0., 0.)
-    gamma_calc_tr_es1 = CCS.gamma_tr_CCS(ts*1.15, rs1_calc, 0., 0., 0.)
-    gamma_calc_tr_es2 = CCS.gamma_tr_CCS(ts*1.15, rs2_calc, 0., 0., 0.)
+    gamma_calc = CCS.gamma_unsym_CCS(ts * 1.15, ts * 1.15)
+    gamma_calc_es1 = CCS.gamma_es_CCS(ts * 1.15, rs1_calc, rs1_calc, 0., 0.)
+    gamma_calc_tr_es1 = CCS.gamma_tr_CCS(ts * 1.15, rs1_calc, 0., 0., 0.)
+    gamma_calc_tr_es2 = CCS.gamma_tr_CCS(ts * 1.15, rs2_calc, 0., 0., 0.)
 
     #######
     # GS
     #######
 
     V, X2, vmax = myVexp.Vexp_update(gamma_calc, (0, 0))
-    
+
     print('--------')
     print('GS case')
     print('--------')
@@ -723,5 +722,3 @@ if __name__ == "__main__":
 
     V, X2, vmax = myVexp.Vexp_update_norm2(gamma_calc_tr_es1, gamma_calc_tr_es1, (0, 1))
     print('X2=', X2)
-
-

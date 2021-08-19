@@ -13,9 +13,11 @@
 ######################################################################
 
 import numpy as np
-#from . import utilities
-import utilities
 from pyscf import lib
+
+# from . import utilities
+import utilities
+
 
 class Solver_CCS:
     def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=[],
@@ -73,17 +75,17 @@ class Solver_CCS:
     # Convergence check
     #####################
 
-    def Ep_check(self,dic):
+    def Ep_check(self, dic):
         ts = dic.get('ts')
         fsp = dic.get('fsp')
         Ep = self.mycc.energy_ccs(ts, fsp)
         return Ep
 
-    def l_check(self,dic):
+    def l_check(self, dic):
         ls = dic.get('ls')
         return ls
 
-    def tl_check(self,dic):
+    def tl_check(self, dic):
         ls = dic.get('ls')
         ts = dic.get('ts')
         arr = abs(ls)+abs(ts)
@@ -94,7 +96,6 @@ class Solver_CCS:
     #############
 
     def SCF(self, L, ts=None, ls=None, diis=None, alpha=None, store_ite=False):
-
         """
         SCF+DISS solver for the ECW-CCS equations with L1 regularization term
         This method corresponds to a quasi Newton method.
@@ -111,7 +112,6 @@ class Solver_CCS:
                  [3] = conv(it)
                  [4] = final gamma_calc
                  [5] = final ts and ls
-
         """
 
         # initialize amplitudes
@@ -547,7 +547,7 @@ class Solver_CCSD:
         :param lsini: initial values for l1, if None = 0
         :param tdini: initial values for t2, if None taken from mp2
         :param ldini: initial values for l2, if None taken from mp2
-        :param diis: tuple 'rdm1', 't' and/or 'l'
+        :param diis: list of 'rdm1', 't' and/or 'l' variables on which to apply diis
         :param maxiter: max number of SCF iteration, default = 50
         :param maxdiis: maximum space for DIIS, default = 15
         """
@@ -556,7 +556,7 @@ class Solver_CCSD:
         self.nocc = mycc.nocc
         self.nvir = mycc.nvir
 
-        # fock matrix
+        # fock matrix in HF MO spin-orbital basis
         self.fock = mycc.fock
 
         # ts and ls initial
@@ -585,6 +585,7 @@ class Solver_CCSD:
         self.diis = diis
         self.maxdiis = maxdiis
 
+        # CCSD class and Vexp class
         self.mycc = mycc
         self.myVexp = VX_exp
 
@@ -612,21 +613,21 @@ class Solver_CCSD:
         return Ep
 
     def l_check(self, dic):
-        ls = dic.get('ls')
-        ld = dic.get('ld')
-        arr = np.concatenate((ls.flatten(), ld.flatten()))
+        ls = dic.get('ls').flatten()
+        ld = dic.get('ld').flatten()
+        arr = np.concatenate((ls, ld))
         return arr
 
     def tl_check(self, dic):
-        ls = dic.get('ls').flatten()
-        ts = dic.get('ts').flatten()
-        ld = dic.get('ld').flatten()
-        td = dic.get('td').flatten()
+        ls = abs(dic.get('ls').flatten())
+        ts = abs(dic.get('ts').flatten())
+        ld = abs(dic.get('ld').flatten())
+        td = abs(dic.get('td').flatten())
         arr = np.concatenate((ls+ts, ld+td))
         return arr
 
-    def x2_check(self, ts, ls, fsp):
-        return
+    # def x2_check(self, ts, ls, fsp):
+    #     return
 
     #############
     # SCF method
@@ -652,7 +653,7 @@ class Solver_CCSD:
                  [5] = list [t1,l2,t2,l2] with final amplitudes
         """
 
-        # initialize
+        # initialize amplitudes
         if ts is None:
             ts = self.tsini
             ls = self.lsini
@@ -676,7 +677,7 @@ class Solver_CCSD:
         X2_ite = []
         Ep_ite = []
 
-        # initialze diis for ts,ls, rdm1
+        # initialize diis for ts,ls, rdm1
         if diis:
             if 'rdm1' in diis:
                 adiis = lib.diis.DIIS()

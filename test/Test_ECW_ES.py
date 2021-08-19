@@ -67,6 +67,7 @@ rnini, lnini, r0ini, l0ini = utilities.ortho_norm(rnini, lnini, r0ini, l0ini, or
 
 # build exp list
 exp_data = np.full((nbr_states, nbr_states), None)
+
 # build target tr_rdm1 and dip for ES
 ES_trrdm_r = []
 ES_trrdm_l = []
@@ -96,14 +97,14 @@ VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 # convergence options
 maxiter = 100
 conv_thres = 10 ** -5
-#diis = ('r', 'l')  # must be tuple
-#diis = ('rdm1')
-diis = ('')
+# diis = ['r', 'l']  # must be list
+# diis = ['rdm1']
+diis = []
 conv = 'rl'
 
 # initialise Solver_CCS Class
-Solver = Solver_ES.Solver_ES(mccsg, VXexp, rnini, r0ini, lnini, l0ini,
-                             conv_var=conv, conv_thres=conv_thres, maxiter=maxiter, diis=diis, mindiis=2)
+Solver = Solver_ES.Solver_ES(mccsg, VXexp, (nbr_states-1, 0), conv_var=conv, conv_thres=conv_thres, maxiter=maxiter,
+                             diis=diis, mindiis=2)
 
 # CIS calc
 mrf = scf.RHF(mol).run()
@@ -137,7 +138,7 @@ print()
 L = np.full(exp_data.shape, 0)
 L[0, 0] = 0
 result = Solver.SCF(L)
-#result = Solver.SCF_diag(L)
+# result = Solver.SCF_diag(L)
 
 print('Final ts and ls')
 print(result[1].get('ts')[0, 0])

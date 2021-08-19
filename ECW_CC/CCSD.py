@@ -161,6 +161,7 @@ def gamma_CCSD(t1, t2, l1, l2):
 
     return dm1
 
+
 def gamma_inter(t1, t2, l1, l2):
 
     doo = -np.einsum('ie,je->ij', l1, t1)
