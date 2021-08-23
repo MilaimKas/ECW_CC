@@ -1,32 +1,34 @@
 
-from pyscf import cc,scf,ao2mo
+from pyscf import cc, scf, ao2mo
 import numpy as np
 
-class PySCF_geris():
-    '''
-    physics eris PySCF class from GCC
-    '''
 
-    def __init__(self,gmf):
-        '''
+class PySCF_geris():
+    """
+    physics eris PySCF class from GCC
+    """
+
+    def __init__(self, gmf):
+        """
 
         :param gmf: HF PySCF class
-        '''
+        """
 
         # convert to GHF
         if not isinstance(gmf, scf.ghf.GHF):
             gmf = scf.addons.convert_to_ghf(gmf)
 
         self.eris = cc.GCCSD(gmf).ao2mo(gmf.mo_coeff)
-     
+
+
 class geris():
-    '''
+    """
     two electron integrals from PySCF ao2mo
     see pyscf.cc.gccsd._make_eris_incore function
-    '''
+    """
 
     def __init__(self, mycc, int_thresh=10 ** -13, dir_cont=False):
-        '''
+        """
         PySCF electron repulsion integrals in physics notation
         see cc.gccsd.eris
 
@@ -34,7 +36,7 @@ class geris():
 
         :param mycc: PySCF CC class
         :param int_thresh: threshold for the two electron integrals
-        '''
+        """
         self.threshold = int_thresh
 
         # convert to GHF
@@ -145,9 +147,9 @@ class geris():
         # additional
         self.ovoo = eri[:nocc, nocc:, :nocc, :nocc].copy()
 
-        self.nocc = nocc
-
-
+        self.mo_occ = mycc.mo_occ
+        self.nocc = mycc.nocc
+        self.EHF = eris.e_hf
 
 if __name__ == "__main__":
 

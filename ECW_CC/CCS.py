@@ -1,27 +1,18 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-###################################################################
-#
-# ECW-CCS v1
-# -----------
-# Experimentaly constrained wave function coupled cluster single
-# ---------------------------------------------------------------
-#
-# File containing all CC related functions
-# - L1 and T1 canonical and factorized equations
-# - L1 and T1 intermediates 
-# - EXC-CCS Hessian
-#
-#
-###################################################################
+"""
+File containing all CC related functions
+ - Lambda1, T1, L1, R1, L0 and R0 factorized equations
+ - Corresponding intermediates
+ - one-particle reduced density matrix
+ - EXC-CCS Jacobian and gradient methods
+"""
+
 import copy
 import sys
-from scipy import optimize
 
 import numpy as np
-# from . import utilities
-# import pyscf.cc.eom_gccsd
 import utilities
 
 ############################
@@ -131,7 +122,7 @@ def gamma_tr_CCS(ts, ln, rk, r0k, l0n):
     nocc, nvir = ts.shape
 
     # GS case:
-    if rk is None or isinstance(rk, float) or isinstance(rk, int):
+    if rk is None or isinstance(rk, float) or isinstance(rk, int) or r0k is None:
         rk = np.zeros_like(ts)
         r0k = 1.
 
@@ -205,13 +196,14 @@ def gamma_CCS(ts, ls):
 
 class Gccs:
     def __init__(self, eris, fock=None, M_tot=None):
-        '''
+        """
         All equations are given in spin-orbital basis
 
         :param eris: two electron integrals in Physics notation (<pq||rs>= <pq|rs> - <pq|sr>)
         :param fock: fock matrix in MOs basis
         :param M_tot: number of measurements
-        '''
+        """
+
         if M_tot is None:
             self.M_tot = 1
         else:
@@ -568,23 +560,23 @@ class Gccs:
                     # P_0 intermediate => v_ov
 
                     # P intermediate
-                    P = v_oo.copy()
+                    P = np.sum(np.diag(v_oo))
                     P += np.einsum('jb,jb', ts, v_ov)
 
                     # Pba intermediate
                     Pba = v_vv.copy()
-                    Pba -= np.einsum('jb,ja', ts, v_ov)
+                    Pba -= np.einsum('jb,ja->ba', ts, v_ov)
 
                     # Pij intermediate
                     Pij = -v_oo.copy()
-                    Pij -= np.einsum('jb,ib', ts, v_ov)
+                    Pij -= np.einsum('jb,ib->ij', ts, v_ov)
 
                     # add Vexp terms
                     lsnew += ls*Pl
                     lsnew += l0*v_ov
                     lsnew += l*P
-                    lsnew += np.einsum('ib,ba', l, Pba)
-                    lsnew += np.einsum('ja,ij', l, Pij)
+                    lsnew += np.einsum('ib,ba->ia', l, Pba)
+                    lsnew += np.einsum('ja,ij->ia', l, Pij)
 
         lsnew /= (diag_oo[:, None] - diag_vv)
 

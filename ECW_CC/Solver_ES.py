@@ -52,10 +52,11 @@ class Solver_ES:
 
         self.nbr_states = nbr_states
 
-        # get nocc,nvir from ccs object
+        # get HF information from ccs object
         self.nocc = mycc.nocc
         self.nvir = mycc.nvir
         self.dim = self.nocc+self.nvir
+        self.EHF = mycc.eris.EHF
 
         # ts and Lambda initial
         if tsini is None:
@@ -66,12 +67,15 @@ class Solver_ES:
         self.lsini = lsini
 
         # l and r initial values using Koopman's guess
-        rn_ini, DE = utilities.koopman_init_guess(mo_energy, mo_occ, nstates=(2, 0))
+        rn_ini, DE = utilities.koopman_init_guess(np.diag(mycc.fock), mycc.eris.mo_occ, nstates=nbr_states)
         ln_ini = [i * 1 for i in rn_ini]
+        self.E_ini = -np.asarray(DE)  # initial excited states correlation energy
         self.rn_ini = rn_ini
         self.ln_ini = ln_ini
-        self.r0_ini = [mccsg.r0_fromE(de, ts, r, np.zeros((self.dim, self.dim))) for r, de in zip(rn_ini, DE)]
-        self.l0_ini = [mccsg.r0_fromE(de, ts, l, np.zeros((self.dim, self.dim))) for l, de in zip(ln_ini, DE)]
+        self.r0_ini = [mycc.r0_fromE(de, np.zeros_like(tsini), r, np.zeros((self.dim, self.dim)))
+                       for r, de in zip(rn_ini, DE)]
+        self.l0_ini = [mycc.r0_fromE(de, np.zeros_like(tsini), l, np.zeros((self.dim, self.dim)))
+                       for l, de in zip(ln_ini, DE)]
 
         # DIIS option
         self.diis = diis
@@ -126,7 +130,7 @@ class Solver_ES:
 
     def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None):
         """
-        Rough SCF solver for T, Lam, R and L equations: takes care of the spin symmetry
+        Rough SCF solver for coupled T, Lam, R and L equations: takes care of the spin symmetry
 
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
@@ -192,46 +196,45 @@ class Solver_ES:
         Ep_ite = []
         conv_ite = []
 
-        # initialize diis for ts, lam, rs, ls and rdm1
+        # initialize diis for dm and amplitudes
         if 'rdm1' in diis:
-            dm_diis = []
-            tr_diis = []
-            for n in range(self.nbr_states+1):
+            dm_diis = []  # rdm1 for ES and GS
+            tr_diis = []  # tr_rdm1 for ES
+            for n in range(nbr_states+1):
+                # rdm1
                 tmp = lib.diis.DIIS()
                 tmp.space = self.maxdiis
                 tmp.min_space = self.mindiis
                 dm_diis.append(tmp)
+                # tr rdm1
                 tmp = lib.diis.DIIS()
                 tmp.space = self.maxdiis
                 tmp.min_space = self.mindiis
                 tr_diis.append(tmp)
-        if 't' in diis:
-            tdiis = lib.diis.DIIS()
-            tdiis.space = self.maxdiis
-            tdiis.min_space = self.mindiis
-        if 'lam' in diis:
-            lamdiis = lib.diis.DIIS()
-            lamdiis.space = self.maxdiis
-            lamdiis.min_space = self.mindiis
-        if 'r' in diis:
-            rdiis = []
+        # GS t and l amplitudes
+        if 'GS' in diis:
+            gs_diis = lib.diis.DIIS()
+            gs_diis.space = self.maxdiis
+            gs_diis.min_space = self.mindiis
+        # ES t and l amplitudes
+        if 'ES' in diis:
+            es_diis = []
             for i in range(nbr_states):
-                rdiis.append(lib.diis.DIIS())
-                rdiis[i].space = self.maxdiis
-                rdiis[i].min_space = self.mindiis
-        if 'l' in diis:
-            ldiis = []
-            for i in range(nbr_states):
-                ldiis.append(lib.diis.DIIS())
-                ldiis[i].space = self.maxdiis
-                ldiis[i].min_space = self.mindiis
+                es_diis.append(lib.diis.DIIS())
+                es_diis[i].space = self.maxdiis
+                es_diis[i].min_space = self.mindiis
+        # apply diis on all amplitudes
+        if 'all' in diis:
+            all_diis = lib.diis.DIIS()
+            all_diis.space = self.maxdiis
+            all_diis.min_space = self.mindiis
 
         table = []
         # First line of printed table
         headers = ['ite', str(self.conv_var)]
         for i in range(nbr_states):
             if i == 0:
-                headers.extend(['ES {}'.format(i+1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0','Er', 'El'])
+                headers.extend(['ES {}'.format(i+1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El'])
             else:
                 headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1', 'r0', 'l0', 'Er', 'El',
                                 'Ortho wrt ES 1'])
@@ -258,7 +261,7 @@ class Solver_ES:
             # -------------------------------------------------
 
             # GS
-            if Vexp_class.exp_data[0,0] is not None:
+            if Vexp_class.exp_data[0, 0] is not None:
                rdm1[0] = mycc.gamma(ts, ls)
 
             # ES
@@ -279,10 +282,12 @@ class Solver_ES:
             # apply DIIS on rdm1
             if 'rdm1' in diis:
                 for n in range(nbr_states+1):
+                    # rdm1 for state n
                     if rdm1[n] is not None:
                         rdm_vec = rdm1[n].flatten()
                         rdm_vec = dm_diis[n].update(rdm_vec)
                         rdm1[n] = rdm_vec.reshape((dim, dim))
+                    # left and right tr_rdm1 for state n
                     if tr_rdm1[n-1] is not None:
                         tr_vec_r = np.asarray(tr_rdm1[n-1][0])
                         tr_vec_r = tr_vec_r.flatten()
@@ -333,12 +338,6 @@ class Solver_ES:
             vexp = -L[0, 1:]*Vexp_class.Vexp[0, 1:]  # -lambda * 0mV
             T1inter = mycc.T1inter(ts, fsp[0])
             ts = mycc.tsupdate(ts, T1inter, rsn=rn, r0n=r0n, vn=vexp)
-
-            # apply DIIS
-            if 't' in diis:
-                ts_vec = np.ravel(ts)
-                ts = tdiis.update(ts_vec).reshape((nocc, nvir))
-
             del T1inter
 
             #
@@ -351,11 +350,16 @@ class Solver_ES:
             else:
                 vexp = -L[0, 1:] * Vexp_class.Vexp[0, 1:]
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
-            # apply DIIS
 
-            if 'lam' in diis:
-                ls_vec = np.ravel(ls)
-                ls = lamdiis.update(ls_vec).reshape((nocc, nvir))
+            #
+            # Apply diis to GS amplitudes
+            # ----------------------------------------
+
+            if 'GS' in diis:
+                vec = np.concatenate((np.ravel(ls), np.ravel(ts)))
+                ls, ts = np.split(gs_diis.update(vec), 2)
+                ls = ls.reshape(nocc, nvir)
+                ts = ts.reshape(nocc, nvir)
 
             del vexp, L1inter
 
@@ -379,8 +383,8 @@ class Solver_ES:
                 # update En_r
                 # ------------------------
 
-                #En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
-                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter, ov=ov[i])  # force alpha transition
+                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
+                # En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter, ov=ov[i])  # force alpha transition
 
                 #
                 # Update r
@@ -418,8 +422,8 @@ class Solver_ES:
                 # Update En_l
                 # ------------------------
 
-                #En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
-                En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter, ov=ov[i])  # force alpha transition
+                En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
+                # En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter, ov=ov[i])  # force alpha transition
 
                 #
                 # Update l
@@ -444,32 +448,44 @@ class Solver_ES:
                 del vexp
 
                 #
-                # Store excited states energies Ep = (En_r,En_l)
-                # -----------------------------------------------
+                # Store excited states correlation energies Ep = (En_r,En_l)
+                # ------------------------------------------------------------
 
-                Ep[i+1][0] = En_r
-                Ep[i+1][1] = En_l
+                Ep[i+1][0] = En_r + self.EHF
+                Ep[i+1][1] = En_l + self.EHF
 
                 #
-                # Apply DIIS
+                # Apply DIIS to ES amplitudes
                 # ---------------------------------------
-                if 'l' in diis:
-                    ln_vec = np.ravel(lnew[i])
-                    lnew[i] = ldiis[i].update(ln_vec).reshape((nocc, nvir))
+                if 'ES' in diis:
+                    vec = np.concatenate((np.ravel(lnew[i]), np.ravel(rnew[i])))
+                    lnew[i], rnew[i] = np.split(es_diis[i].update(vec), 2)
+                    lnew[i] = lnew[i].reshape((nocc, nvir))
+                    rnew[i] = rnew[i].reshape((nocc, nvir))
 
-                if 'r' in diis:
-                    rn_vec = np.ravel(rnew[i])
-                    rnew[i] = rdiis[i].update(rn_vec).reshape((nocc, nvir))
+            # del Rinter, R0inter, Linter, L0inter, vexp
 
-            #del Rinter, R0inter, Linter, L0inter, vexp
-
+            #
+            # Apply DIIS to all amplitudes
+            # ---------------------------------------
+            if 'all' in diis:
+                # create flatten array with all amplitudes
+                vec = np.concatenate((np.ravel(ts), np.ravel(ls),
+                                      [l for ln in lnew for l in ln], [r for rn in rnew for r in rn]))
+                vec = all_diis.update(vec)
+                ts = vec[:nocc*nvir].reshape((nocc, nvir))
+                ls = vec[nocc*nvir:2*nocc*nvir].reshape((nocc, nvir))
+                for i in range(len(lnew)):
+                    lnew[i] = vec[2*nocc*nvir:(3+i)*nocc*nvir].reshape((nocc, nvir))
+                    rnew[i] = vec[2*nocc*nvir:(3+i)*nocc*nvir].reshape((nocc, nvir))
+                del vec
 
             #
             # Check orthonormality and spin, re-normalize vectors if norm > threshold
             # -------------------------------------------------------------------------
             #
 
-            #ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
+            # ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
             C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
 
             for i in range(nbr_states):
@@ -485,11 +501,11 @@ class Solver_ES:
             l0n = copy.deepcopy(l0new)
 
             #
-            # Store GS energy Ep
+            # Store total GS energy Ep
             # --------------------------------------------
 
             vexp = [-L[0, i + 1] * Vexp_class.Vexp[0, i + 1] for i in range(nbr_states)]
-            Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rsn=rn, r0n=r0n, vn=vexp)
+            Ep[0][0] = mycc.energy_ccs(ts, fsp[0], rsn=rn, r0n=r0n, vn=vexp) + self.EHF
             Ep_ite.append(Ep)
 
             #

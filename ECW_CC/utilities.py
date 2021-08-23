@@ -645,6 +645,8 @@ def ortho_GS(U, eps=1e-12):
 def check_ortho(rn, ln, r0n, l0n):
     """
     Check the norm for a list of r and l vectors
+    diagonal are the normalization constant for state k -> <Psi_k|Psi_k>
+    off-diagonal are the averaged orthogonalization constant for state ij -> (<Psi_k|Psi_l>+<Psi_l|Psi_k>)/2
 
     :param ln: list of l vectors
     :param rn: list of r vectors
@@ -660,7 +662,7 @@ def check_ortho(rn, ln, r0n, l0n):
         raise ValueError('r and l list of vectors must be the same length')
 
     # initialize matrix of norm
-    C_norm = np.zeros((nbr_of_states,nbr_of_states))
+    C_norm = np.zeros((nbr_of_states, nbr_of_states))
 
     for k in range(nbr_of_states):
         for l in range(nbr_of_states):

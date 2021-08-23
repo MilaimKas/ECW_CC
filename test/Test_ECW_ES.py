@@ -81,7 +81,7 @@ for i in range(nbr_states-1):
     exp_data[i+1, 0] = ['mat', ES_trrdm_r[-1]]
 
     # left: l=lambda and l0=1
-    ES_trrdm_l.append(mccsg.gamma_tr(ts, ls, rnini[i], r0ini[i], None))
+    ES_trrdm_l.append(mccsg.gamma_tr(ts, ls, rnini[i], r0ini[i], 1.))
     ES_dip_l.append(utilities.dipole(mol, ES_trrdm_l[-1], g=True, aobasis=False, mo_coeff=mo_coeff, dip_int=None))
     exp_data[0, i+1] = ['mat', ES_trrdm_l[-1]]
 
@@ -97,8 +97,6 @@ VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
 # convergence options
 maxiter = 100
 conv_thres = 10 ** -5
-# diis = ['r', 'l']  # must be list
-# diis = ['rdm1']
 diis = []
 conv = 'rl'
 
@@ -115,12 +113,14 @@ print()
 print('EHF= ', mgf.e_tot)
 print()
 print('CIS calc')
-print('DE= ', mcis.e)
+print('E= ', mcis.e_tot)
 print()
 print('initial guess')
-print('DE= ', DE)
-print('r0= ', r0ini)
-print('l0= ', l0ini)
+print('E= ', Solver.E_ini)
+print('r0= ', Solver.r0_ini)
+print('l0= ', Solver.l0_ini)
+print('rn= ', Solver.rn_ini)
+print('ln= ', Solver.ln_ini)
 print()
 
 # orthogonalize and normalize initial vectors
@@ -135,7 +135,7 @@ for i in range(0, nbr_states-1):
 print()
 
 # Solve for L
-L = np.full(exp_data.shape, 0)
+L = np.full(exp_data.shape, 0.2)
 L[0, 0] = 0
 result = Solver.SCF(L)
 # result = Solver.SCF_diag(L)

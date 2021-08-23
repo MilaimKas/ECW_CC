@@ -144,14 +144,15 @@ class ECW:
         # do scf calculation
         mf.kernel()
 
+        # make sure HF object is in GHF format
         if not G_format:
             mf = scf.addons.convert_to_ghf(mf)
 
         # variables related to the MOs basis
         self.mo_coeff = mf.mo_coeff  # matrix where rows are atomic orbitals (AO) and columns are MOs
-        mo_occ = mf.mo_occ  # MO occupancy (vector with length equal to number of MOs)
-        mocc = self.mo_coeff[:, mo_occ > 0]  # Only take the mo_coeff of occupied orb
-        mvir = self.mo_coeff[:, mo_occ == 0]  # Only take the mo_coeff of virtual orb
+        self.mo_occ = mf.mo_occ  # MO occupancy (vector with length equal to number of MOs)
+        mocc = self.mo_coeff[:, self.mo_occ > 0]  # Only take the mo_coeff of occupied orb
+        mvir = self.mo_coeff[:, self.mo_occ == 0]  # Only take the mo_coeff of virtual orb
         self.nocc = mocc.shape[1]  # Number of occ MOs in HF
         self.nvir = mvir.shape[1]  # Number of virtual MOS in HF
 
@@ -168,7 +169,7 @@ class ECW:
 
         # HF rdm1
         self.rdm1_hf = mf.make_rdm1()
-        self.mf = mf
+        # self.mf = mf
         self.mol = mol
 
         # print cube file
@@ -396,7 +397,7 @@ class ECW:
 
         # Koopman initial guess
         if rini_list is None:
-            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mf.mo_occ, nbr_of_states)
+            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, nbr_of_states)
             r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
             self.r_ini = r1
             self.l_ini = r1.copy()
@@ -457,12 +458,13 @@ class ECW:
                           'the Vexp potential will only contain GS data')
 
         # initial values for ts and ls
+        # CCSD initial values
         if tl1ini == 1:
             mo_ene = np.diag(self.fock)
             eia = mo_ene[:self.nocc, None] - mo_ene[None, self.nocc:]
             tsini = self.fock[:self.nocc, self.nocc:] / eia
             lsini = tsini.copy()
-        # random number
+        # random number: only for debugging purpose
         elif tl1ini == 2:
             tsini = np.random.rand(self.nocc // 2, self.nvir // 2) * 0.01
             lsini = np.random.rand(self.nocc // 2, self.nvir // 2) * 0.01
@@ -711,15 +713,17 @@ class ECW:
         else:
             return Result
 
-    def CCS_ES(self, L, nbr_states, exp_data=None, conv_thres=10 ** -6, maxiter=40, diis=[]):
+    def CCS_ES(self, L, nbr_states, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis=[]):
         """
         Calls the excited state solver
 
-        :param diis:
-        :param maxiter:
-        :param conv_thres:
+        :param method: scf or diagonalization method
+        :param conv: convergence criteria applies to 'tl' (ES amplitudes), 'rl' (GS amplitudes) or 'Ep'
+        :param diis: use diis solver on top of scf or diag
+        :param maxiter: max number of iteration
+        :param conv_thres: convergence threshold applied to the convegrence criteria 'conv'
         :param L: matrix of lambda values (weight of exp data)
-        :param exp_data: matrix of ex
+        :param exp_data: matrix containing the experimental data
         :return:
         """
 
@@ -743,7 +747,12 @@ class ECW:
                                      conv_thres=conv_thres, maxiter=maxiter, diis=diis)
 
         Lambda = np.full(exp_data.shape, L)
-        Solver.SCF(Lambda)
+        if method == "scf":
+            Solver.SCF(Lambda)
+        elif method == "diag":
+            Solver.SCF_diag(Lambda)
+        else:
+            raise SyntaxError('method not recognize. Should be a string: "scf" or "diag"')
 
 
 def plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek=None):
