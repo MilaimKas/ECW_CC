@@ -31,7 +31,7 @@ format_float = '{:10.5e}'
 # ------------------------------
 
 class ECW:
-    def __init__(self, molecule, basis, int_thresh=1e-13, out_dir=None, G_format=False):
+    def __init__(self, molecule, basis, int_thresh=1e-13, out_dir=None, U_format=False, spin=0):
         """
         Build the PySCF mol object and performs HF calculation
 
@@ -39,12 +39,9 @@ class ECW:
         :param basis: string with basis set to be used
         :param int_thresh: threshold for 2 electron integrals
         :param out_dir: path to the directory where the cube file are saved (string), if None do not print cube files
-        :param G_format: if True, the spin-orbital basis are obtained from a GHF calculation,
+        :param U_format: if True, the spin-orbital basis are converted from a UHF calculation,
                          if False, the spin-orbital are converted from a RHF calc (a and b SO are degenerate)
         """
-
-        # Use generalized format
-        self.G_format = G_format
 
         # CC class
         self.myccs = None
@@ -113,7 +110,6 @@ class ECW:
             print(mol_list)
             raise ValueError()
 
-        symmetry = True
         mol.unit = 'angstrom'
 
         # basis set
@@ -124,29 +120,30 @@ class ECW:
 
         mol.verbose = 0  # no output
         mol.charge = 0  # charge
-        mol.spin = 0  # spin
+        mol.spin = spin  # spin
 
         mol.build()  # build mol object
         natm = int(mol.natm)  # number of atoms
 
-        if G_format:
-            mf = scf.GHF(mol)
+        if U_format:
+            raise NotImplementedError('Using UHF reference implies different orbspin')
+            # mf = scf.UHF(mol)
+            # make orbspin [0 1 0 1 ...]
         else:
             mf = scf.RHF(mol)
 
         # option for calculation
-        mf.conv_tol = 1e-09  # energy tolerence
-        mf.conv_tol_grad = np.sqrt(mf.conv_tol)  # gradient tolerence
-        mf.direct_scf_tol = int_thresh  # tolerence in discarding integrals
+        mf.conv_tol = 1e-09  # energy tolerance
+        mf.conv_tol_grad = np.sqrt(mf.conv_tol)  # gradient tolerance
+        mf.direct_scf_tol = int_thresh  # tolerance in discarding integrals
         mf.max_cycle = 100
         mf.max_memory = 1000
 
         # do scf calculation
         mf.kernel()
 
-        # make sure HF object is in GHF format
-        if not G_format:
-            mf = scf.addons.convert_to_ghf(mf)
+        # convert in GHF format
+        mf = scf.addons.convert_to_ghf(mf)
 
         # variables related to the MOs basis
         self.mo_coeff = mf.mo_coeff  # matrix where rows are atomic orbitals (AO) and columns are MOs
@@ -207,6 +204,7 @@ class ECW:
         print('*** Molecule build ***')
 
     def Build_GS_exp(self, prop, posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
+        # todo: make Koopman ES prop available
         """
         Build "experimental" or "target" data for the GS
 
@@ -220,7 +218,7 @@ class ECW:
         :param field: external field ta calculate gamme_exp_GS
         :param para_factor: under-fitting coefficient
         :param max_def: maximum bond length deformation in au
-        :basis: basis used for the calculation of properties
+        :param basis: basis used for the calculation of properties
         :return: update exp_data matrix
         """
 
@@ -353,9 +351,11 @@ class ECW:
 
             i += 1
 
-    def Build_ES_exp(self, dip_list, nbr_of_states, rini_list=None):
+    def Set_ES_exp(self, dip_list, nbr_of_states, rini_list=None):
+        # todo: check utility of this function
+        # todo: possibility to store diagonal prop
         """
-        Build excited states data from given transition properties
+        Store excited states data from given properties
 
         :param dip_list: list with transition dipole moment values np.array(x,y,z) for the target states
                         dip_list = list([x1,y1,z1],[x2,y2,z2], ...)

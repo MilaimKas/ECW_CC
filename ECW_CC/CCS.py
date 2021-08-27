@@ -871,6 +871,7 @@ class Gccs:
         """
         Extract Em from the largest r1 element
 
+        :param ov: index for initial Koopman excitation. If not given, takes the largest element
         :param rs: r1 amplitude of state m
         :param r0: r0 amplitude of state m
         :param Rinter: R1 intermediates
@@ -879,19 +880,20 @@ class Gccs:
 
         Fab, Fji, W, F, Zia, Pia = Rinter
 
+        # Ria = ria*En' matrix
+        Ria = np.einsum('ab,ib->ia', Fab, rs)
+        Ria -= np.einsum('ji,ja->ia', Fji, rs)
+        Ria += np.einsum('akic,kc->ia', W, rs)
+
         # largest r1 if indices not given
         if ov is None:
             o, v = np.unravel_index(np.argmax(abs(rs), axis=None), rs.shape)
         else:
             o, v = ov
 
-        # Ria = ria*En' matrix
-        Ria = np.einsum('ab,ib->ia', Fab, rs)
-        Ria -= np.einsum('ji,ja->ia', Fji, rs)
-        Ria += np.einsum('akic,kc->ia', W, rs)
         Rov = Ria[o, v]
-
         del Ria
+
         Rov += rs[o, v] * F
         Rov += r0 * Zia[o, v]
         Rov += Pia[o, v]
@@ -904,11 +906,12 @@ class Gccs:
         """
         Update r1 amplitudes using Ria equations and given E for iteration k
 
+        :param idx: index of the largest rs element. If given, the beta counterpart amplitude will be kept 0
         :param rs: matrix of r1 amplitudes for state m at k-1 iteration
         :param r0: r0 amplitude for state m at iteration k-1
         :param Rinter: r1 intermediates for state m
         :param Em: Energy of state m
-        :return: updated list of r1 amplitudes and index of the largest ria
+        :return: updated list of r1 amplitudes
 
         """
 
@@ -929,26 +932,24 @@ class Gccs:
         rsnew += rs*F
         rsnew += r0*Zia
         rsnew += Pia
-        #rsnew -= rs*Em  # uncomment if E stays in the right hand side
 
         if idx is not None:
             o, v = idx
             rov = rsnew[o-1, v-1]-rs[o-1, v-1]*Em
             rov /= (diag_oo[o-1]-diag_vv[v-1])
-            rsnew /= (Em+diag_oo[:, None]-diag_vv)  # comment if E stays in the right hand side
+            rsnew /= (Em+diag_oo[:, None]-diag_vv)
             rsnew[o-1, v-1] = rov
             return rsnew
 
-        # divide by diag
-        rsnew /= (Em+diag_oo[:, None]-diag_vv)  # comment if E stays in the right hand side
-        #rsnew /= (diag_oo[:, None] - diag_vv)  # uncomment if E stays in the right hand side
-
-        return rsnew
+        else:
+            rsnew /= (Em+diag_oo[:, None]-diag_vv)
+            rsnew[0::2, :] = 0.  # force alpha transition
+            return rsnew
 
 
     def get_ov(self, ls, l0, rs, r0, ind):
         """
-        Extract missing ria/lia value from normality condition
+        Extract missing ria value from normality condition
 
         :param ls: l1 amplitudes for state m
         :param l0: l0 amplitude for state m
@@ -960,8 +961,8 @@ class Gccs:
 
         o, v = ind
         r = rs.copy()
-        r[o, v] = 0
-        rov = 1 - r0 * l0 - np.einsum('ia,ia', r, ls)
+        r[o, v] = 0.
+        rov = 1. - r0 * l0 - np.einsum('ia,ia', r, ls)
         rov /= ls[o, v]
 
         return rov
@@ -1396,11 +1397,10 @@ class Gccs:
             lsnew[o-1, v-1] = lov
             return lsnew
 
-        # divide by diag
-        lsnew /= (Em+diag_oo[:,None]-diag_vv)
-        # lsnew /= (diag_oo[:, None] - diag_vv)  # uncomment if E term stays on the right hand side
-
-        return lsnew
+        else:
+            lsnew /= (Em+diag_oo[:,None]-diag_vv)
+            lsnew[0::2, :] = 0.  # force alpha transition
+            return lsnew
 
     def es_L1eq(self, ls, l0, es_L1inter):
         """

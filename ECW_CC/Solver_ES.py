@@ -24,7 +24,7 @@ format_float = '{:.4e}'
 
 
 class Solver_ES:
-    def __init__(self, mycc, Vexp_class, nbr_states, tsini=None, lsini=None, conv_var='tl',
+    def __init__(self, mycc, Vexp_class, nbr_states, rn_ini=None, tsini=None, lsini=None, conv_var='tl',
                  conv_thres=10 ** -6, diis=[], maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
         """
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
@@ -67,7 +67,10 @@ class Solver_ES:
         self.lsini = lsini
 
         # l and r initial values using Koopman's guess
-        rn_ini, DE = utilities.koopman_init_guess(np.diag(mycc.fock), mycc.eris.mo_occ, nstates=nbr_states)
+        if rn_ini is None:
+            rn_ini, DE = utilities.koopman_init_guess(np.diag(mycc.fock), mycc.eris.mo_occ, nstates=nbr_states)
+        else:
+            DE = [utilities.get_DE(np.diag(mycc.fock), rs) for rs in rn_ini]
         ln_ini = [i * 1 for i in rn_ini]
         self.E_ini = -np.asarray(DE)  # initial excited states correlation energy
         self.rn_ini = rn_ini
@@ -128,10 +131,11 @@ class Solver_ES:
     # SCF method
     #############
 
-    def SCF(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None):
+    def SCF(self, L, Vexp_norm2=False, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, diis=None):
         """
         Rough SCF solver for coupled T, Lam, R and L equations: takes care of the spin symmetry
 
+        :param Vexp_norm2: if True, the properties are assumed to be squared norm
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
             -> typically L would be the same for properties obtained from the same experiment
@@ -145,6 +149,12 @@ class Solver_ES:
 
         Vexp_class = self.Vexp_class
         nbr_states = sum(self.nbr_states)
+
+        # Vexp update function
+        if not Vexp_norm2:
+            Vexp_update = Vexp_class.Vexp_update
+        else:
+            Vexp_update = Vexp_class.Vexp_update_norm2
 
         # check length
         if L.shape != Vexp_class.Vexp.shape:
@@ -260,9 +270,8 @@ class Solver_ES:
             # calculate needed rdm1 and tr_rdm1 for all states
             # -------------------------------------------------
 
-            # GS
-            if Vexp_class.exp_data[0, 0] is not None:
-               rdm1[0] = mycc.gamma(ts, ls)
+            # compute GS rdm1
+            rdm1[0] = mycc.gamma(ts, ls)
 
             # ES
             for n in range(nbr_states):
@@ -274,7 +283,7 @@ class Solver_ES:
                 # calculate tr_rdm1 if transition exp data are present
                 if Vexp_class.exp_data[0, n+1] is not None:
                     # right dm1 <Psi_k|aa|Psi_n>
-                    tr_r = mycc.gamma_tr(ts, ln[n], 0, 1, l0n[n])
+                    tr_r = mycc.gamma_tr(ts, ln[n], None, None, l0n[n])
                     # left dm1 <Psi_n|aa|Psi_k>
                     tr_l = mycc.gamma_tr(ts, ls, rn[n], r0n[n], 1)
                     tr_rdm1[n] = list((tr_r, tr_l))
@@ -302,27 +311,29 @@ class Solver_ES:
             # ------------------------------------------------------------------
 
             # GS
-            if rdm1[0] is not None:
-                V, x2, vmax = Vexp_class.Vexp_update(rdm1[0], (0, 0))
+            if Vexp_class.exp_data[0, 0] is not None:
+                V, x2, vmax = Vexp_update(rdm1[0], (0, 0))
                 fsp[0] = np.subtract(mycc.fock, L[0, 0] * V)
                 X2[0, 0] = x2
-            #else:
-            #    fsp[0] = fock.copy()
 
             # ES
             for j in range(nbr_states):
                 n = j+1
 
-                if rdm1[n] is not None:
-                    V, x2, vmax = Vexp_class.Vexp_update(rdm1[n], (n, n))
+                if Vexp_class.exp_data[n, n] is not None:
+                    V, x2, vmax = Vexp_update(rdm1[n], (n, n))
                     fsp[n] = np.subtract(mycc.fock, L[j, j] * V)
                     X2[n, n] = x2
                 #else:
                 #    fsp[n] = fock.copy()
 
-                if tr_rdm1[j] is not None:
-                    v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))  # right
-                    v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))  # left
+                if Vexp_class.exp_data[0, n] is not None:
+                    # norm 2 case
+                    v, X2[n, 0], vmax = Vexp_update(tr_rdm1[j][0], (n, 0), rdm1_add=tr_rdm1[j][1])  # right
+                    v, X2[0, n], vmax = Vexp_update(tr_rdm1[j][1], (0, n), rdm1_add=tr_rdm1[j][0])  # left
+                    # DEk case
+                    # v, X2[n, 0], vmax = Vexp_update(rdm1[j], (n, 0), rdm1_add=rdm1[0])
+                    # v, X2[0, n], vmax = Vexp_update(rdm1[j], (0, n), rdm1_add=rdm1[0])
             del v
 
             X2_ite.append(X2)
@@ -383,14 +394,14 @@ class Solver_ES:
                 # update En_r
                 # ------------------------
 
-                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
-                # En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter, ov=ov[i])  # force alpha transition
+                # En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter)
+                En_r, o, v = mycc.Extract_Em_r(rn[i], r0n[i], Rinter, ov=ov[i])  # force alpha transition
 
                 #
                 # Update r
                 # -------------------------
 
-                rnew[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r, idx=[o, v])
+                rnew[i] = mycc.rsupdate(rn[i], r0n[i], Rinter, En_r)  #, idx=[o, v])
                 del Rinter
 
                 #
@@ -422,14 +433,14 @@ class Solver_ES:
                 # Update En_l
                 # ------------------------
 
-                En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
-                # En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter, ov=ov[i])  # force alpha transition
+                # En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter)
+                En_l, o, v = mycc.Extract_Em_l(ln[i], l0n[i], Linter, ov=ov[i])  # force alpha transition
 
                 #
                 # Update l
                 # ------------------------
 
-                lnew[i] = mycc.es_lsupdate(ln[i], l0n[i], En_l, Linter, idx=[o, v])
+                lnew[i] = mycc.es_lsupdate(ln[i], l0n[i], En_l, Linter)  #, idx=[o, v])
                 del Linter
 
                 #
@@ -471,7 +482,7 @@ class Solver_ES:
             if 'all' in diis:
                 # create flatten array with all amplitudes
                 vec = np.concatenate((np.ravel(ts), np.ravel(ls),
-                                      [l for ln in lnew for l in ln], [r for rn in rnew for r in rn]))
+                                      [np.ravel(l) for l in lnew][0], [np.ravel(r) for r in rnew][0]))
                 vec = all_diis.update(vec)
                 ts = vec[:nocc*nvir].reshape((nocc, nvir))
                 ls = vec[nocc*nvir:2*nocc*nvir].reshape((nocc, nvir))
@@ -486,15 +497,13 @@ class Solver_ES:
             #
 
             # ln, rn, r0n, l0n = utilities.ortho_norm(ln, rn, r0n, l0n)
-            C_norm = utilities.check_ortho(ln, rn, r0n, l0n)
-
+            C_norm = utilities.check_ortho(lnew, rnew, r0new, l0new)
             for i in range(nbr_states):
-                Spin[i] = utilities.check_spin(rn[i], ln[i])
+                Spin[i] = utilities.check_spin(rnew[i], lnew[i])
 
             #
             # Store new vectors
             # -------------------------
-
             rn = copy.deepcopy(rnew)
             ln = copy.deepcopy(lnew)
             r0n = copy.deepcopy(r0new)
@@ -529,8 +538,8 @@ class Solver_ES:
 
             for i in range(nbr_states):
 
-                if i == 0:
-                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[i+1, 0], X2[i+1, i], 2*Spin[i]+1,
+                if i == 0:  # first excited state to be printed
+                    tmp.extend(['', format_float.format(C_norm[i, i]), X2[1, 0], X2[0, 1], 2*Spin[i]+1,
                                 r0n[i], l0n[i], Ep[i + 1][0], Ep[i + 1][1]])
                 else:
                     C_norm_av = (C_norm[0, i] + C_norm[i, 0]) / 2
@@ -571,7 +580,7 @@ class Solver_ES:
     # SCF method with iterative diagonalization
     #############################################
 
-    def SCF_diag(self, L, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, max_space=10, davidson=True):
+    def SCF_diag(self, L, Vexp_norm2=None, ts=None, ls=None, rn=None, ln=None, r0n=None, l0n=None, max_space=10, davidson=True):
         """
         SCF + davidson solver for the coupled T,Lam,R and L equations
         Diagonalizes the effective similarly transformed Hamiltonian at each iteration for each excited states and
@@ -593,6 +602,12 @@ class Solver_ES:
 
         Vexp_class = self.Vexp_class
         nbr_states = sum(self.nbr_states)
+
+        # Vexp update function
+        if not Vexp_norm2:
+            Vexp_update = Vexp_class.Vexp_update
+        else:
+            Vexp_update = Vexp_class.Vexp_update_norm2
 
         # initialize r and l vectors
         if ts is None:
@@ -679,28 +694,29 @@ class Solver_ES:
             # ------------------------------------------------------------------
 
             # GS
-            if rdm1[0] is not None:
-                v, x2, vmax = Vexp_class.Vexp_update(rdm1[0], (0, 0))
-                fsp[0] = np.subtract(mycc.fock, L[0, 0], v)
+            if Vexp_class.exp_data[0, 0] is not None:
+                V, x2, vmax = Vexp_update(rdm1[0], (0, 0))
+                fsp[0] = np.subtract(mycc.fock, L[0, 0] * V)
                 X2[0, 0] = x2
-            # else:
-            #    fsp[0] = fock.copy()
 
             # ES
             for j in range(nbr_states):
                 n = j+1
 
-                if rdm1[n] is not None:
-                    v, x2, vmax = Vexp_class.Vexp_update(rdm1[n], (n, n))
-                    fsp[n] = np.subtract(mycc.fock, L[j, j] * v)
+                if Vexp_class.exp_data[n, n] is not None:
+                    V, x2, vmax = Vexp_update(rdm1[n], (n, n))
+                    fsp[n] = np.subtract(mycc.fock, L[j, j] * V)
                     X2[n, n] = x2
                 #else:
                 #    fsp[n] = fock.copy()
 
-                if tr_rdm1[j] is not None:
-                    v, X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[j][0], (n, 0))  # right
-                    v, X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[j][1], (0, n))  # left
-                    #v, X2[0, n], vmax = Vexp_class.Vexp_update_norm(tr_rdm1[j][0], (0, n), rdm1_l=tr_rdm1[j][1])
+                if Vexp_class.exp_data[0, n] is not None:
+                    # norm 2 case
+                    v, X2[n, 0], vmax = Vexp_update(tr_rdm1[j][0], (n, 0), rdm1_add=tr_rdm1[j][1])  # right
+                    v, X2[0, n], vmax = Vexp_update(tr_rdm1[j][1], (0, n), rdm1_add=tr_rdm1[j][0])  # left
+                    # DEk case
+                    # v, X2[n, 0], vmax = Vexp_update(rdm1[j], (n, 0), rdm1_add=rdm1[0])
+                    # v, X2[0, n], vmax = Vexp_update(rdm1[j], (0, n), rdm1_add=rdm1[0])
             del v
 
             X2_ite.append(X2)
@@ -755,9 +771,10 @@ class Solver_ES:
 
                 # Davidson using PySCF library
                 if davidson:
-                    # make H_i right matrix and diag terms
+                    # make H_ia right matrix
                     Rinter = mycc.R1inter(ts, fsp[i+1], vexp)
 
+                    # diagonal element
                     diag = np.zeros((nocc, nvir))
                     for j in range(nocc):
                         for b in range(nvir):
@@ -767,7 +784,7 @@ class Solver_ES:
                     # function to create H matrix from Ria and ria
                     matvec = lambda xs: [mycc.R1eq(x.reshape(nocc, nvir), r0n[i], Rinter).flatten() for x in xs]
                     # needed function for diagonal term of H
-                    precond = lambda r, e, r0: r / (e-diag.flatten()+1e-12)
+                    precond = lambda rs, e0, r0: rs/(e0-diag.flatten()+1e-12)
 
                     # Apply Davidson
                     conv, de, rvec = lib.davidson_nosym1(matvec, vec_r, precond, max_space=max_space,
@@ -841,8 +858,8 @@ class Solver_ES:
                 # Update ES energies
                 # ----------------------------------------------
 
-                Ep[i + 1][0] = En_r
-                Ep[i + 1][1] = En_l
+                Ep[i+1][0] = En_r + self.EHF
+                Ep[i+1][1] = En_l + self.EHF
 
             # del Rinter, R0inter, Linter, L0inter, vexp
 

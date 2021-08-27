@@ -17,7 +17,7 @@ import utilities
 
 class Exp:
     def __init__(self, exp_data, mol, mo_coeff, mo_coeff_def=None, rec_vec=None, h=None):
-        '''
+        """
         Class containing the experimental potentials Vnm
         math: Vexp = 2/M sum_i^{M} (Aexp_i-Acalc_i)/sig_i * Ai_pq
               Acalc_i = sum_pq gamma_pq * Ai_pq
@@ -43,7 +43,7 @@ class Exp:
         :param mo_coeff_def: MOs coefficients for the exp rdm1 ("deformed" one)
         :param rec_vec: array of reciprocal lattice lengths (a,b,c)
         :param h: list of Miller indices
-        '''
+        """
 
         self.nbr_of_states = len(exp_data[0])  # total nbr of states: GS+ES
         self.exp_data = exp_data
@@ -61,7 +61,7 @@ class Exp:
         self.h = None
         self.charge_center = None
         self.check = []  # list of prop or mat for each state and transitions
-        # todo: write integrals on external file to save memory
+        # todo: write integrals on external file to save memory ?
         self.dic_int = {}  # dictionary containing needed MO integrals Ai_pq matrix
 
         for n in exp_data.flatten():
@@ -127,11 +127,13 @@ class Exp:
         self.Ek_calc_GS = None
         self.X2_Ek_GS = None
 
-        # initialize Vexp potential 2D list
-        # ------------------------------------
+        # initialize Vexp potential, X2 and vmax 2D list
+        # ------------------------------------------------
         self.Vexp = np.full((self.nbr_of_states, self.nbr_of_states), None)
+        # self.X2 = np.zeros_like(self.Vexp)
+        # self.vmax = np.zeros_like(self.X2)
 
-    def Vexp_update(self, rdm1, index):
+    def Vexp_update(self, rdm1, index, rdm1_add=None):
         """
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
         Here, norm of expectation value are compared
@@ -151,7 +153,7 @@ class Exp:
         X2 = 0.
         vmax = 0.
 
-        # check if prop or matrix comparison
+        # check if prop, lis of prop or matrix comparison
         # -> check_idx = index to retrieve the name of the property from self.check list
         check_idx = np.ravel_multi_index((n, m), self.exp_data.shape)
 
@@ -278,22 +280,31 @@ class Exp:
                 # use given single experimental property
 
                 else:
-                    calc_prop = self.calc_prop(prop, rdm1)
                     exp_prop = self.exp_data[n, m]
                     self.Vexp[n, m] = np.zeros_like(rdm1)
                     X2 = 0.
                     # if prop = dip
                     if isinstance(exp_prop[1], (list, np.ndarray)):
+                        calc_prop = self.calc_prop(prop, rdm1)
                         for d_calc, d_exp, j in zip(calc_prop, exp_prop[1], [0, 1, 2]):
                             self.Vexp[n, m] += np.abs((d_exp - d_calc)) * self.dic_int[prop][j]
                             X2 += (d_exp - d_calc) ** 2
                         self.Vexp[n, m] /= 3.
+                    # Difference in Ek: DEk=Ek_GS-Ek_ES
+                    elif exp_prop[0] == "DEk":
+                        if rdm1_add is None:
+                            raise ValueError('GS rdm1 must be given if DEk is to calculated')
+                        calc_prop = self.calc_prop("Ek", np.subtract(rdm1, rdm1_add))
+                        self.Vexp[n, m] = np.abs((exp_prop[1] - calc_prop)) * self.dic_int['Ek']
+                        X2 = (exp_prop[1] - calc_prop) ** 2
+                    # Ek or v1e
                     elif isinstance(exp_prop[1], float):
+                        calc_prop = self.calc_prop(prop, rdm1)
                         self.Vexp[n, m] = np.abs((exp_prop[1] - calc_prop)) * self.dic_int[prop]
-                        X2 = np.abs(self.Vexp[n, m])
+                        X2 = (exp_prop[1] - calc_prop) ** 2
                     else:
                         raise ValueError('Wrong format for calculated property {}: '
-                                         'must be a list or a float'.format(calc_prop))
+                                         'must be a list or a float'.format(exp_prop[0]))
                     vmax = np.max(abs(self.Vexp[n, m]))
 
             # use given list of properties
@@ -310,6 +321,16 @@ class Exp:
                             self.Vexp[n, m] += np.abs((d_exp - d_calc)) * self.dic_int[exp_prop[0]][j]
                             X2 += (d_exp - d_calc) ** 2
                             M += 1
+                    # Difference in Ek: DEk=Ek_GS-Ek_ES
+                    elif exp_prop[1] == "DEk":
+                        if rdm1_add is None:
+                            raise ValueError('GS rdm1 must be given if DEk is to calculated')
+                        calc_prop = self.calc_prop('DEk', np.subtract(rdm1, rdm1_add))
+                        exp_prop = self.exp_data[n, m]
+                        self.Vexp[n, m] = np.abs((exp_prop - calc_prop)) * self.dic_int['Ek']
+                        X2 += (exp_prop - calc_prop) ** 2
+                        M += 1
+                    # Ek and V1e
                     elif isinstance(exp_prop[1], float):
                         self.Vexp[n, m] += np.abs((exp_prop[1] - calc_prop)) * self.dic_int[exp_prop[0]]
                         X2 += (exp_prop[1] - calc_prop) ** 2
@@ -323,15 +344,15 @@ class Exp:
 
             return self.Vexp[n, m], X2, vmax
 
-    def Vexp_update_norm2(self, rdm1, rdm1_left, index):
+    def Vexp_update_norm2(self, rdm1, index, rdm1_add=None):
         """
         Update the Vexp[index] element of the Vexp matrix for a given rdm1_calc
         assumes that square norm for the expectation value are compared
 
         rdm can be a transition rdm. In this case the right and left tr_rdm must be given
 
-        :param rdm1: rdm1 or nm tr_rdm1 in MO basis
-        :param rdm1_left: transpose rdm1 or left (mn) tr_rdm1 in MO basis
+        :param rdm1: rdm1 or nm tr_rdm1 in MO basis, if not given rdm1_add=rdm1
+        :param rdm1_add: transpose rdm1 or left (mn) tr_rdm1 in MO basis
         :param index: nm index of the potential Vexp
              -> index = (0,0) for GS
              -> index = (n,n) for prop. of excited state n
@@ -355,6 +376,9 @@ class Exp:
 
         if index == (0, 0):
 
+            if rdm1_add is None:
+                rdm1_add = rdm1.transpose()
+
             # if only one data
 
             if isinstance(self.check[check_idx], str):
@@ -377,7 +401,7 @@ class Exp:
                 # use given single experimental property
 
                 else:
-                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_left)  # returns A.g1*A.g2, A.g2
+                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_add)  # returns A.g1*A.g2, A.g2
                     exp_prop = self.exp_data[0, 0]
                     self.Vexp[0, 0] = np.zeros_like(rdm1)
 
@@ -417,7 +441,7 @@ class Exp:
                 M = 0.  # nbr of prop
 
                 for exp_prop in self.exp_data[0, 0]:
-                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_left)
+                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_add)
 
                     # dip case -> 3 components
                     if isinstance(calc_prop, (list, np.ndarray)) and len(calc_prop) == 3:
@@ -455,6 +479,9 @@ class Exp:
             # Excited state case
             # --------------------
 
+            if rdm1_add is None:
+                rdm1_add = rdm1.copy()
+
             # if one exp data
 
             if isinstance(self.check[check_idx], str):
@@ -473,14 +500,14 @@ class Exp:
 
                 # use given single experimental property
                 else:
-                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_left)
+                    calc_prop, A_scale = self.calc_prop(prop, rdm1, rdm1_2=rdm1_add)
                     exp_prop = self.exp_data[k, l]
                     self.Vexp[n, m] = np.zeros_like(rdm1)
                     X2 = 0.
                     # if prop = dip
                     if isinstance(exp_prop[1], (list, np.ndarray)):
                         for d_calc, d_exp, j, A in zip(calc_prop, exp_prop[1], [0, 1, 2], A_scale):
-                            self.Vexp[k, l] += (d_exp - d_calc) * self.dic_int[prop][j] * A
+                            self.Vexp[n, m] += (d_exp - d_calc) * self.dic_int[prop][j] * A
                             X2 += (d_exp - d_calc) ** 2
                         self.Vexp[n, m] /= 3.
                     elif isinstance(exp_prop[1], float):
@@ -500,7 +527,7 @@ class Exp:
                 # loop over properties
                 for exp_prop in self.exp_data[k, l]:
                     # returns |A|^2, A if rdm1_2 is given
-                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_left)
+                    calc_prop, A_scale = self.calc_prop(exp_prop[0], rdm1, rdm1_2=rdm1_add)
                     # dip case -> 3 components
                     if isinstance(exp_prop[1], list):
                         for d_calc, d_exp, j, A in zip(calc_prop, exp_prop[1], [0, 1, 2], A_scale):
@@ -520,10 +547,41 @@ class Exp:
 
             return self.Vexp[n, m], X2, vmax
 
+    #def Vexp_update_new(self, rdm1, tr_rdm1, index):
+    #    """
+    #
+    #    :param rdm1: list of rdm1
+    #    :param tr_rdm1: list of tr_rdm1
+    #    :param index: index of Vexp element to update
+    #    :return:
+    #    """
+    #
+    #    n, m = index
+    #
+    #    X2 = 0.
+    #    vmax = 0.
+    #
+    #    # check if prop, list of prop or matrix comparison
+    #    # -> check_idx = index to retrieve the name of the property from self.check list
+    #    # can be either a list or a string
+    #    check_idx = np.ravel_multi_index((n, m), self.exp_data.shape)
+    #
+    #    # single property
+    #    if isinstance(self.check[check_idx], str):
+    #        prop = self.check[check_idx]
+    #
+    #        # if norm squared prop (such as transition dipole moment)
+    #        if "2" in prop:
+    #            if index == (0, 0):
+    #                self.Vexp[], self.X2[], self.vmax[] = Vexp_update_norm2(rdm1[0], rdm1[0].transpose(), prop)
+    #        else:
+    #            self.Vexp[], self.X2[], self.vmax[] = Vexp_update(rdm1[0], rdm1[0].transpose(), prop)
+
     def calc_prop(self, prop, rdm1, g_format=True, rdm1_2=None):
         """
         Calculate A**2 and/or A using given rdm1
 
+        :param g_format: True if rdm1 given in Generalized spin-orbit format
         :param prop: one-electron prop to calculate -> 'Ek', 'v1e' or 'dip'
         :param rdm1: reduced one body density matrix in MO basis in G format
         :param rdm1_2: left rdm1, if given, the norm squared of the prop is calculated using both right and left rdm1
@@ -535,7 +593,7 @@ class Exp:
             ans1 = utilities.Ekin(self.mol, rdm1, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                   ek_int=self.Ek_int)
             if rdm1_2 is not None:
-                ans2 = utilities.Ekin(self.mol, rdm1_2, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
+                ans2 = utilities.Ekin(self.mol, rdm1_2.transpose(), g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                       ek_int=np.conj(self.Ek_int))
                 return ans1 * ans2, ans2
             else:
@@ -545,7 +603,7 @@ class Exp:
             ans1 = utilities.v1e(self.mol, rdm1, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                  v1e_int=self.v1e_int)
             if rdm1_2 is not None:
-                ans2 = utilities.v1e(self.mol, rdm1_2, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
+                ans2 = utilities.v1e(self.mol, rdm1_2.transpose(), g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                      v1e_int=np.conj(self.v1e_int))
                 return ans1 * ans2, ans2
             else:
@@ -555,7 +613,7 @@ class Exp:
             ans1 = utilities.dipole(self.mol, rdm1, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                     dip_int=self.dip_int)
             if rdm1_2 is not None:
-                ans2 = utilities.dipole(self.mol, rdm1_2, g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
+                ans2 = utilities.dipole(self.mol, rdm1_2.transpose(), g=g_format, aobasis=False, mo_coeff=self.mo_coeff,
                                         dip_int=np.conj(self.dip_int))
                 return list(ans1 * ans2), list(ans2)
             else:
@@ -567,8 +625,8 @@ class Exp:
             ans1 = utilities.structure_factor(self.mol, self.h, rdm1, aobasis=False, mo_coeff=self.mo_coeff,
                                               F_int=self.F_int)
             if rdm1_2 is not None:
-                ans2 = utilities.structure_factor(self.mol, self.h, rdm1_2, aobasis=False, mo_coeff=self.mo_coeff,
-                                                  F_int=np.conj(self.F_int))
+                ans2 = utilities.structure_factor(self.mol, self.h, rdm1_2.transpose(), aobasis=False,
+                                                  mo_coeff=self.mo_coeff, F_int=np.conj(self.F_int))
                 return list(ans1 * ans2), list(ans2)
             else:
                 return list(ans1)

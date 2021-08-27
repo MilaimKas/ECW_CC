@@ -152,11 +152,12 @@ def convert_r_to_g_amp(amp):
     return g_amp
 
 
-def convert_g_to_r_amp(amp):
+def convert_g_to_r_amp(amp, orbspin=None):
     """
     Converts G format amplitudes into R format
     !!! Only works for G amplitudes with [0 1 0 1] spin format !!!
 
+    :param orbspin: array of 0 and 1 defining the alpha and beta nature of the MO coeff
     :param amp:CC single or double amplitudes
     :return:
     """
@@ -164,11 +165,13 @@ def convert_g_to_r_amp(amp):
     if amp.ndim == 2:
         tmp = np.delete(amp, np.s_[1::2], 0)
         r_amp = np.delete(tmp, np.s_[1::2], 1)
+    # use PySCF function for doubles
     elif amp.ndim == 4:
         dim = amp.shape[0]+amp.shape[2]
-        orbspin = np.zeros(dim, dtype=int)
-        orbspin[1::2] = 1
-        r_amp = cc.addons.spin2spatial(amp, orbspin)[1] # t2ab
+        if orbspin is None:
+            orbspin = np.zeros(dim, dtype=int)
+            orbspin[1::2] = 1
+        r_amp = cc.addons.spin2spatial(amp, orbspin)[1]  # t2ab
 
     else:
         raise ValueError('amp dimension must be 2 or 4')
@@ -411,6 +414,21 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1, 0), core_ene_thresh=10.):
     return x0, DE
 
 
+def get_DE(mo_energy, rs):
+    """
+    get the energy difference from the largest element of a amplitude vector
+
+    :param mo_energy: array of MO energies
+    :param rs: vector amplitudes
+    """
+
+    nocc, nvir = rs.shape
+    eia = mo_energy[nocc:] - mo_energy[:nocc, None]
+    idx = np.unravel_index(np.argmax(rs), (nocc, nvir))
+
+    return eia[idx]
+
+
 def tdm_slater(TcL, TcR, occ_diff):
     """
     Express a bi-orthogonal transition density matrix in AOs basis
@@ -466,7 +484,7 @@ def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
     return r0n
 
 
-def check_spin(amp_r,amp_l):
+def check_spin(amp_r, amp_l):
     """
     Calculates the total spin of a CC vector in spin-orbital format
     In our simplest case, the elements corresponding to a->a, b->b, b->a and a->b transition
@@ -991,7 +1009,6 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
         # calculate integral -> 3 components
         with mol.with_common_orig(charge_center):
             dip_int = mol.intor_symmetric('int1e_r', comp=3)
-
     # contract rdm1 and dip_int
     ans = np.einsum('xij,ji->x', dip_int, rdm1)
 
