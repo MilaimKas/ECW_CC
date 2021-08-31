@@ -857,13 +857,16 @@ class Gccs:
         del Zab, Zji, Zai
 
         # Vexp intermediate P: equation (22)
-        v_vo = vm[nocc:, :nocc]
-        v_vv = vm[nocc:, nocc:]
-        v_oo = vm[:nocc, :nocc]
-        Pia = v_vo.copy()
-        Pia += np.einsum('ab,ib->ai', v_vv, ts)
-        Pia -= np.einsum('ii,ja,ib->ai', v_oo, ts, ts)
-        Pia = np.einsum('ai->ia', Pia)
+        if vm is None:
+            Pia = np.zeros_like(Tia)
+        else:
+            v_vo = vm[nocc:, :nocc]
+            v_vv = vm[nocc:, nocc:]
+            v_oo = vm[:nocc, :nocc]
+            Pia = v_vo.copy()
+            Pia += np.einsum('ab,ib->ai', v_vv, ts)
+            Pia -= np.einsum('ii,ja,ib->ai', v_oo, ts, ts)
+            Pia = np.einsum('ai->ia', Pia)
 
         return Fab, Fji, Wakic, Er, Tia, Pia
 
@@ -902,11 +905,11 @@ class Gccs:
 
         return Em, o, v
 
-    def rsupdate(self, rs, r0, Rinter, Em, idx=None):
+    def rsupdate(self, rs, r0, Rinter, Em, force_alpha=True):
         """
         Update r1 amplitudes using Ria equations and given E for iteration k
 
-        :param idx: index of the largest rs element. If given, the beta counterpart amplitude will be kept 0
+        :param force_alpha: make all beta excitation 0
         :param rs: matrix of r1 amplitudes for state m at k-1 iteration
         :param r0: r0 amplitude for state m at iteration k-1
         :param Rinter: r1 intermediates for state m
@@ -932,20 +935,12 @@ class Gccs:
         rsnew += rs*F
         rsnew += r0*Zia
         rsnew += Pia
+        rsnew /= (Em + diag_oo[:, None] - diag_vv)
 
-        if idx is not None:
-            o, v = idx
-            rov = rsnew[o-1, v-1]-rs[o-1, v-1]*Em
-            rov /= (diag_oo[o-1]-diag_vv[v-1])
-            rsnew /= (Em+diag_oo[:, None]-diag_vv)
-            rsnew[o-1, v-1] = rov
-            return rsnew
-
-        else:
-            rsnew /= (Em+diag_oo[:, None]-diag_vv)
+        if force_alpha:
             rsnew[0::2, :] = 0.  # force alpha transition
-            return rsnew
 
+        return rsnew
 
     def get_ov(self, ls, l0, rs, r0, ind):
         """
@@ -1197,7 +1192,7 @@ class Gccs:
 
         # Fij: equation (31)
         Fij = foo.copy()
-        #Fij += np.einsum('ikjk->ij', self.eris.oooo)  ##
+        # Fij += np.einsum('ikjk->ij', self.eris.oooo)  ##
         Fij += np.einsum('jb,ib->ij', ts, fov)
         Fij += np.einsum('kb,kibj->ij', ts, self.eris.oovo)
         # Fij += np.einsum('jb,ikbk->ij', ts, self.eris.oovo) ##
@@ -1211,7 +1206,7 @@ class Gccs:
 
         # El: equation (33) --> same as for R1inter (energy term)
         Fjb = fov.copy()
-        #Fjb += np.einsum('jkbk->jb',self.eris.oovo)  ##
+        # Fjb += np.einsum('jkbk->jb',self.eris.oovo)  ##
         Fjb += 0.5*np.einsum('kc,jkbc->jb', ts, self.eris.oovv)
         El = np.einsum('jb,jb', ts, Fjb)
         del Fjb
@@ -1220,13 +1215,16 @@ class Gccs:
         # ------------------
 
         Zia  = fov.copy()
-        #Zia += np.einsum('ikak->ia', self.eris.oovo)  ##
+        # Zia += np.einsum('ikak->ia', self.eris.oovo)  ##
         Zia += np.einsum('jb,jiba->ia', ts, self.eris.oovv)
 
         # Vexp intermediate P
         # ---------------------
 
-        P = vm[:nocc, nocc:].copy()
+        if vm is None:
+            P = np.zeros((nocc, nocc))
+        else:
+            P = vm[:nocc, nocc:].copy()
 
         return Fba, Fij, W, El, Zia, P
 
@@ -1360,10 +1358,11 @@ class Gccs:
             else:
                 raise ValueError('Both solution for l0 are negative')
 
-    def es_lsupdate(self, ls, l0, Em, L1inter, idx=None):
+    def es_lsupdate(self, ls, l0, Em, L1inter, force_alpha=True):
         """
         Update the l1 amplitudes for state m
 
+        :param force_alpha: force beta transition to be 0
         :param ls: list of l amplitudes for the m excited state
         :param l0: l0 amplitude for state m
         :param Em: Energy of the state m
@@ -1387,20 +1386,12 @@ class Gccs:
         lsnew += ls*F
         lsnew += l0*Zia
         lsnew += P
-        # lsnew -= ls*Em  # uncomment if E term stays on the right hand side
+        lsnew /= (Em + diag_oo[:, None] - diag_vv)
 
-        if idx is not None:
-            o, v = idx
-            lov = lsnew[o-1, v-1]-ls[o-1, v-1]*Em
-            lov /= (diag_oo[o-1]-diag_vv[v-1])
-            lsnew /= (Em+diag_oo[:, None]-diag_vv)
-            lsnew[o-1, v-1] = lov
-            return lsnew
-
-        else:
-            lsnew /= (Em+diag_oo[:,None]-diag_vv)
+        if force_alpha:
             lsnew[0::2, :] = 0.  # force alpha transition
-            return lsnew
+
+        return lsnew
 
     def es_L1eq(self, ls, l0, es_L1inter):
         """

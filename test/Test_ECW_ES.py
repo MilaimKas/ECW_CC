@@ -2,7 +2,7 @@ import copy
 import numpy as np
 from pyscf import gto, scf, cc, tdscf
 
-from context import Eris, utilities, CCS, Solver_ES, exp_pot
+from context import Eris, utilities, CCS, Solver_ES, exp_pot, exp_pot_new, Solver_ES_new
 
 # build molecule
 mol = gto.Mole()
@@ -70,7 +70,9 @@ l0ini = [mccsg.r0_fromE(de, ts, l, vm0) for l, de in zip(lnini, DE)]
 # rnini, lnini, r0ini, l0ini = utilities.ortho_norm(rnini, lnini, r0ini, l0ini, ortho=False)
 
 # build exp list
-exp_data = np.full((nbr_states, nbr_states), None)
+# exp_data = {np.full((nbr_states, nbr_states), None)}  # old format
+exp_data = [] # new format
+exp_data.append([])  # add GS
 
 # build target tr_rdm1 and dip for ES
 ES_trrdm_r = []
@@ -78,6 +80,7 @@ ES_trrdm_l = []
 ES_dip_r = []
 ES_dip_l = []
 for i in range(nbr_states-1):
+    exp_data.append([])
 
     # ES rdm1
     #ES_rdm1 = mccsg.gamma_es(ts, lnini[i], rnini[i], r0ini[i], l0ini[i])
@@ -87,11 +90,13 @@ for i in range(nbr_states-1):
     # right: r=0 and r0=1
     ES_trrdm_r.append(mccsg.gamma_tr(ts, lnini[i], None, None, l0ini[i]))
     ES_dip_r.append(utilities.dipole(mol, ES_trrdm_r[-1], g=True, aobasis=False, mo_coeff=mo_coeff, dip_int=None))
-    exp_data[i+1, 0] = ['mat', ES_trrdm_r[-1]]
+    #exp_data[i+1, 0] = ['mat', ES_trrdm_r[-1]]  # old format
+
     # left: l=lambda and l0=1
     ES_trrdm_l.append(mccsg.gamma_tr(ts, ls, rnini[i], r0ini[i], 1.))
     ES_dip_l.append(utilities.dipole(mol, ES_trrdm_l[-1], g=True, aobasis=False, mo_coeff=mo_coeff, dip_int=None))
-    exp_data[0, i+1] = ['mat', ES_trrdm_l[-1]]
+    # exp_data[0, i + 1] = ['mat', ES_trrdm_l[-1]]  # old format
+    exp_data[i+1].append(['trmat', [ES_trrdm_r[-1], ES_trrdm_l[-1]]])  # new format
 
     # store squared norm of transition dipole
     #exp_data[0, i+1] = ['dip', ES_dip_l[-1]*ES_dip_r[-1]]
@@ -108,16 +113,17 @@ for i in range(nbr_states-1):
 #exp_data[0,3] = ['dip', [0., 0. ,0.030970]]                # DE = 536 eV
 
 # Vexp object
-VXexp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
+L = 3.
+VXexp = exp_pot_new.Exp(L, exp_data, mol, mgf.mo_coeff)
 
 # convergence options
 maxiter = 50
 conv_thres = 10 ** -5
-diis = ['all']
+diis = 'all'
 conv = 'rl'
 
 # initialise Solver_CCS Class
-Solver = Solver_ES.Solver_ES(mccsg, VXexp, (nbr_states-1, 0), conv_var=conv, conv_thres=conv_thres, maxiter=maxiter,
+Solver = Solver_ES_new.Solver_ES(mccsg, VXexp, conv_var=conv, conv_thres=conv_thres, maxiter=maxiter,
                              diis=diis, mindiis=2)
 
 # CIS calc
@@ -146,16 +152,14 @@ print('Initial ortho')
 print(utilities.check_ortho(rnini, lnini, r0ini, l0ini))
 print()
 
-print('Difference between left and right gamma_exp')
-#for i in range(0, nbr_states-1):
-#    print(np.sum(np.subtract(ES_trrdm_l[i], ES_trrdm_r[i])))
-#    print(np.sum(np.subtract(ES_trrdm_l[i], ES_trrdm_r[i])))
-#print()
+# print('Difference between left and right gamma_exp')
+# for i in range(0, nbr_states-1):
+#     print(np.sum(np.subtract(ES_trrdm_l[i], ES_trrdm_r[i])))
+#     print(np.sum(np.subtract(ES_trrdm_l[i], ES_trrdm_r[i])))
+# print()
 
 # Solve for L
-L = np.full(exp_data.shape, 3.)
-L[0, 0] = 0
-result = Solver.SCF(L)# ,Vexp_norm2=True)
+result = Solver.SCF()# ,Vexp_norm2=True)
 # result = Solver.SCF_diag(L, Vexp_norm2=True)
 
 print()
@@ -182,4 +186,5 @@ ES_trrdm_l = mccsg.gamma_tr(result[1].get('ts'), result[1].get('ls'), result[1].
 #ES_trrdm_l = mccsg.gamma_tr(np.zeros_like(ts), np.zeros_like(ls), rnini[0], 0., 1.)
 print(utilities.dipole(mol, ES_trrdm_r, g=True, aobasis=False, mo_coeff=mo_coeff, dip_int=None) *
       utilities.dipole(mol, ES_trrdm_l, g=True, aobasis=False, mo_coeff=mo_coeff, dip_int=None))
+
 

@@ -20,7 +20,7 @@ from pyscf import gto, scf, cc
 
 # Import ECW modules
 # from . import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
-import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
+import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES, exp_pot_new, Solver_ES_new
 
 # Global float format for print
 # ------------------------------
@@ -189,7 +189,9 @@ class ECW:
 
         # initialize exp_data
         # --------------------------
-        self.exp_data = np.full((1, 1), None)
+        # self.exp_data = np.full((1, 1), None)  # old format
+        self.exp_data = []
+        self.exp_data.append([]) # add GS
 
         # Target energies
         # --------------------
@@ -204,7 +206,6 @@ class ECW:
         print('*** Molecule build ***')
 
     def Build_GS_exp(self, prop, posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
-        # todo: make Koopman ES prop available
         """
         Build "experimental" or "target" data for the GS
 
@@ -224,8 +225,9 @@ class ECW:
 
         # if 'mat' is given, basis must = self.basis
         if basis is not None:
-            if prop == 'mat' and self.mol.basis != basis:
-                print('WARNING: If rdm1 are to be compared, exp and calc rdm1 must be in the same basis')
+            if 'mat' in prop and self.mol.basis != basis:
+                print('WARNING: If rdm1 are to be compared, target and calculated rdm1 must be in the same basis.'
+                      'the {} basis will be used to calculate the targer rdm1'.format(self.mol.basis))
                 basis = None
         if prop == 'mat' and max_def is not None:
             print('WARNING: If rdm1 are to be compared, the geometry for exp anc calc must be the same')
@@ -255,61 +257,57 @@ class ECW:
         # Store GS exp energy
         self.Eexp_GS = gexp.Eexp
 
-        # directly compare rdm1
-        if isinstance(prop, str) and prop == 'mat':
-            # Update exp_data
-            gamma_mo = utilities.ao_to_mo(gexp.gamma_ao, self.mo_coeff)
-            self.exp_data[0, 0] = ['mat', gamma_mo]
+        if isinstance(prop, str):
+            prop = list([prop])
 
-        # other properties (F, Ek, dip, etc)
-        elif isinstance(prop, (list, np.ndarray)):
-            self.exp_data[0, 0] = []
-            for p in prop:
+        # loop over list of properties to calculate (F, Ek, dip, v1e)
+        # self.exp_data[0, 0] = [] # old format
+        for p in prop:
 
-                # Structure Factor p=['F', F]
-                if isinstance(p, (list, np.ndarray)):
-                    if p[0] == 'F':
-                        h = p[1]
-                        self.h = h
-                        if len(p) > 2:
-                            a = p[2][0]
-                            b = p[2][1]
-                            c = p[2][2]
-                        else:
-                            a = 10.
-                            b = 10.
-                            c = 10.
-                        self.rec_vec = np.asarray([a, b, c])
-                        # calculate list of structure factors for each given set of Miller indices
-                        F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,
-                                                       aobasis=True, rec_vec=self.rec_vec)
-                        self.exp_data[0, 0].append(['F', F])
-                    else:
-                        raise SyntaxError('Input for prop must be list(prop1, prop2, ...) where prop is '
-                                          'either a string (Ek, v1e, dip) or a list ['F', h, [a,b,c]] ')
+            # directly compare rdm1
+            if p == 'mat':
+                gamma_mo = utilities.ao_to_mo(gexp.gamma_ao, self.mo_coeff)
+                # self.exp_data[0, 0] = ['mat', gamma_mo]  # old format
+                self.exp_data[0].append(['mat', gamma_mo])
 
-                # Kinetic energy
-                if p == 'Ek':
-                    ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao)
-                    self.exp_data[0, 0].append(['Ek', ek])
+            # Structure Factor p=['F', h, (a,b,c)]
+            if isinstance(p, (list, np.ndarray)):
+                if len(p) != 3:
+                    raise SyntaxError('If structure factors are to be calculated, '
+                                      'the correct syntax is ["F", h, (a,b,c)] where h are '
+                                      'the Miller indices h = [h1, h2, ...] and a,b,c are the reciprocal vector length')
+                else:
+                    rec_vec = np.asarray(p[2])
+                    h = p[1]
+                    # calculate list of structure factors for each given set of Miller indices
+                    F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,
+                                                       aobasis=True, rec_vec=rec_vec)
+                    # self.exp_data[0, 0].append(['F', F])  # old format
+                    self.exp_data[0].append(['F', F, h, rec_vec ])
 
-                # one-electron potential
-                if p == 'v1e':
-                    v1e = utilities.v1e(gexp.mol_def, gexp.gamma_ao)
-                    self.exp_data[0, 0].append(['v1e', v1e])
+            # Kinetic energy
+            if p == 'Ek':
+                ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao)
+                #  self.exp_data[0, 0].append(['Ek', ek])  # olf format
+                self.exp_data[0].append(['Ek', ek])
 
-                # dipole moment
-                if p == 'dip':
-                    dip = utilities.dipole(gexp.mol_def, gexp.gamma_ao)
-                    self.exp_data[0, 0].append(['dip', dip])
-        else:
-            raise SyntaxError('Input for prop must be list(prop1, prop2, ...) where prop is '
-                              'either a string (Ek, v1e, dip) or a list ['F', h, [a,b,c]] ')
+            # one-electron potential
+            if p == 'v1e':
+                v1e = utilities.v1e(gexp.mol_def, gexp.gamma_ao)
+                #  self.exp_data[0, 0].append(['v1e', v1e])  # olf format
+                self.exp_data[0].append(['v1e', v1e])
+
+            # dipole moment
+            if p == 'dip':
+                dip = utilities.dipole(gexp.mol_def, gexp.gamma_ao)
+                #  self.exp_data[0, 0].append(['dip', dip])  # olf format
+                self.exp_data[0].append(['dip', dip])
 
         # store cube file with the target density in "out_dir"
         if self.out_dir:
+            from pyscf.tools import cubegen
             fout = self.out_dir + '/target_GS.cube'
-            utilities.cube(self.exp_data[0, 0][1], self.mo_coeff, self.mol, fout)
+            cubegen.density(self.mol, fout, gexp.gamma_ao)
 
         print('*** GS data stored ***')
 
@@ -419,7 +417,7 @@ class ECW:
         self.r_ini, self.l_ini, self.r0_ini, self.l0_ini = \
             utilities.ortho_norm(self.r_ini, self.l_ini, self.r0_ini, self.l0_ini)
 
-    def CCS_GS(self, Larray, alpha=None, method='scf', graph=True, diis=[],
+    def CCS_GS(self, Larray, alpha=None, method='scf', graph=True, diis='',
                nbr_cube_file=2, tl1ini=0, print_ite_info=False, beta=None, diis_max=15, conv='tl',
                conv_thres=10 ** -6, maxiter=40, tablefmt='rst'):
         """
@@ -430,7 +428,7 @@ class ECW:
         :param method: SCF, newton, gradient or L1_grad
         :param beta: iteration step for the L1_grad method
         :param graph: True if a final plot X2(L) is shown
-        :param diis: apply diis to rdm1 'rdm1' and/or t amplitudes 't' and/or l amplitudes 'l'
+        :param diis: where to apply diis, string 'tl' or 'rdm1'
         :param diis_max: max diis space
         :param nbr_cube_file: number of cube file to be printed for equally spaced L values
         :param tl1ini: initial value for t1 and l1 amplitudes (0=zero, 1=perturbation theory, 2=random)
@@ -448,14 +446,17 @@ class ECW:
                  [5] = final ts and ls amplitudes
         """
 
-        print(self.exp_data)
-
         if method == 'L1_grad' and beta is None:
             raise ValueError('A value for beta (gradient step) must be given for the L1_grad method')
 
-        if self.exp_data.shape[0] > 1:
+        if len(self.exp_data) > 1:
+            self.exp_data = self.exp_data[0]  # new format
             raise Warning('Data for excited states have been found but a ground state solver is used, '
                           'the Vexp potential will only contain GS data')
+
+        # Vexp class
+        #  VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)  # old format
+        VXexp = exp_pot_new.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff)
 
         # initial values for ts and ls
         # CCSD initial values
@@ -482,9 +483,6 @@ class ECW:
         idx = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
         L_print = Larray[idx]
 
-        # Vexp class
-        VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
-
         # CCS class
         if self.myccs is None:
             self.myccs = CCS.Gccs(self.eris)
@@ -507,9 +505,9 @@ class ECW:
         X2 = None
 
         print()
-        print("##############################")
+        print("#################################")
         print("#  Results using " + method + "   ")
-        print("##############################")
+        print("#################################")
         print()
 
         # Loop over Lambda

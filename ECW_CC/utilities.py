@@ -846,7 +846,7 @@ def printNO(rdm1, mf, mol, fout):
        molden.orbital_coeff(mol, f1, no_coeff, ene=mo_ene,occ=no_occ)
 
 
-def cube(rdm1,mo_coeff,mol,fout, g=True):
+def cube(rdm1, mo_coeff, mol, fout, g=True):
     """
 
     :param rdm1: reduced one-particle density matrix in MOs basis
@@ -866,7 +866,7 @@ def cube(rdm1,mo_coeff,mol,fout, g=True):
     if g:
         rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
 
-    cubegen.density(mol,fout,rdm1)
+    cubegen.density(mol, fout, rdm1)
 
 
 def diff_cube(file1,file2,out):

@@ -18,7 +18,7 @@ ecw = Main.ECW(molecule, basis)
 # Build GS exp data from HF/CC+field
 # ------------------------------------
 # ecw.Build_GS_exp('mat', 'CCSD', field=[0.05, 0.01, 0.])  # gamma_exp
-ecw.Build_GS_exp(['Ek'], 'CCSD', field=[0.005, 0.001, 0.], basis='6-311+g**')  # list of prop
+ecw.Build_GS_exp(['mat'], 'CCSD', field=[0.005, 0.001, 0.], basis='6-311+g**')  # list of prop
 
 # Directly gave experimental data for the GS
 # -------------------------------------------
@@ -27,7 +27,7 @@ ecw.Build_GS_exp(['Ek'], 'CCSD', field=[0.005, 0.001, 0.], basis='6-311+g**')  #
 # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
 # ---------------------------------------------------------------------
 
-diis = ['rdm1']
+diis = 'rdm1'
 # Results, plot = ecw.CCSD_GS(Larray, graph=True)
 # Results, plot = ecw.CCSD_GS(Larray, graph=True, print_ite_info=False)
 Results, plot = ecw.CCS_GS(Larray, graph=True, print_ite_info=False, conv_thres=10**-5, diis=diis, maxiter=50)

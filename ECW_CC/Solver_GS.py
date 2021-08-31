@@ -20,7 +20,7 @@ import utilities
 
 
 class Solver_CCS:
-    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis=[],
+    def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis='',
                  maxiter=40, maxdiis=15, CCS_grad=None):
         '''
         
@@ -30,7 +30,7 @@ class Solver_CCS:
         :param conv_thres: convergence threshold 
         :param tsini: initial values for ts
         :param lsini: initial values for ls
-        :param diis: list 'rdm1', 't' and/or 'l'
+        :param diis: string 'rdm1' or 'tl'
         :param maxiter: max number of SCF iteration
         :param maxdiis: maximum space for DIIS
         :param CCS_grad: object containing the XCW-CCS gradient and Newton's method
@@ -88,14 +88,14 @@ class Solver_CCS:
     def tl_check(self, dic):
         ls = dic.get('ls')
         ts = dic.get('ts')
-        arr = abs(ls)+abs(ts)
+        arr = ls + ts
         return arr
 
     #############
     # SCF method
     #############
 
-    def SCF(self, L, ts=None, ls=None, diis=None, alpha=None, store_ite=False):
+    def SCF(self, L, ts=None, ls=None, diis='', alpha=None, store_ite=False):
         """
         SCF+DISS solver for the ECW-CCS equations with L1 regularization term
         This method corresponds to a quasi Newton method.
@@ -103,7 +103,7 @@ class Solver_CCS:
         :param L: Lambda, weight of the experimental potential
         :param ts: initial t1 amplitudes
         :param ls: initial l1 amplitudes
-        :param diis: tuple of 'rdm1', 'rl'
+        :param diis: string 'rdm1' or 'tl'
         :param alpha: L1 regularization parameter
         :param store_ite: store ts and ls at each ite
         :return: [0] = convergence text
@@ -120,7 +120,7 @@ class Solver_CCS:
             ls = self.lsini
 
         # store diis option
-        if diis is None:
+        if not diis:
             diis = self.diis
 
         # initialize 1 body reduced density matrix
@@ -140,21 +140,16 @@ class Solver_CCS:
         Ep_ite = []
         conv_ite = []
 
-        # initialize diis for ts,ls, rdm1
+        # initialize diisclass for ts,ls or rdm1
+        cl_diis = None
         if diis:
-            if 'rdm1' in diis:
-                adiis = lib.diis.DIIS()
-                adiis.space = self.maxdiis
-                adiis.min_space = 2
-            if 'tl' in diis:
-                tl_diis = lib.diis.DIIS()
-                tl_diis.space = self.maxdiis
-                tl_diis.min_space = 2
+            cl_diis = lib.diis.DIIS()
+            cl_diis.space = self.maxdiis
+            cl_diis.min_space = 2
 
         # initialize list of ts and ls for each iteration
-        if store_ite:
-            ts_ite = []
-            ls_ite = []
+        ts_ite = []
+        ls_ite = []
 
         # MAIN LOOP
         # -------------------------------------------------
@@ -165,8 +160,10 @@ class Solver_CCS:
 
             # update fock matrix and store X2
             # ---------------------------------
-            V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))
-            fsp = np.subtract(self.fock, L*V)
+            #  V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))  # olf format
+            #  fsp = np.subtract(self.fock, L*VXexp.Vexp[0, 0])  # old format
+            X2, vmax = VXexp.Vexp_update(rdm1, rdm1, (0, 0), L=L)
+            fsp = np.subtract(self.fock, VXexp.Vexp[0, 0])
             X2_ite.append((X2, vmax))
 
             # update t amplitudes
@@ -187,9 +184,9 @@ class Solver_CCS:
 
             # Apply diis to t and l amplitudes
             # ------------------------------------
-            if 'tl' in diis:
+            if diis == 'tl':
                 vec = np.concatenate((np.ravel(ls), np.ravel(ts)))
-                ls, ts = np.split(tl_diis.update(vec), 2)
+                ls, ts = np.split(cl_diis.update(vec), 2)
                 ts = ts.reshape((nocc, nvir))
                 ls = ls.reshape((nocc, nvir))
 
@@ -197,9 +194,9 @@ class Solver_CCS:
             # --------------------------------
             rdm1 = self.mycc.gamma(ts, ls)
             # apply DIIS
-            if 'rdm1' in diis:
+            if diis == 'rdm1':
                 rdm1_vec = np.ravel(rdm1)
-                rdm1 = adiis.update(rdm1_vec).reshape((dim, dim))
+                rdm1 = cl_diis.update(rdm1_vec).reshape((dim, dim))
 
             # calculate E'
             # -------------------------------------------

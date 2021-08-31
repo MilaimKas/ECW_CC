@@ -7,4 +7,4 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # print(sys.path)
-import Eris, utilities, CCS, Solver_ES, exp_pot, Solver_GS, gamma_exp, Main
+import Eris, utilities, CCS, Solver_ES, exp_pot, Solver_GS, gamma_exp, Main, exp_pot_new, Solver_ES_new
