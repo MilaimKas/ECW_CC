@@ -1,8 +1,5 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
-
 """
- Calculate Vexp potential and X2 statistic from either rdm1_exp or one electron properties
+ Calculate Vexp potential and difference between exp and calc. from either rdm1_exp or one electron properties
 """
 
 
@@ -13,46 +10,40 @@ import utilities
 
 
 class Exp:
-    def __init__(self, L, exp_data, mol, mo_coeff, mo_coeff_def=None):
+    def __init__(self, L, exp_data, mol, mo_coeff, Ek_exp_GS=None):
         """
         Class containing the experimental potentials Vnm
         Vnm is a matrix containing the Vexp potential associated to the state nn or the transition potential 0n, n0
         In the present implementation only diagonal Vnn and off-diagonal V0n, Vn0 cases are account for,
-        i.e only state properties and transition with GS
-
-        math: Vexp^nm  = 2/M sum_i^{M} (|Aexp_i-sum_pq gamma^nm_pq * Ai_pq|)/sig_i * Ai_rs
-              Vexp2^nm = 2/M sum_i^{M} (|Aexp_i-sum_pquv gamma^mn_pq * gamma^nm_vu * Ai_pq * Ai_uv.conj |)/sig_i
-                         * Ai_rs.conj * sum_pq gamma^mn_pq Ai_pq
-
-        second definition for transition properties (norm squared)
+        i.e only state properties and transition with GS.
 
         :param exp_data: list of n elements, where n=nbr of states. Each element contains the exp properties for
                          the given state.
                          exp_data = [[GS],[ES1],...,[ESn]]
-                         GS, ES = ['prop1', value], ['prop2', value]
+                         GS, ESn = ['prop1', value], ['prop2', value]
                     prop1 = 'mat','Ek','dip','v1e','F', 'DEkn'
-                             => 'mat': value = given rdm1 or left and right tr_rdm1
+                             => 'mat': value = given rdm1
+                             => 'trmat': value = tuple with given left and right tr_rdm1
                              => 'Ek': value = kinetic energy
-                             => 'dip': value = mu_x, mu_y, mu_z dipole moment or transition dipole moment
+                             => 'dip': value = mu_x, mu_y, mu_z dipole moment
+                             => 'trdip': value = mu_x, mu_y, mu_z transition dipole moment
                              => 'F': value = [F, h, (a,b,c)] structure factor, miller index and reciprocal vector
                              => 'v1e': value = one electron potential
                              => 'DEKn': value = Ek difference between GS and ESn
         :param mol: PySCF molecule object
         :param mo_coeff: "canonical" MOs coefficients
-        :param mo_coeff_def: MOs coefficients for the exp rdm1 ("deformed" one)
+        :param Ek_exp_GS: experimental Ek for the GS
         :param L: array of L values for each state and each set of properties
         """
 
         self.nbr_states = len(exp_data)  # total nbr of states: GS+ES
         self.exp_data = exp_data
         self.mo_coeff = mo_coeff
-        self.mo_coeff_def = mo_coeff_def
         self.mol = mol
 
         # check L format
         self.L = self.L_check(L)
 
-        self.h = None  # miller index
         self.charge_center = None
 
         # store necessary AOs and MOs integrals
@@ -78,14 +69,17 @@ class Exp:
             for prop in exp_data[i]:
 
                 # structure factor
-                if prop[0] == 'F' and self.F_int is not None:
+                if prop[0] == 'F':
                     if len(prop) < 4:
                         raise SyntaxError('If Structure factors are to be calculated, '
                                           'Structure factors, Miller indices and reciprocal '
                                           'vectors must be given in exp_data: '
                                           '['F', F, h, rec_vec]')
                     # F_mo.shape = (nbr_h_pts, dim, dim)
-                    self.dic_int['F'], self.F_int = utilities.FT_MO(mol, prop[2], mo_coeff, prop[3])
+                    if self.F_int is None:
+                        self.dic_int['F'], self.F_int = utilities.FT_MO(mol, prop[2], mo_coeff, prop[3])
+                    self.h = prop[2]
+                    self.rec_vec = prop[3]
 
                 # dipole integrals for "dip" or "trdip"
                 if 'dip' in prop[0] and self.dip_int is None:
@@ -118,17 +112,12 @@ class Exp:
             if 'DEk' in self.prop_names[0][i]:
                 self.DEk_GS_idx = i
 
-        # calculate Ek_exp from rdm1_exp for the GS if rdm1 given
-        # ---------------------------------------------------------
-
         # initialize Ek_calc_GS
-        if 'mat' in self.prop_names[0]:
-            if self.Ek_int is None:
-                self.Ek_int = mol.intor_symmetric('int1e_kin')
-            self.Ek_exp_GS = utilities.Ekin(mol, exp_data[0][0][1], aobasis=False,
-                                            ek_int=self.Ek_int, mo_coeff=self.mo_coeff)
+        # -------------------------------------------------
+        if Ek_exp_GS is not None:
+            self.Ek_exp_GS = Ek_exp_GS
         self.Ek_calc_GS = None
-        self.X2_Ek_GS = None
+        self.Delta_Ek_GS = None
 
         # initialize Vexp potential
         # ------------------------------------------------
@@ -137,6 +126,17 @@ class Exp:
     def Vexp_update(self, rdm1, rdm1_add, index, L=None):
         """
         Update the Vexp[index] element of the Vexp matrix for given rdm1
+        and calculates the relative difference Delta.
+
+        math:
+        Vexp^nm  = 2/M sum_i^{M} (|Aexp_i-sum_pq gamma^nm_pq * Ai_pq|)/sig_i * Ai_rs
+        Vexp2^nm = 2/M sum_i^{M} (|Aexp_i-sum_pquv gamma^mn_pq * gamma^nm_vu * Ai_pq * Ai_uv.conj |)/sig_i
+                   * Ai_rs.conj * sum_pq gamma^mn_pq Ai_pq
+
+        second definition for transition properties (norm squared)
+
+        Delta = sum_ij |gamma_exp_ij - gamma_calc_ij| / (sum_ij |gamma_exp_ij|
+         or sum_i|A_exp,i-A_calc,i|/A_exp,i
 
         :param rdm1: calculated rdm1 or left(mn) or right(nm) tr_rdm1 in MO basis
         :param rdm1_add: additional rdm1. Can be left or right tr_rdm1 or rdm1 needed for DEk
@@ -150,8 +150,10 @@ class Exp:
 
         n, m = index
 
-        # initialize Vexp
+        # initialize
         self.Vexp[n, m] = np.zeros_like(rdm1)
+        Delta = 0.
+        vmax = 0.
 
         # experimental weight
         if L is None:
@@ -159,16 +161,11 @@ class Exp:
         else:
             L = self.L_check(L)
 
-        X2 = 0.
-        vmax = 0.
-        exp_prop = 0.
-        calc_prop = 0.
-
         # check if prop, lis of prop or matrix comparison
         # -> st_idx = index to retrieve the name of the property from given state
         st_idx = np.max(index)
 
-        i = 0  # index
+        i = 0  # loop index
 
         # Loop over properties of the given state n or m
         # Update corresponding Vexp element
@@ -177,91 +174,117 @@ class Exp:
 
             if prop == 'mat':
 
-                # given GS exp rdm1
+                # ---------------- given GS or ES exp rdm1 ---------------------------
+
                 if index == (0, 0):
-                    self.Vexp[0, 0] += L[st_idx][i] * np.subtract(self.exp_data[0][i][1], rdm1)
-                    X2 += np.sum(abs(self.Vexp[0, 0]))
-                    vmax = np.max(abs(self.Vexp[0, 0]))
+                    diff = np.subtract(self.exp_data[0][i][1], rdm1)
+                    self.Vexp[0, 0] += L[st_idx][i] * diff
+                    Delta += np.sum(abs(diff))/np.sum(abs(self.exp_data[0][i][1]))
+                    vmax += np.max(abs(diff))
                     # calculate kinetic energy Ek_calc
-                    self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, aobasis=False,
-                                                     mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
-                    # store Chi squared value for Ek
-                    self.X2_Ek_GS = (self.Ek_exp_GS - self.Ek_calc_GS) ** 2
+                    if self.Ek_exp_GS is not None:
+                        self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, aobasis=False,
+                                                         mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
+                        # store Delta value for Ek
+                        self.Delta_Ek_GS = np.abs(self.Ek_exp_GS - self.Ek_calc_GS)/np.abs(self.Ek_exp_GS)
 
-                # given ES exp rdm1
                 elif n == m:
-                    self.Vexp[n, n] += L[st_idx][i] * np.subtract(self.exp_data[n][i][1], rdm1)
-                    X2 += np.sum(abs(self.Vexp[n, n]))
-                    vmax = np.max(abs(self.Vexp[n, n]))
+                    diff = np.subtract(self.exp_data[n][i][1], rdm1)
+                    self.Vexp[n, n] += L[st_idx][i] * diff
+                    Delta += np.sum(abs(diff))/(sum(abs(self.exp_data[n][i][1])))
+                    vmax += np.max(abs(diff))
 
-            # given ES left and right exp tr_rdm1
+            # ------------ given ES left and right exp tr_rdm1 ------------------
+
             if prop == 'trmat' and n != m:
+                # todo: verify definition of Delta
                 if n == 0:  # left
-                    self.Vexp[n, m] += L[st_idx][i] * np.subtract(self.exp_data[st_idx][i][1][0], rdm1)
+                    diff = np.subtract(self.exp_data[st_idx][i][1][0], rdm1)
+                    self.Vexp[n, m] += (L[st_idx][i]) * diff
                 elif m == 0:  # right
-                    self.Vexp[n, m] += L[st_idx][i] * np.subtract(self.exp_data[st_idx][i][1][1], rdm1)
-                X2 += np.sum(abs(self.Vexp[n, m]))
-                vmax = np.max(abs(self.Vexp[n, m]))
+                    diff = np.subtract(self.exp_data[st_idx][i][1][1], rdm1)
+                    self.Vexp[n, m] += (L[st_idx][i]) * diff
+                else:
+                    raise ValueError("Only transition properties between GS and ES are implemented: m or n must be = 0")
+                avg = sum(abs(self.exp_data[st_idx][i][1][1]))+sum(abs(self.exp_data[st_idx][i][1][0]))
+                Delta += np.sum(abs(diff))/(avg/2.)
+                vmax += np.max(abs(diff))
 
+            # ------------------- properties Aexp,i -----------------------
+
+            # Kinetic energy
             if (prop == 'Ek' or prop == 'v1e') and n == m:
                 calc_prop = self.calc_prop(prop, rdm1)  # use calc_prop function sum_pq rdm_pq*Aint_pq
                 exp_prop = self.exp_data[st_idx][i][1]
-                self.Vexp[n, n] += L[st_idx][i] * 2. * np.abs(exp_prop - calc_prop) * self.dic_int[prop]
-                X2 += np.abs(exp_prop - calc_prop) ** 2
-                vmax = np.max(abs(self.Vexp[n, n]))
+                diff = np.abs(exp_prop - calc_prop) * self.dic_int[prop]
+                self.Vexp[n, n] += L[st_idx][i] * diff
+                Delta += np.abs(exp_prop - calc_prop)/np.abs(exp_prop)
+                vmax = np.max(abs(diff))
 
+            # Kinetic energy difference
             if 'DEk' in prop and n == m and n != 0:
                 # only update when calling for the ES
                 Drdm1 = np.subtract(rdm1, rdm1_add)  # ESn_rdm1 - GS_rdm1
                 calc_prop = self.calc_prop('Ek', Drdm1)  # use calc_prop function sum_pq rdm_pq*Aint_pq
                 exp_prop = self.exp_data[st_idx][i][1]
-                v_tmp = 2. * np.abs(exp_prop - calc_prop) * self.dic_int['Ek']
+                v_tmp = np.abs(exp_prop - calc_prop) * self.dic_int['Ek']
                 # update excited states Vexp with corresponding L
                 self.Vexp[n, m] += L[st_idx][i] * v_tmp
                 # update ground state Vexp with corresponding L
-                if self.DEk_GS_idx is None:
+                if self.DEk_GS_idx is not None:
                     self.Vexp[0, 0] += L[0][self.DEk_GS_idx] * v_tmp
                 else:  # if L not given for GS DEk, use ES value
-                    self.Vexp[0, 0] += L[0][st_idx] * v_tmp
-                X2 = np.abs(exp_prop - calc_prop) ** 2
-                vmax = np.max(np.abs(self.Vexp[n, m]))
+                    self.Vexp[0, 0] += L[st_idx][i] * v_tmp
+                Delta += np.abs(exp_prop - calc_prop)/np.abs(exp_prop)
+                vmax += np.max(np.abs(v_tmp))
 
+            # dipole moment
             if prop == 'dip' and n == m:
-                calc_prop = self.calc_prop('Ek', rdm1)  # use calc_prop function sum_pq rdm_pq*Aint_pq
+                calc_prop = self.calc_prop('dip', rdm1)  # use calc_prop function sum_pq rdm_pq*Aint_pq
                 exp_prop = self.exp_data[st_idx][i][1]
-                x2 = 0.
-                for d_calc, d_exp, d_int in zip(calc_prop, exp_prop[1], self.dic_int[prop]):
-                    self.Vexp[n, m] += L[st_idx][i] * (2. / 3.) * np.abs(d_exp - d_calc) * d_int
-                    x2 += np.abs(d_exp - d_calc) ** 2
-                x2 /= 3.
-                X2 += x2
-                vmax = np.max(np.abs(self.Vexp[0, 0]))
+                delta = 0.
+                for d_calc, d_exp, d_int in zip(calc_prop, exp_prop, self.dic_int[prop]):
+                    diff = np.abs(d_exp - d_calc) * d_int
+                    self.Vexp[n, m] += L[st_idx][i] * diff
+                    delta += np.abs(d_exp - d_calc)
+                    vmax += np.max(np.abs(diff))
+                # delta /= 3.
+                Delta += delta/(np.sum(np.abs(exp_prop)))
 
+            # transition dipole moment -> Vexp2^nm
             if prop == 'trdip' and n != m:
                 calc_prop, A_scale = self.calc_prop('dip', rdm1, rdm1_add=rdm1_add)
                 exp_prop = self.exp_data[st_idx][i][1]
                 self.Vexp[n, m] = np.zeros_like(rdm1)
-                x2 = 0.
+                delta = 0.
                 for d_calc, d_exp, j, A in zip(calc_prop, exp_prop, [0, 1, 2], A_scale):
-                    self.Vexp[n, m] += L[st_idx][i] * (2. / 3.) * np.abs(d_exp - d_calc) * self.dic_int['dip'][j] * A
-                    x2 += np.abs(d_exp - d_calc) ** 2
-                X2 += x2
-                vmax = np.max(np.abs(self.Vexp[n, m]))
+                    diff = np.abs(d_exp - d_calc) * self.dic_int['dip'][j] * A
+                    self.Vexp[n, m] += L[st_idx][i]* 2. * diff
+                    delta += np.abs(d_exp - d_calc)
+                    vmax += np.max(np.abs(diff))
+                # delta /= 3.
+                Delta += delta/(np.sum(np.abs(exp_prop)))
 
+            # structure factor
             if prop == 'F' and n == m:
-                calc_prop = utilities.structure_factor(self.mol, prop[2], rdm1, aobasis=False, mo_coeff=self.mo_coeff,
-                                                       F_int=self.F_int, rec_vec=prop[3])
+                calc_prop = utilities.structure_factor(self.mol, self.h, rdm1,
+                                                       aobasis=False, mo_coeff=self.mo_coeff,
+                                                       F_int=self.F_int, rec_vec=self.rec_vec)
                 exp_prop = self.exp_data[st_idx][i][1]
-                x2 = 0.
-                for F_exp, F_calc, F_int_mo in zip(exp_prop[1][:, 1], calc_prop, self.dic_int[prop]):
-                    self.Vexp[n, n] += L[st_idx][i] * (2. / (len(self.h))) * np.abs((F_exp - F_calc)) * F_int_mo
-                    x2 += np.abs(F_exp - F_calc) ** 2
-                X2 += x2
-                vmax = np.max(np.abs(self.Vexp[n, n]))
+                # x2 = 0.
+                delta = 0.
+                for F_exp, F_calc, F_int_mo in zip(exp_prop, calc_prop, self.dic_int[prop]):
+                    diff = np.abs((F_exp - F_calc)) * F_int_mo
+                    self.Vexp[n, n] += L[st_idx][i] * (2. / (len(self.h))) * diff
+                    # x2 += np.abs(F_exp - F_calc) ** 2
+                    delta += np.abs(F_exp - F_calc)/np.abs(F_exp)
+                    vmax += np.max(np.abs(diff))
+                # X2 += x2
+                Delta += delta
 
             i += 1
 
-        return X2, vmax
+        return Delta, vmax
 
     def calc_prop(self, prop, rdm1, g_format=True, rdm1_add=None):
         """
@@ -272,7 +295,7 @@ class Exp:
         :param rdm1: reduced one body density matrix in MO basis in G format
         :param rdm1_add: left rdm1, if given, the norm squared of the prop is calculated using both right and left rdm1
                         where rdm1_2 is the rdm1^mn if Vnm
-        :return: calculated one-electron property A**2 and/or A
+        :return: calculated one-electron property (A**2 and/or A)
         """
 
         if prop == 'Ek':
@@ -326,19 +349,25 @@ class Exp:
         """
 
         # if only one value is given, all prop are weighted with this value
-        if isinstance(L, float):
+        if isinstance(L, (float, int)):
             L_list = []
             for st in self.exp_data:
-                L_list.extend([[L]*len(st)])
+                L_list.extend([[float(L)]*len(st)])
             return L_list
         # if array or list is given, check the size and shape
         elif isinstance(L, (list, np.ndarray)):
             if len(L) != self.nbr_states:
                 raise SyntaxError('Given constrain weight length does not equal the number of states')
+            # if only 1 value of L per states, all prop are wighted equally
+            i = 0
             for st, l in zip(self.exp_data, L):
-                if len(st) != len(l):
-                    raise SyntaxError('Given constrain weight length for properties of state {} '
-                                      'does not equal the number of given properties'.format(l))
+                if len(st) != len(l) and len(l) == 1:
+                    print('Warning: all properties for state {} will be wighted equally '.format(i))
+                    for j in range(len(st)-1):
+                        L[i].extend(l[0])
+                elif len(st) != len(l):
+                    raise SyntaxError("Wrong syntax for L list")
+                i += 1
 
             return L
 

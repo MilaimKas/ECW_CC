@@ -9,7 +9,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from pyscf import gto, scf, cc
 
 # CCS files
-from context import CCS, Solver_GS, exp_pot, Eris
+from context import CCS, Solver_GS, exp_pot, Eris, exp_pot_new
 
 ##################
 # Build molecule
@@ -77,9 +77,11 @@ Larray = [0, 1, 1.5, 2.2]
 conv = 10**-5
 
 # Vexp Object
-exp_data = np.full((1, 1), None)
-exp_data[0, 0] = ['mat', rdm1_exp]
-VX_exp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)
+# exp_data = np.full((1, 1), None) # old
+# exp_data[0, 0] = ['mat', rdm1_exp] # old
+# VX_exp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)  # old
+exp_data = [[['mat', rdm1_exp]]]
+VX_exp = exp_pot_new.Exp(Larray[0], exp_data, mol, mgf.mo_coeff)
 
 # Gradient object
 mygrad = CCS.ccs_gradient(geris)
@@ -118,27 +120,27 @@ ls_scf = np.zeros((2, 2))
 # except conv text and rdm1 all array contain the result for each iteration
 
 for L in Larray:
-  #Result_scf.append(Solver.SCF(L, ts=ts_scf, ls=ls_scf, diis=tuple(), store_ite=True))
-  Result_scf.append(Solver.SCF(L, ts=ts_grad, ls=ls_grad, diis=tuple(), store_ite=True))
-  Result_scf_L1.append(Solver.SCF(L, ts=ts_scf_L1, ls=ls_scf_L1, diis=tuple(), alpha=alpha, store_ite=True))
-  #Result_scf_rdm.append(Solver.SCF(L, ts=ts_scf_rdm, ls=ls_scf_rdm, diis=('rdm1',), store_ite=True))
-  Result_scf_rdm.append(Solver.SCF(L, ts=ts_grad, ls=ls_grad, diis=('rdm1',), store_ite=True))
-  Result_scf_t_l.append(Solver.SCF(L, ts=ts_scf_t_l, ls=ls_scf_t_l, diis=('t', 'l'), store_ite=True))
-  Result_grad.append(Solver.Gradient(L, method='newton', ts=ts_grad, ls=ls_grad, store_ite=True))
-  Result_des.append(Solver.Gradient(L, beta=0.1, method='descend', ts=ts_des, ls=ls_des, store_ite=True))
+  Result_scf.append(Solver.SCF(L, ts=ts_scf, ls=ls_scf, store_ite=True))
+  #Result_scf.append(Solver.SCF(L, ts=ts_grad, ls=ls_grad, store_ite=True))
+  #Result_scf_L1.append(Solver.SCF(L, ts=ts_scf_L1, ls=ls_scf_L1, alpha=alpha, store_ite=True))
+  Result_scf_rdm.append(Solver.SCF(L, ts=ts_scf_rdm, ls=ls_scf_rdm, diis='rdm1', store_ite=True))
+  #Result_scf_rdm.append(Solver.SCF(L, ts=ts_grad, ls=ls_grad, diis='rdm1', store_ite=True))
+  #Result_scf_t_l.append(Solver.SCF(L, ts=ts_scf_t_l, ls=ls_scf_t_l, diis=('t', 'l'), store_ite=True))
+  #Result_grad.append(Solver.Gradient(L, method='newton', ts=ts_grad, ls=ls_grad, store_ite=True))
+  #Result_des.append(Solver.Gradient(L, beta=0.1, method='descend', ts=ts_des, ls=ls_des, store_ite=True))
 
-  #ts_scf         = Result_scf[-1][5][-1, :, :]
-  #ls_scf         = Result_scf[-1][6][-1, :, :]
-  #ts_scf_rdm     = Result_scf_rdm[-1][5][-1, :, :]
-  #ls_scf_rdm     = Result_scf_rdm[-1][6][-1, :, :]
-  ts_scf_L1       = Result_scf_L1[-1][5][-1, :, :]
-  ls_scf_L1       = Result_scf_L1[-1][6][-1, :, :]
-  ts_scf_t_l = Result_scf_t_l[-1][5][-1, :, :]
-  ls_scf_t_l = Result_scf_t_l[-1][6][-1, :, :]
-  ts_grad        = Result_grad[-1][5][-1, :, :]
-  ls_grad        = Result_grad[-1][6][-1, :, :]
-  ts_des = Result_des[-1][5][-1, :, :]
-  ls_des = Result_des[-1][6][-1, :, :]
+  ts_scf         = Result_scf[-1][5][-1, :, :]
+  ls_scf         = Result_scf[-1][6][-1, :, :]
+  ts_scf_rdm     = Result_scf_rdm[-1][5][-1, :, :]
+  ls_scf_rdm     = Result_scf_rdm[-1][6][-1, :, :]
+  #ts_scf_L1       = Result_scf_L1[-1][5][-1, :, :]
+  #ls_scf_L1       = Result_scf_L1[-1][6][-1, :, :]
+  #ts_scf_t_l = Result_scf_t_l[-1][5][-1, :, :]
+  #ls_scf_t_l = Result_scf_t_l[-1][6][-1, :, :]
+  #ts_grad        = Result_grad[-1][5][-1, :, :]
+  #ls_grad        = Result_grad[-1][6][-1, :, :]
+  #ts_des = Result_des[-1][5][-1, :, :]
+  #ls_des = Result_des[-1][6][-1, :, :]
 
 ##################
 # Plot T1/L1 map
@@ -207,11 +209,8 @@ for L in Larray:
     #axs[i, j].scatter(Result_scf_t_l[pl_num][5][-1, 0, 0], Result_scf_t_l[pl_num][6][-1, 0, 0], marker='o', color='grey', s=40)
 
     # newton
-    print('t-l')
-    print(np.subtract(Result_grad[pl_num][5][:, :, :], Result_grad[pl_num][6][:, :, :]))
-
-    axs[i, j].plot(Result_grad[pl_num][5][::2, 0, 0], Result_grad[pl_num][6][::2, 0, 0], marker='o', markersize=10,
-                      alpha=0.8, linewidth=0.5, markerfacecolor='white', color='black')
+    #axs[i, j].plot(Result_grad[pl_num][5][::2, 0, 0], Result_grad[pl_num][6][::2, 0, 0], marker='o', markersize=10,
+                      #alpha=0.8, linewidth=0.5, markerfacecolor='white', color='black')
     #axs[i, j].plot(Result_grad[pl_num][5][-1, 0, 0], Result_grad[pl_num][6][-1, 0, 0],
     #                  marker='x', color='black', markersize=8)
 
@@ -236,7 +235,7 @@ for L in Larray:
         axins = inset_axes(axs[i, j], width="40%", height="40%", loc=2)
         axins.set_facecolor('black')
         axins.patch.set_alpha(0.5)
-        axins.plot(Result_grad[pl_num][3][1:], color='white', linewidth=2)
+        #axins.plot(Result_grad[pl_num][3][1:], color='white', linewidth=2)
         axins.plot(Result_scf[pl_num][3][1:], color='orange', linewidth=2)
         axins.plot(Result_scf_rdm[pl_num][3][1:], color='green', linewidth=2)
         axins.set_xticks([])

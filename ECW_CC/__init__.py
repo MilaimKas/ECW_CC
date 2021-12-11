@@ -1,4 +1,4 @@
-'''
+"""
 ECW-CC
 experimentally constrained wave function coupled cluster.
 
@@ -38,4 +38,4 @@ How to use
     <BLANKLINE>
     EHF    = -7.59839e+01
     Eexp   = -7.59860e+01
-'''
+"""

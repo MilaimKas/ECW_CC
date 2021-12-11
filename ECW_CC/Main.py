@@ -38,7 +38,8 @@ class ECW:
         :param molecule: string with name of molecule to be used
         :param basis: string with basis set to be used
         :param int_thresh: threshold for 2 electron integrals
-        :param out_dir: path to the directory where the cube file are saved (string), if None do not print cube files
+        :param out_dir: path to the directory where the output files (cube files, results, etc)
+                        are saved (string), if None do not print output files
         :param U_format: if True, the spin-orbital basis are converted from a UHF calculation,
                          if False, the spin-orbital are converted from a RHF calc (a and b SO are degenerate)
         """
@@ -51,9 +52,15 @@ class ECW:
 
         # Geometry
 
-        mol_list = ['c2h4', 'h2o2', 'h2o', 'allene', 'urea']
+        mol_list = ['h2', 'c2h4', 'h2o2', 'h2o', 'allene', 'urea']
 
-        if molecule == 'c2h4':
+        if molecule == 'h2':
+            mol.atom = '''
+            H 0 0 0
+            H 0 0 0.74
+            '''
+
+        elif molecule == 'c2h4':
             # C2H4
             mol.atom = """
             C	0.0000000	0.0000000	0.6034010
@@ -110,10 +117,16 @@ class ECW:
             print(mol_list)
             raise ValueError()
 
+        self.molecule = molecule
+
         mol.unit = 'angstrom'
 
         # basis set
         mol.basis = basis
+
+        # default method
+        self.method = 'scf'
+        self.diis = ''
 
         # HF calculation
         # -------------------
@@ -123,12 +136,11 @@ class ECW:
         mol.spin = spin  # spin
 
         mol.build()  # build mol object
-        natm = int(mol.natm)  # number of atoms
 
         if U_format:
             raise NotImplementedError('Using UHF reference implies different orbspin')
             # mf = scf.UHF(mol)
-            # make orbspin [0 1 0 1 ...]
+            # todo: make orbspin [0 1 0 1 ...]
         else:
             mf = scf.RHF(mol)
 
@@ -144,6 +156,7 @@ class ECW:
 
         # convert in GHF format
         mf = scf.addons.convert_to_ghf(mf)
+        self.mf = mf
 
         # variables related to the MOs basis
         self.mo_coeff = mf.mo_coeff  # matrix where rows are atomic orbitals (AO) and columns are MOs
@@ -169,8 +182,8 @@ class ECW:
         # self.mf = mf
         self.mol = mol
 
-        # print cube file
-        # ---------------------------------
+        # print cube file for L=0 (HF density)
+        # --------------------------------------
         self.out_dir = out_dir
         if out_dir is not None:
             from pyscf.tools import cubegen
@@ -191,7 +204,13 @@ class ECW:
         # --------------------------
         # self.exp_data = np.full((1, 1), None)  # old format
         self.exp_data = []
-        self.exp_data.append([]) # add GS
+        self.exp_data.append([])  # add GS
+        # r and l vectors for the ES
+        self.r_ini = None
+        self.l_ini = None
+        self.r0_ini = None
+        self.l0_ini = None
+        self.Ek_exp_GS = None # GS exp kinetic energy
 
         # Target energies
         # --------------------
@@ -203,20 +222,28 @@ class ECW:
         self.h = None
         self.rec_vec = None
 
+        # initialize list of results as a function of L
+        # -------------------------------------------------
+        self.Larray = []
+        self.Delta_lamb = []  # Relative prop., sum of prop. or rdm1 difference |A_calc-A_exp|/|A_exp|
+        self.Ep_lamb = []  # EHF-Ep
+        self.vmax_lamb = []  # vmax
+        self.Delta_Ek = []  # Relative Ek difference |Ek_calc-Ek_exp|/|Ek_exp|
+
         print('*** Molecule build ***')
 
     def Build_GS_exp(self, prop, posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
         """
         Build "experimental" or "target" data for the GS
 
-        :param basis: basis for the calculation of exp prop
-        :param prop: property to include in exp_data
-                     - 'mat': directly use calculated rdm1 as target
+        :param basis: basis for the calculation of exp. prop.
+        :param prop: list of properties to include in exp_data
+                     - 'mat': directly use calculated rdm1 as target (gamma_exp_GS or rdm1_exp_GS)
                      - 'Ek', 'v1e', 'dip'
                      - ['F', h, (a, b, c)] for structure factor calculation where h=[h1,h2, ...] and hi=(hx,hy,hz)
                                            and a,bc are the lattice vector length. If not given a=b=c=10
         :param posthf: method to calculate gamma_exp_GS
-        :param field: external field ta calculate gamme_exp_GS
+        :param field: external field ta calculate gamma_exp_GS
         :param para_factor: under-fitting coefficient
         :param max_def: maximum bond length deformation in au
         :param basis: basis used for the calculation of properties
@@ -226,10 +253,12 @@ class ECW:
         # if 'mat' is given, basis must = self.basis
         if basis is not None:
             if 'mat' in prop and self.mol.basis != basis:
+                # todo: implement projector between different basis
                 print('WARNING: If rdm1 are to be compared, target and calculated rdm1 must be in the same basis.'
-                      'the {} basis will be used to calculate the targer rdm1'.format(self.mol.basis))
+                      'the {} basis will be used to calculate the target rdm1'.format(self.mol.basis))
                 basis = None
-        if prop == 'mat' and max_def is not None:
+        # if 'mat' is given, the geomerty must be the same (otherwise the basis is not the same)
+        if 'mat' in prop and max_def is not None:
             print('WARNING: If rdm1 are to be compared, the geometry for exp anc calc must be the same')
             max_def = None
 
@@ -267,28 +296,32 @@ class ECW:
             # directly compare rdm1
             if p == 'mat':
                 gamma_mo = utilities.ao_to_mo(gexp.gamma_ao, self.mo_coeff)
+                self.Ek_exp_GS = utilities.Ekin(gexp.mol_def, gexp.gamma_ao)
                 # self.exp_data[0, 0] = ['mat', gamma_mo]  # old format
                 self.exp_data[0].append(['mat', gamma_mo])
 
             # Structure Factor p=['F', h, (a,b,c)]
             if isinstance(p, (list, np.ndarray)):
-                if len(p) != 3:
-                    raise SyntaxError('If structure factors are to be calculated, '
-                                      'the correct syntax is ["F", h, (a,b,c)] where h are '
-                                      'the Miller indices h = [h1, h2, ...] and a,b,c are the reciprocal vector length')
-                else:
-                    rec_vec = np.asarray(p[2])
-                    h = p[1]
-                    # calculate list of structure factors for each given set of Miller indices
-                    F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao,
-                                                       aobasis=True, rec_vec=rec_vec)
-                    # self.exp_data[0, 0].append(['F', F])  # old format
-                    self.exp_data[0].append(['F', F, h, rec_vec ])
+                raise NotImplementedError
+                # if len(p) != 3:
+                #    raise SyntaxError('If structure factors are to be calculated, '
+                #                     'the correct syntax is ["F", h, (a,b,c)] where h are '
+                #                     'the Miller indices h = [h1, h2, ...] and a,b,c are the reciprocal vector length')
+                # else:
+                #   # todo: make eris and CC object complex
+                #    self.eris = Eris.geris(cc.GCCSD(self.mf), )
+                #    rec_vec = np.asarray(p[2])
+                #    h = p[1]
+                #    # calculate list of structure factors for each given set of Miller indices
+                #    F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao, gexp.mo_coeff_def,
+                #                                   aobasis=True, rec_vec=rec_vec)
+                #    # self.exp_data[0, 0].append(['F', F])  # old format
+                #    self.exp_data[0].append(['F', F, h, rec_vec])
 
             # Kinetic energy
             if p == 'Ek':
                 ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao)
-                #  self.exp_data[0, 0].append(['Ek', ek])  # olf format
+                #  self.exp_data[0, 0].append(['Ek', ek])  # old format
                 self.exp_data[0].append(['Ek', ek])
 
             # one-electron potential
@@ -321,6 +354,8 @@ class ECW:
         :return: updated exp_data matrix and list of initial r1 vectors
         """
 
+        print(" Functions not yet tested")
+
         es_exp = gamma_exp.ESexp(self.mol, Vext=field, nbr_of_states=nbr_of_es)
         es_exp.MOM()
 
@@ -332,62 +367,38 @@ class ECW:
         # store target excitation energies
         self.Eexp_ES.append(es_exp.DE_exp)
 
-        # expand exp_data and
-        i = self.exp_data.shape[0]
+        # expand exp_data with tr_rdm1
+        for tr_rdm1, rini in zip(es_exp.gamma_tr_ao, es_exp.ini_r):
 
-        for tr_rdm1 in es_exp.gamma_tr_ao:
-            expand = self.exp_data.shape[0]
-            self.exp_data.resize((expand, expand))
+            # store tr_rdm1 in MO basis
             tr_rdm1 = utilities.ao_to_mo(tr_rdm1, self.mo_coeff)
-            self.exp_data[i, i] = ['mat', tr_rdm1]
+            self.exp_data.append(['trmat', [tr_rdm1, tr_rdm1]])  # left and right tr_rdm1 are the same -> verify
 
             # store r1 initial guess
-            self.r_ini.append(es_exp.ini_r[i])
+            self.r_ini.append(rini)
             # store initial Koopman excitation energies
-            i, a = np.argwhere(es_exp.ini_r[i])
-            self.DE.append(self.fock[a, a] - self.fock[i, i])
+            # i, a = np.argwhere(rini)
+            # self.DE.append(self.fock[a, a] - self.fock[i, i])
 
-            i += 1
+        del es_exp
 
-    def Set_ES_exp(self, dip_list, nbr_of_states, rini_list=None):
-        # todo: check utility of this function
-        # todo: possibility to store diagonal prop
+    def Build_ES_exp_input(self, es_prop, rini_list=None, val_core=(1, 0)):
         """
         Store excited states data from given properties
 
-        :param dip_list: list with transition dipole moment values np.array(x,y,z) for the target states
-                        dip_list = list([x1,y1,z1],[x2,y2,z2], ...)
-                     or dip_list =  list(list([x1r,y1r,z1r],[x1l,y1l,z1l]), list([x2r,y2r,z2r],[x2l,y2l,z2l])  ...)
-                     if both left and right values are given.
-        :param DE_list: excitation energies for the target states
-        :param nbr_of_states: number of valence and core excited states (nval,ncore)
+        :param es_prop: list with either transition dipole moment values np.array(x,y,z)
+                         or kinetic energy difference for the target states
+                         len(exp_prop) = nbr of ES
+                         ex: exp_prop for 2 ES = [[['dip', (x,y,z)],['DEk', value]],[['dip', (x,y,z)]]]
         :param rini_list: initial i->a one-electron excitation for each target states
-               -> if rini are not given, they are taken from Koopman's initial guess
+               -> if rini are not given, they are taken from valence Koopman's initial guess
+        :param val_core: tuple with number of valence and core excited states
         :return: updated exp_data matrix
         """
 
-        # check length
-        if len(dip_list) != sum(nbr_of_states):
-            raise ValueError('length of given tdm must be the same as nbr of excited states')
-
-        # Update exp_data with given dipole moments
-        i = self.exp_data.shape[0]
-        for dip in dip_list:
-            expand = self.exp_data.shape[0]
-            self.exp_data.resize((expand, expand))
-            # if left and right values are given
-            if isinstance(dip, list) and len(dip) == 2:
-                # left transition moment
-                self.exp_data[0, i] = ['dip', dip[1]]
-                # right transition moment
-                self.exp_data[i, 0] = ['dip', dip[0]]
-            elif isinstance(dip, np.array):
-                # left transition moment
-                self.exp_data[0, i] = ['dip', np.sqrt(dip)]
-                # right transition moment
-                self.exp_data[i, 0] = ['dip', np.sqrt(dip)]
-            else:
-                raise ValueError('Bad format for experimental transition dipole moment. Should be a list of np.array')
+        # Update exp_data with given ES prop
+        for es in es_prop:
+            self.exp_data.append(es)
 
         # CCS class
         if self.myccs is None:
@@ -395,39 +406,27 @@ class ECW:
 
         # Koopman initial guess
         if rini_list is None:
-            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, nbr_of_states)
+            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, val_core)
             r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
             self.r_ini = r1
             self.l_ini = r1.copy()
             self.r0_ini = r0ini
             self.l0_ini = r0ini.copy()
         else:
-            if len(rini_list) != len(dip_list):
+            if len(rini_list) != len(es_prop):
                 raise ValueError('The number of given initial r vectors is not '
-                                 'equal to the number of given transition dipole moments')
+                                 'equal to consistent with the given experimental data for ES')
 
-            self.r_ini = rini_list
-            self.r0_ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock))
-                           for r in rini_list]
-            self.l_ini = copy.deepcopy(self.r_ini)
-            self.l0_ini = copy.deepcopy(self.r0_ini)
-
-        # orthogonalize and normalize vectors
-        # NOTE: only a bi-orthogonal set can be constructed within CC theory -> only r[0] and l[1] will be ortho
-        self.r_ini, self.l_ini, self.r0_ini, self.l0_ini = \
-            utilities.ortho_norm(self.r_ini, self.l_ini, self.r0_ini, self.l0_ini)
-
-    def CCS_GS(self, Larray, alpha=None, method='scf', graph=True, diis='',
+    def CCS_GS(self, Larray, alpha=None, method='scf', diis='',
                nbr_cube_file=2, tl1ini=0, print_ite_info=False, beta=None, diis_max=15, conv='tl',
                conv_thres=10 ** -6, maxiter=40, tablefmt='rst'):
         """
-        Call CCS solver for the ground state using SCF+DIIS or gradient (steepest descend/Newton) method
+        Call CCS solver for the ground state using the SCF+DIIS+L1 or the gradient (steepest descend/Newton) method
 
         :param Larray: array of L value for which the CCS equations have to be solved
         :param alpha: L1 reg term applied at micro-iteration
         :param method: SCF, newton, gradient or L1_grad
         :param beta: iteration step for the L1_grad method
-        :param graph: True if a final plot X2(L) is shown
         :param diis: where to apply diis, string 'tl' or 'rdm1'
         :param diis_max: max diis space
         :param nbr_cube_file: number of cube file to be printed for equally spaced L values
@@ -440,11 +439,15 @@ class ECW:
         :return: Converged results
                  [0] = convergence text
                  [1] = Ep(it)
-                 [2] = X2(it) list of tuple: (X2, vmax, X2_Ek)
+                 [2] = Delta(it) list of tuple: (Delta, vmax, Delta_Ek)
                  [3] = conv(it)
                  [4] = final gamma (rdm1) calc
                  [5] = final ts and ls amplitudes
         """
+
+        self.diis = diis + ' diis_max={}'.format(diis_max)
+
+        self.Larray = Larray
 
         if method == 'L1_grad' and beta is None:
             raise ValueError('A value for beta (gradient step) must be given for the L1_grad method')
@@ -453,10 +456,11 @@ class ECW:
             self.exp_data = self.exp_data[0]  # new format
             raise Warning('Data for excited states have been found but a ground state solver is used, '
                           'the Vexp potential will only contain GS data')
+        self.method = method
 
         # Vexp class
         #  VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)  # old format
-        VXexp = exp_pot_new.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff)
+        VXexp = exp_pot_new.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
         # initial values for ts and ls
         # CCSD initial values
@@ -491,26 +495,23 @@ class ECW:
         else:
             mygrad = None
 
-        # CCS_GS solver
+        # CCS_GS solver class
         Solve = Solver_GS.Solver_CCS(self.myccs, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
                                      diis=diis, maxdiis=diis_max, maxiter=maxiter, CCS_grad=mygrad)
 
-        # initialize list for results
-        X2_lamb = []
-        Ep_lamb = []
-        vmax_lamb = []
-        X2_Ek = []
+        # printed final results
         Result = None
         Ep = None
-        X2 = None
+        Delta = None
 
         print()
-        print("#################################")
-        print("#  Results using " + method + "   ")
-        print("#################################")
+        print("#######################################################")
+        print("#  Results using " + method + " for CCS-GS calculation ")
+        print("#######################################################")
         print()
 
-        # Loop over Lambda
+        # ------------------ Loop over Lambda ---------------------------
+
         for L in Larray:
 
             print("LAMBDA= ", L)
@@ -530,12 +531,12 @@ class ECW:
             # print cube file for L listed in L_print in dir_cube path
             if self.out_dir:
                 if L in L_print:
-                    fout = self.out_dir + 'L{}'.format(int(L)) + '.cube'
+                    fout = self.out_dir + '/L{}'.format(int(L)) + '.cube'
                     utilities.cube(Result[4], self.mo_coeff, self.mol, fout)
 
             if print_ite_info:
                 print('Iteration steps')
-                headers = ['ite', 'Ep', str(conv), 'X2']
+                headers = ['ite', 'Ep', str(conv), 'Delta']
                 table = []
                 for i in range(len(Result[1])):
                     table.append([i, '{:.4e}'.format(Result[1][i]), "{:.4e}".format(Result[3][i]),
@@ -546,41 +547,39 @@ class ECW:
             print(Result[0])
             print()
             Ep = Result[1][-1]
-            X2 = Result[2][-1][0]
-            print('X2 = ', X2)
+            Delta = Result[2][-1][0]
+            print('Delta = ', Delta)
             vmax = Result[2][-1][1]
 
-            if graph:
-                X2_lamb.append(X2)
-                Ep_lamb.append(self.EHF - Ep)
-                vmax_lamb.append(vmax)
-                if VXexp.X2_Ek_GS is not None:
-                    X2_Ek.append(VXexp.X2_Ek_GS)
+            # store list for graph and output files
+            self.Delta_lamb.append(100. * Delta)
+            self.Ep_lamb.append(self.EHF - Ep)
+            self.vmax_lamb.append(vmax)
+            if VXexp.Delta_Ek_GS is not None:
+                self.Delta_Ek.append(100. * VXexp.Delta_Ek_GS)
 
         print("FINAL RESULTS")
         print("Ep   = " + format_float.format(Ep + self.EHF))
-        print("X2   = " + format_float.format(X2))
-        if VXexp.X2_Ek_GS is not None:
-            print("DEk  = " + format_float.format(VXexp.X2_Ek_GS))
+        print("Delta   = " + format_float.format(Delta))
+        if VXexp.Delta_Ek_GS is not None:
+            print("Delta Ek  = " + format_float.format(VXexp.Delta_Ek_GS))
         print()
         print("EHF    = " + format_float.format(self.EHF))
         print("Eexp   = " + format_float.format(self.Eexp_GS))
 
-        plot = None
-        if graph:
-            plot = plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek=X2_Ek)
+        if self.out_dir:
+            self.print_results()
 
-        return Result, plot
+        return Result
 
-    def CCSD_GS(self, Larray, alpha=None, graph=True, diis=[], nbr_cube_file=2, tl1ini=0,
+    def CCSD_GS(self, Larray, alpha=None, diis='', nbr_cube_file=2, tl1ini=0,
                 print_ite_info=False, diis_max=15, conv='tl', conv_thres=10 ** -6, maxiter=40, tablefmt='rst'):
         """
         Call CCSD solver for the ground state using SCF+DIIS method
 
         :param Larray: array of L value for which the CCS equations have to be solved
         :param alpha: L1 reg term applied at each micro-iteration
-        :param graph: True if a final plot X2(L) is shown
-        :param diis: apply diis to rdm1 'rdm1' and/or t amplitudes 't' and/or l amplitudes 'l'
+        :param diis: apply diis to rdm1 diis='rdm1' or t, l amplitudes diis='tl'
         :param diis_max: max diis space
         :param nbr_cube_file: number of cube file to be printed for equally spaced L values
         :param tl1ini: initial value for t1 and l1 amplitudes (0=zero, 1=perturbation theory, 2=random)
@@ -598,7 +597,10 @@ class ECW:
                  [5] = list [t1,l2,t2,l2] with final amplitudes
         """
 
-        if self.exp_data.shape[0] > 1:
+        self.Larray = Larray
+        self.diis = diis + ' diis_max={}'.format(diis_max)
+
+        if len(self.exp_data) > 1:
             raise Warning('Data for excited states have been found but a ground state solver is used, '
                           'the Vexp potential will only contained GS data')
 
@@ -627,7 +629,8 @@ class ECW:
         L_print = Larray[idx]
 
         # Vexp class
-        VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
+        # VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
+        VXexp = exp_pot_new.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
         # CCSD class
         if self.myccsd is None:
@@ -637,23 +640,17 @@ class ECW:
         Solve = Solver_GS.Solver_CCSD(self.myccd, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
                                       diis=diis, maxdiis=diis_max, maxiter=maxiter)
 
-        # initialize list for results
-        X2_lamb = []
-        Ep_lamb = []
-        vmax_lamb = []
-        X2_Ek = []
-
         # initialize double amp
         td = None
         ld = None
         Result = None
         Ep = None
-        X2 = None
+        Delta = None
 
         print()
-        print("#############")
-        print("#  Results   ")
-        print("#############")
+        print("##############################################")
+        print("#  Results using SCF for CCSD- GS calculation ")
+        print("##############################################")
         print()
 
         # Loop over Lambda
@@ -662,13 +659,15 @@ class ECW:
             print("LAMBDA= ", L)
 
             Result = Solve.SCF(L, ts=ts, ls=ls, td=td, ld=ld, alpha=alpha)
+
             # Use previous amplitudes as initial guess
             ts, ls, td, ld = Result[5]
-            print(VXexp.Ek_exp_GS, VXexp.Ek_calc_GS)
+            # print(VXexp.Ek_exp_GS, VXexp.Ek_calc_GS)
+
             # print cube file for L listed in L_print in out_dir path
             if self.out_dir:
                 if L in L_print:
-                    fout = self.out_dir + 'L{}'.format(int(L)) + '.cube'
+                    fout = self.out_dir + '/L{}'.format(int(L)) + '.cube'
                     utilities.cube(Result[4], self.mo_coeff, self.mol, fout)
 
             if print_ite_info:
@@ -684,34 +683,34 @@ class ECW:
             print(Result[0])
             print()
             Ep = Result[1][-1]
-            X2 = Result[2][-1][0]
-            print('X2 = ', X2)
+            Delta = Result[2][-1][0]
+            print('Delta = ', Delta)
             vmax = Result[2][-1][1]
 
-            if graph:
-                X2_lamb.append(X2)
-                Ep_lamb.append(self.EHF - Ep)
-                vmax_lamb.append(vmax)
-                if VXexp.X2_Ek_GS is not None:
-                    X2_Ek.append(VXexp.X2_Ek_GS)
+            # store array for graph or output file
+            self.Delta_lamb.append(100. * Delta)
+            self.Ep_lamb.append(self.EHF - Ep)
+            self.vmax_lamb.append(vmax)
+            if VXexp.Delta_Ek_GS is not None:
+                self.Delta_Ek.append(100. * VXexp.Delta_Ek_GS)
 
         print()
         print("FINAL RESULTS")
         print("Ep   = " + format_float.format(Ep + self.EHF))
-        print("X2   = " + format_float.format(X2))
-        if VXexp.X2_Ek_GS is not None:
-            print("DEk  = " + format_float.format(VXexp.X2_Ek_GS))
+        print("X2   = " + format_float.format(Delta))
+        if VXexp.Delta_Ek_GS is not None:
+            print("DEk  = " + format_float.format(VXexp.Delta_Ek_GS))
         print()
         print("EHF    = " + format_float.format(self.EHF))
         print("Eexp   = " + format_float.format(self.Eexp_GS))
 
-        if graph:
-            plot = plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek=X2_Ek)
-            return Result, plot
-        else:
-            return Result
+        if self.out_dir:
+            self.print_results()
 
-    def CCS_ES(self, L, nbr_states, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis=[]):
+        return Result
+
+    def CCS_ES(self, L, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis=''):
+        # todo: make loop over L values
         """
         Calls the excited state solver
 
@@ -720,15 +719,18 @@ class ECW:
         :param diis: use diis solver on top of scf or diag
         :param maxiter: max number of iteration
         :param conv_thres: convergence threshold applied to the convegrence criteria 'conv'
-        :param L: matrix of lambda values (weight of exp data)
-        :param exp_data: matrix containing the experimental data
+        :param L: array of L values (weight of exp data) for each state and each property
+        :param exp_data: list containing the experimental data for GS and ES ([[GS prop],[ES1 prop], ...])
         :return:
         """
 
         if exp_data is None:
             exp_data = self.exp_data
+            if len(exp_data) == 1:
+                raise Warning('No data for excited state')
         if exp_data is None:
-            raise ValueError('exp data matrix must be given')
+            raise ValueError('exp_data list must be provided')
+        nbr_ES = len(exp_data) - 1
 
         # initial value for r1 and r0
         if self.r_ini is None:
@@ -739,59 +741,94 @@ class ECW:
             self.myccs = CCS.Gccs(self.eris)
 
         # Vexp class
-        VXexp = exp_pot.Exp(exp_data, self.mol, self.mo_coeff)
+        Vexp = exp_pot_new.Exp(L, exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
-        Solver = Solver_ES.Solver_ES(self.myccs, VXexp, nbr_states, conv_var='rl',
-                                     conv_thres=conv_thres, maxiter=maxiter, diis=diis)
+        # check L format
+        L = Vexp.L_check(L)
 
-        Lambda = np.full(exp_data.shape, L)
+        # Solver class
+        Solver = Solver_ES_new.Solver_ES(self.myccs, Vexp, conv_var=conv,
+                                         conv_thres=conv_thres, maxiter=maxiter, diis=diis)
+
+        print()
+        print("########################################")
+        print("#  Results using SCF for ES calculation ")
+        print("########################################")
+        print()
+
         if method == "scf":
-            Solver.SCF(Lambda)
+            Solver.SCF(L)
         elif method == "diag":
-            Solver.SCF_diag(Lambda)
+            Solver.SCF_diag(L)
         else:
-            raise SyntaxError('method not recognize. Should be a string: "scf" or "diag"')
+            raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
 
+    ##################################
+    # Print results and infos in file
+    ##################################
 
-def plot_results(Larray, Ep_lamb, X2_lamb, vmax_lamb, X2_Ek=None):
-    """
-    Plot Ep, X2, vax and DEk as a function of L
+    def print_results(self):
+        """
+        create an output file in out_dir directory with following infos:
+        - name of molecule
+        - method used (basis, SCF, diis, etc)
+        - type of experimental data
+        - convergence criteria
+        - Delta, vmax, EHF-Ep and Ek as a function of Lambda
+        """
 
-    :param Larray: experimental weigth array
-    :param Ep_lamb: Ep array
-    :param X2_lamb: X2 array
-    :param vmax_lamb: vmax array
-    :param X2_Ek: DEk array
-    """
+        header = 'molecule: {} /n method: {} /n basis: {} /n target data: {} /n'.format(
+            self.molecule, self.method, self.mol.basis, self.exp_data)
 
-    fig, axs = plt.subplots(2, sharex='col')
-    # Plot Ep, X2 and vmax only for converged lambdas
+        if self.Delta_Ek:
+            data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb, self.Delta_Ek])
+            header += "L    Delta   EHF-Ep  vmax    Delta_Ek"
+        else:
+            data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb])
+            header += "L    Delta   EHF-Ep  vmax"
 
-    # Energy
-    axs[0].plot(Larray, Ep_lamb, marker='o', markerfacecolor='black', markersize=8, color='grey', linewidth=1)
-    # axs[0].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
-    axs[0].ticklabel_format(axis='y', style='sci', scilimits=(2, 3), useMathText=True, useLocale=True)
-    axs[0].set_ylabel('EHF-Ep', color='black')
+        np.savetxt(self.out_dir + '/output.txt', data, fmt="%10.5f", header=header)
 
-    # X2 and vmax
-    axs[1].plot(Larray, X2_lamb, marker='o', markerfacecolor='red', markersize=4, color='orange', linewidth=1)
-    ax2 = axs[1].twinx()
-    ax2.plot(Larray, vmax_lamb, marker='o', markerfacecolor='blue', markersize=8, color='lightblue',
-             linewidth=1)
-    ax2.set_ylabel('Vmax', color='blue')
-    axs[1].set_ylabel('X2', color='red')
-    axs[1].set_xlabel('Lambda')
-    # axs[1].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
-    axs[1].ticklabel_format(axis='y', style='sci', scilimits=(2, 3), useMathText=True)
-    ax2.ticklabel_format(axis='y', style='sci', scilimits=(2, 3), useMathText=True)
+    def plot_results(self):
+        # todo: deal with ES case and neested Larray
+        """
+        Plot Ep, Delta, vmax and DEk as a function of L
+        """
 
-    # Ek difference
-    if X2_Ek:
-        ax2 = axs[0].twinx()
-        ax2.plot(Larray, X2_Ek, marker='o', markerfacecolor='grey', markersize=8, color='black', linewidth=1)
-        ax2.set_ylabel('Ek difference', color='grey')
+        from matplotlib import rc
+        rc('text', usetex=True)
 
-    return plt
+        fig, axs = plt.subplots(2, sharex='col')
+        # Plot Ep, X2 and vmax only for converged lambdas
+
+        # Energy
+        axs[0].plot(self.Larray, self.Ep_lamb, marker='o', markerfacecolor='black', markersize=8,
+                    color='grey', linewidth=1)
+        # axs[0].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
+        axs[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
+        axs[0].set_ylabel('E$_{HF}$-E$_p$', color='black')
+
+        # X2 and vmax
+        axs[1].plot(self.Larray, self.Delta_lamb, marker='o', markerfacecolor='red', markersize=4,
+                    color='orange', linewidth=1)
+        ax2 = axs[1].twinx()
+        ax2.plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=8, color='lightblue',
+                 linewidth=1)
+        ax2.set_ylabel('V$_{max}$', color='blue')
+        axs[1].set_ylabel(r'$\Delta$ (\%)', color='red')
+        axs[1].set_xlabel(r'$\lambda$')
+        # axs[1].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
+        axs[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
+        ax2.ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
+
+        # Ek difference
+        if self.Delta_Ek:
+            ax2 = axs[0].twinx()
+            ax2.plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=8,
+                     color='black', linewidth=1)
+            ax2.set_ylabel(r'$\Delta$ Ek (\%)', color='grey')
+
+        plt.show()
 
 
 if __name__ == '__main__':
@@ -812,22 +849,35 @@ if __name__ == '__main__':
     # Build exp data from given 1e prop (Ek from CCSD+[0.05, 0.01, 0.]+6-311+g**)
     # ecw.exp_data[0,0] = ['Ek', 70.4 ]
 
-    # Build list of structure factors from CCSD+field
+    # Build list of structure factors, Ek and v1e from CCSD+field
     prop_list = []
-    h = [[1, 1, 1], [0, 1, 1], [1, 0, 1], [1, 2, 0], [2, 2, 0]]
-    rec_vec = [5., 5., 5.]
-    F_info = list(['F', h, rec_vec])
+    # h = [[1, 1, 1], [0, 1, 1], [1, 0, 1], [1, 2, 0], [2, 2, 0]]
+    # rec_vec = [5., 5., 5.]
+    # F_info = list(['F', h, rec_vec])
+    # prop_list.append(F_info)
     prop_list.append('Ek')
     prop_list.append('v1e')
-    prop_list.append(F_info)
+
+    print()
     print('GS propetries: ', prop_list)
 
     ecw.Build_GS_exp(prop=prop_list, posthf='HF', field=[0.02, 0.01, 0], basis='6-31+g*')
     print('Exp data: ')
-    print('length: ', len(ecw.exp_data))
     print(ecw.exp_data)
 
-    # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
-    Results = ecw.CCSD_GS(Larray, graph=False, alpha=0)
-    # Results, plot = ecw.CCS_GS(Larray,graph=True, alpha=0.01)
-    # plot.show()
+    # Solve ECW-CCS/CCS equations using SCF algorithm with given alpha and L value
+    Results = ecw.CCS_GS(Larray, alpha=0)
+    # ecw.plot_results()
+
+    # Add excited state experimental data from 2 ES (taken from QChem, see gamma_exp.py)
+    dip_z = (0.523742 + 0.550251)/2.
+    DE = 7.6051*0.03675
+    es_prop = [[['trdip', (0., 0., dip_z)]], [['DEk', DE]]]
+    ecw.Build_ES_exp_input(es_prop)
+    print()
+    print('Exp data: ')
+    print(ecw.exp_data)
+
+    # Solve the ES equations using scf
+    L = 0.15  # same weigth for all states and all prop.
+    ecw.CCS_ES(L, method='scf', diis='')

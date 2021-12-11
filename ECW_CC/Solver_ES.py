@@ -25,7 +25,7 @@ format_float = '{:.4e}'
 
 class Solver_ES:
     def __init__(self, mycc, Vexp_class, nbr_states, rn_ini=None, tsini=None, lsini=None, conv_var='tl',
-                 conv_thres=10 ** -6, diis=[], maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
+                 conv_thres=10 ** -6, diis='', maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
         """
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
         -> only state properties and GS-ES transition properties

@@ -240,11 +240,11 @@ class Gccs:
         # add contribution to excited states
         if rsn is not None:
             for rs, v, r0 in zip(rsn, vn, r0n):
-                if v.any():
-                    v_ov = v[:nocc, nocc:]
+                if v is not None:
+                    v_ov = -v[:nocc, nocc:]
                     e += np.einsum('ia,ia', v_ov, rs)
                     e += r0*np.einsum('ia,ia', v_ov, ts)
-                    e += r0*np.einsum('jj', v[:nocc, :nocc])
+                    e += r0*np.einsum('jj', -v[:nocc, :nocc])
 
         return e
 
@@ -319,12 +319,11 @@ class Gccs:
             if len(vn) != len(rsn):
                 raise ValueError('Number of experimental potentials must be equal to number of r amplitudes')
             for r, v, r0 in zip(rsn, vn, r0n):
-                if v.any():
+                if v is not None:
 
-                    v = np.asarray(v)
-                    v_oo = v[:nocc, :nocc]
-                    v_vv = v[nocc:, nocc:]
-                    v_ov = v[:nocc, nocc:]
+                    v_oo = -v[:nocc, :nocc]
+                    v_vv = -v[nocc:, nocc:]
+                    v_ov = -v[:nocc, nocc:]
 
                     # Z intermediates
                     Z = np.trace(v_oo)
@@ -352,6 +351,7 @@ class Gccs:
         return tsnew
 
     def tsupdate_L1(self, ts, T1inter, alpha):
+        # todo: does not give the same result as tsupdate for alpha = 0
         """
         SCF+L1 (regularization) update of the t1 amplitudes
 
@@ -546,11 +546,11 @@ class Gccs:
 
             for r, l, v, r0, l0 in zip(rsn, lsn, vn, r0n, l0n):
 
-                if v.any():
-                    v = np.asarray(v)
-                    v_oo = v[:nocc, :nocc]
-                    v_vv = v[nocc:, nocc:]
-                    v_ov = v[:nocc, nocc:]
+                if v is not None:
+
+                    v_oo = -v[:nocc, :nocc]
+                    v_vv = -v[nocc:, nocc:]
+                    v_ov = -v[:nocc, nocc:]
 
                     # P_lam intermediate
                     Pl = np.einsum('jb,jb', r, v_ov)
@@ -860,9 +860,9 @@ class Gccs:
         if vm is None:
             Pia = np.zeros_like(Tia)
         else:
-            v_vo = vm[nocc:, :nocc]
-            v_vv = vm[nocc:, nocc:]
-            v_oo = vm[:nocc, :nocc]
+            v_vo = -vm[nocc:, :nocc]
+            v_vv = -vm[nocc:, nocc:]
+            v_oo = -vm[:nocc, :nocc]
             Pia = v_vo.copy()
             Pia += np.einsum('ab,ib->ai', v_vv, ts)
             Pia -= np.einsum('ii,ja,ib->ai', v_oo, ts, ts)
@@ -1130,8 +1130,13 @@ class Gccs:
 
         nocc, nvir = r1.shape
 
-        vov = vm0[:nocc, nocc:].copy()
-        voo = vm0[:nocc, :nocc].copy()
+        if vm0 is not None:
+            vov = -vm0[:nocc, nocc:].copy()
+            voo = -vm0[:nocc, :nocc].copy()
+        else:
+            vov = np.zeros((nocc, nvir))
+            voo = np.zeros((nocc, nocc))
+
         fov = fsp[:nocc, nocc:].copy()
 
         # (commented lines are additional term when f=kin)
@@ -1222,9 +1227,9 @@ class Gccs:
         # ---------------------
 
         if vm is None:
-            P = np.zeros((nocc, nocc))
+            P = np.zeros((nocc, nvir))
         else:
-            P = vm[:nocc, nocc:].copy()
+            P = -vm[:nocc, nocc:].copy()
 
         return Fba, Fij, W, El, Zia, P
 
@@ -1314,12 +1319,12 @@ class Gccs:
         return Em, o,v
 
     def Extract_l0(self, l1, ts, fsp, vm):
-        '''
+        """
         Use L1 and L0 equations to calculate l0 from given r1
 
         :param l1: l1 amplitude vector
         :return: r0
-        '''
+        """
 
         if fsp is None:
             f = self.fock
@@ -1452,7 +1457,7 @@ class Gccs:
         return Lia
 
     def l0_fromE(self, En, t1, l1, v0m, fsp=None):
-        '''
+        """
         Returns l0 term for a CCS state
         See equation 23 in Derivation_ES file
 
@@ -1462,7 +1467,7 @@ class Gccs:
         :param v0m: contraint potential matrix V0m
         :param fsp: fock matrix
         :return: l0
-        '''
+        """
 
         nocc, nvir = t1.shape
 
@@ -1472,8 +1477,13 @@ class Gccs:
         fvv = fsp[nocc:, nocc:].copy()
         foo = fsp[:nocc, :nocc].copy()
 
-        vov = v0m[:nocc, nocc:]
-        voo = v0m[:nocc, :nocc]
+        if v0m is not None:
+            vov = v0m[:nocc, nocc:]
+            voo = v0m[:nocc, :nocc]
+        else:
+            vov = np.zeros((nocc, nvir))
+            voo = np.zeros((nocc, nocc))
+
 
         d = En
         #d -= np.einsum('jb,jkbk', t1, self.eris.oovo)

@@ -24,19 +24,20 @@ format_float = '{:.4e}'
 
 
 class Solver_ES:
-    def __init__(self, mycc, Vexp_class, rn_ini=None, tsini=None, lsini=None, nstates=None, conv_var='tl',
-                 conv_thres=10 ** -6, diis=[], maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
+    def __init__(self, mycc, Vexp, rn_ini=None, tsini=None, lsini=None, val_core=None, conv_var='tl',
+                 conv_thres=10 ** -6, diis='', maxiter=80, maxdiis=20, mindiis=2, tablefmt='rst'):
         """
         Solves the ES-ECW-CCS equations for V00, Vnn, V0n and Vn0 (thus not including Vnk with n != k)
         -> only state properties and GS-ES transition properties
 
         :param mycc: ECW.CCS object containing T, Lambda,R and L equations
-        :param Vexp_class: ECW.Vexp_class, class containing the exp data
+        :param Vexp: ECW.Vexp_class, class containing the exp data
         :param conv_var: convergence criteria: 'Ep', 'l' or 'tl'
         :param conv_thres: convergence threshold
         :param tsini: initial value for t
         :param lsini: initial value for Lambda
-        :param diis: list containing the variables on which to apply diis: rdm1, t, L, r, l
+        :param val_core: tuple (nval, ncore)
+        :param diis: list containing the variables on which to apply diis: rdm1, tl or rl or all (for tl and rl)
         :param maxiter: max number of iteration
         :param maxdiis: max diis space
         :param mindiis: ite start for diis
@@ -47,8 +48,8 @@ class Solver_ES:
         self.mycc = mycc
 
         # exp_pot object
-        self.Vexp_class = Vexp_class
-        self.nbr_states = Vexp_class.nbr_states  # total number of states involved GS+nES
+        self.Vexp_class = Vexp
+        self.nbr_states = Vexp.nbr_states  # total number of states involved GS+nES
 
         # tabulate format
         self.tablefmt = tablefmt
@@ -69,11 +70,11 @@ class Solver_ES:
 
         # l and r initial values using Koopman's guess
         if rn_ini is None:
-            if nstates is None:
-                nstates = (self.nbr_states-1, 0)  # create (nval, ncore) states
-            elif sum(nstates) != self.nbr_states-1:  # check length
+            if val_core is None:
+                val_core = (self.nbr_states-1, 0)  # create (nval, ncore) states
+            elif sum(val_core) != self.nbr_states-1:  # check length
                 raise ValueError('Number of core + valence excited states must be equal to len(exp_data)-1')
-            rn_ini, DE = utilities.koopman_init_guess(np.diag(mycc.fock), mycc.eris.mo_occ, nstates=nstates)
+            rn_ini, DE = utilities.koopman_init_guess(np.diag(mycc.fock), mycc.eris.mo_occ, nstates=val_core)
         else:
             DE = [utilities.get_DE(np.diag(mycc.fock), rs) for rs in rn_ini]
         ln_ini = [i * 1 for i in rn_ini]
@@ -140,7 +141,7 @@ class Solver_ES:
         """
         Rough SCF solver for coupled T, Lam, R and L equations: takes care of the spin symmetry
 
-        :param force_alpha: if True, forces alpha tranition for the r ans l amplitudes
+        :param force_alpha: if True, forces alpha transition for the r ans l amplitudes
         :param L: matrix of experimental weight
             -> shape(L)[0] = total number of states (GS+ES)
             -> typically L would be the same for properties obtained from the same experiment
@@ -260,23 +261,21 @@ class Solver_ES:
 
             # calculate GS Vexp from GS prop
             if Vexp_class.exp_data[0]:
-                x2, vmax = Vexp_class.Vexp_update(rdm1, tr_rdm1, (0, 0))
-                X2[0, 0] = x2
+                X2[0, 0], vmax = Vexp_class.Vexp_update(rdm1[0], tr_rdm1, (0, 0))
 
             # calculate ES Vexp and update GS Vexp (if DEk) from prop and tr prop
             for n in range(1, nbr_states):
-                # if exp prop
+                # if ES prop
                 if Vexp_class.exp_data[n]:
                     # transition prop
                     if 'trdip' in Vexp_class.prop_names[n] or 'trmat' in Vexp_class.prop_names[n]:
                         X2[n, 0], vmax = Vexp_class.Vexp_update(tr_rdm1[n-1][0], tr_rdm1[n-1][1], (n, 0))  # right
                         X2[0, n], vmax = Vexp_class.Vexp_update(tr_rdm1[n-1][1], tr_rdm1[n-1][0], (0, n))  # left
-                    # ESn prop
+                    # ESn prop or DEk
                     else:
-                        x2, vmax = self.Vexp_class.Vexp_update(rdm1[n], rdm1[0], (n, n))
+                        X2[n, n], vmax = self.Vexp_class.Vexp_update(rdm1[n], rdm1[0], (n, n))
                         # Calculate effective Fock matrix for ES
                         fsp[n] = np.subtract(mycc.fock, Vexp_class.Vexp[n, n])
-                        X2[n, n] = x2
 
             # Calculate effective Fock matrix for GS
             if Vexp_class.Vexp[0, 0] is not None:
@@ -290,8 +289,7 @@ class Solver_ES:
             #
             # update t amplitudes
             # ---------------------------------------------------
-
-            vexp = -Vexp_class.Vexp[0, 1:]  # -lambda * 0mV
+            vexp = Vexp_class.Vexp[0, 1:]  # -lambda * 0mV -> the minus sign is taken care in tsupdate function
             T1inter = mycc.T1inter(ts, fsp[0])
             ts = mycc.tsupdate(ts, T1inter, rsn=rn, r0n=r0n, vn=vexp)
             del T1inter
@@ -301,7 +299,7 @@ class Solver_ES:
             # ----------------------------------------
 
             L1inter = mycc.L1inter(ts, fsp[0])
-            vexp = -Vexp_class.Vexp[1:, 0]
+            vexp = Vexp_class.Vexp[1:, 0]  # -lambda * 0mV -> the minus sign is taken care in lsupdate function
             ls = mycc.lsupdate(ts, ls, L1inter, rsn=rn, lsn=ln, r0n=r0n, l0n=l0n, vn=vexp)
 
             #
@@ -325,7 +323,7 @@ class Solver_ES:
                 # todo= most element in Rinter and Linter dot not depend on Vexp -> calculate ones for all states
 
                 # Ria intermediates
-                vexp = -Vexp_class.Vexp[0, n]  # 0nV
+                vexp = Vexp_class.Vexp[0, n]  # 0nV negative sign is taken care in R1inter
                 Rinter  = mycc.R1inter(ts, fsp[n], vexp)
 
                 # update En_r using initial rs from Koopman's excitation
@@ -342,7 +340,7 @@ class Solver_ES:
                 r0new[n-1] = mycc.r0_fromE(En_r, ts, rn[n-1], vexp, fsp=fsp[n])
 
                 # L and L0 inter
-                vexp = - Vexp_class.Vexp[n, 0]  # Vn0
+                vexp = Vexp_class.Vexp[n, 0]  # Vn0 # 0nV negative sign is taken care in es_L1inter
                 Linter = mycc.es_L1inter(ts, fsp[n], vexp)
                 # L0inter = mycc.L0inter(ts, fsp[n], vexp)
 

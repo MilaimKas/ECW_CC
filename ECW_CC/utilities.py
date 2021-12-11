@@ -17,12 +17,13 @@ from pyscf.tools import molden
 import scipy
 import numpy as np
 
+
 #######################################
 # L1 regularization related functions
 #######################################
 
 
-def subdiff(eq,var,alpha, R_format=False):
+def subdiff(eq, var, alpha, R_format=False):
     # todo: R_format's conversion does not work
     """
     Calculates the sub-gradient value of a functional
@@ -33,7 +34,7 @@ def subdiff(eq,var,alpha, R_format=False):
     :param alpha: L1 threshold
     :return: subdifferential W in amp format
     """
-    
+
     # check shape
     if eq.shape != var.shape:
         raise ValueError('equations and variables matrices must have the same shape')
@@ -49,16 +50,16 @@ def subdiff(eq,var,alpha, R_format=False):
     # check for non zero elements in var
     ind = np.argwhere(np.abs(var) > 0.)
     for ix in ind:
-        dW[tuple(ix)] = eq[tuple(ix)]+alpha*np.sign(var[tuple(ix)])
+        dW[tuple(ix)] = eq[tuple(ix)] + alpha * np.sign(var[tuple(ix)])
 
     # zero elements in var
     ind = np.argwhere(var <= 0.)
     for ix in ind:
         ix = tuple(ix)
         if eq[ix] < -alpha:
-            dW[ix] = eq[ix]+alpha
+            dW[ix] = eq[ix] + alpha
         elif eq[ix] > alpha:
-            dW[ix] = eq[ix]-alpha
+            dW[ix] = eq[ix] - alpha
         else:
             dW[ix] = 0.
 
@@ -91,6 +92,7 @@ def prox_l1(x_J, alpha):
                 ans[i][j] = 0
     return ans
 
+
 ###############################################
 # Use TDHF methods to get initial r amplitudes
 ###############################################
@@ -108,9 +110,9 @@ def get_init_r(mol, roots=10):
     mol.build()
     mf = scf.RHF(mol)
     mf.kernel()
-    #mtda = tdscf.rhf.TDA(mf)
-    #mtda.nroots = roots_max
-    #e,ci = mtda.kernel()
+    # mtda = tdscf.rhf.TDA(mf)
+    # mtda.nroots = roots_max
+    # e,ci = mtda.kernel()
 
     # TDHF calc
     mtdhf = tdscf.TDHF(mf)
@@ -122,6 +124,7 @@ def get_init_r(mol, roots=10):
     r_ini = mtdhf.xy[:][0]
 
     return r_ini, tdms
+
 
 #############################################
 # Functions to deal with G, R and U format
@@ -140,11 +143,11 @@ def convert_r_to_g_amp(amp):
     """
 
     if amp.ndim == 2:
-        g_amp = np.zeros((amp.shape[0]*2, amp.shape[1]*2))
+        g_amp = np.zeros((amp.shape[0] * 2, amp.shape[1] * 2))
         for i in range(amp.shape[0]):
             for j in range(amp.shape[1]):
                 a = amp[i, j]
-                g_amp[i*2:i*2+2, j*2:j*2+2] = np.diag(np.asarray([a, a]))  #np.asarray([[0,a],[a,0]])
+                g_amp[i * 2:i * 2 + 2, j * 2:j * 2 + 2] = np.diag(np.asarray([a, a]))  # np.asarray([[0,a],[a,0]])
     elif amp.ndim == 4:
         g_amp = cc.addons.spatial2spin(amp)
     else:
@@ -165,9 +168,10 @@ def convert_g_to_r_amp(amp, orbspin=None):
     if amp.ndim == 2:
         tmp = np.delete(amp, np.s_[1::2], 0)
         r_amp = np.delete(tmp, np.s_[1::2], 1)
+
     # use PySCF function for doubles
     elif amp.ndim == 4:
-        dim = amp.shape[0]+amp.shape[2]
+        dim = amp.shape[0] + amp.shape[2]
         if orbspin is None:
             orbspin = np.zeros(dim, dtype=int)
             orbspin[1::2] = 1
@@ -187,7 +191,7 @@ def convert_g_to_ru_rdm1(rdm1_g):
     :return: rdm1 in R and U format
     """
 
-    nao = rdm1_g.shape[0]//2
+    nao = rdm1_g.shape[0] // 2
 
     rdm_a = rdm1_g[:nao, :nao]
     rdm_b = rdm1_g[nao:, nao:]
@@ -214,6 +218,7 @@ def convert_u_to_g_rdm1(rdm_u):
     rdm_g[1::2, 1::2] = rdm_u[1]
 
     return rdm_g
+
 
 def convert_r_to_g_rdm1(rdm_r):
     # todo: check that the trace remains the same
@@ -251,10 +256,10 @@ def convert_r_to_g_coeff(mo_coeff):
     :return: mo_coeff in spin-orbital format (G format)
     """
 
-    dim = mo_coeff.shape[0]*2
+    dim = mo_coeff.shape[0] * 2
     new_coeff = np.zeros((dim, dim))
-    new_coeff[0:dim//2, 0::2] = mo_coeff
-    new_coeff[dim//2:, 1::2] = mo_coeff
+    new_coeff[0:dim // 2, 0::2] = mo_coeff
+    new_coeff[dim // 2:, 1::2] = mo_coeff
 
     return new_coeff
 
@@ -268,9 +273,38 @@ def convert_g_to_r_coeff(mo_coeff):
     """
 
     dim = mo_coeff.shape[0] // 2
-    new_coeff = mo_coeff[:dim,0::2]
+    new_coeff = mo_coeff[:dim, 0::2]
 
     return new_coeff
+
+
+def convert_u_to_g_coeff(mo_coeff):
+    """
+
+    :param mo_coeff: mo coefficients in G format
+    :return:
+    """
+
+    dim = mo_coeff[0].shape[0] * 2
+    new_coeff = np.zeros((dim, dim))
+    new_coeff[0:dim // 2, 0::2] = mo_coeff[0]
+    new_coeff[dim // 2:, 1::2] = mo_coeff[1]
+
+    return new_coeff
+
+
+def convert_u_to_g_moc(moc_u):
+    """
+
+    :param moc_u:
+    :return:
+    """
+
+    moc_g = np.zeros(moc_u[0].shape[0]*2)
+    moc_g[::2] = moc_u[0]
+    moc_g[1::2] = moc_u[1]
+
+    return moc_g
 
 
 def convert_aoint(int_ao, mo_coeff):
@@ -298,6 +332,7 @@ def convert_aoint(int_ao, mo_coeff):
 
     return int_mo
 
+
 #####################
 # Quantum chemistry
 #####################
@@ -311,7 +346,7 @@ def cis_rdm1(c1):
     :return: oo and vv contribution to RHF MO rdm1
     """
 
-    doo = 2-np.einsum('ia,ka->ik', c1.conj(), c1)
+    doo = 2 - np.einsum('ia,ka->ik', c1.conj(), c1)
     dvv = np.einsum('ia,ic->ac', c1, c1.conj())
 
     return doo, dvv
@@ -333,7 +368,7 @@ def ao_to_mo(rdm1_ao, mo_coeff):
 
     mo_coeff_inv = np.linalg.inv(mo_coeff)
     rdm1_mo = np.einsum('pi,ij,qj->pq', mo_coeff_inv, rdm1_ao, mo_coeff_inv.conj())
-    
+
     return rdm1_mo
 
 
@@ -375,17 +410,17 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1, 0), core_ene_thresh=10.):
     ncore = np.where(abs(mo_energy[:nocc]) > core_ene_thresh)[0].shape[0]
     e_ia = mo_energy[viridx] - mo_energy[occidx, None]
 
-    x0 = [] # np.zeros((nroot, nov))
+    x0 = []  # np.zeros((nroot, nov))
     DE = []
     eia_val = e_ia[ncore:, :].ravel()
     eia_core = e_ia[:ncore, :].ravel()
-    if nstates[0] > eia_val.size or nstates[1] > eia_core.size :
+    if nstates[0] > eia_val.size or nstates[1] > eia_core.size:
         raise Warning('The size of the basis is smaller than the number of requested states')
 
     # Valence
     nroot = min(nstates[0], eia_val.size)
     idx = np.argsort(eia_val)
-    nocc_val = nocc-ncore
+    nocc_val = nocc - ncore
     for i in range(nroot):
         tmp = np.zeros(eia_val.size)
         tmp[idx[i]] = 1
@@ -444,10 +479,10 @@ def tdm_slater(TcL, TcR, occ_diff):
            --> ex: a single excitation i->a for i=2 and a=5, occ_diff = [0,0,1,0,0,1,0]
     :return: transition density matrix in AOs basis
     """
-    
+
     Tgamma = np.diag(occ_diff)
     gamma_ao = np.einsum('pi,ij,qj->pq', TcL, Tgamma, TcR.conj())
-    
+
     return gamma_ao
 
 
@@ -466,20 +501,20 @@ def EOM_r0(DE, t1, r1, fsp, eris_oovv, r2=None):
     """
 
     nbr_of_states = len(r1)
-    nocc,nvir = r1[0].shape
+    nocc, nvir = r1[0].shape
 
     if r2 is None:
-        r2 = [np.zeros((nocc, nocc, nvir, nvir))]*nbr_of_states
+        r2 = [np.zeros((nocc, nocc, nvir, nvir))] * nbr_of_states
 
     Xia = fsp[:nocc, nocc:]
     Xia += np.einsum('me,imae->ia', t1, eris_oovv)
     r0n = []
 
     for n in range(nbr_of_states):
-       r0 = np.einsum('ld, ld', Xia, r1[n])
-       r0 += 0.25*np.einsum('lmde, lmde', eris_oovv, r2[n])
-       r0 /= DE[n]
-       r0n.append(r0)
+        r0 = np.einsum('ld, ld', Xia, r1[n])
+        r0 += 0.25 * np.einsum('lmde, lmde', eris_oovv, r2[n])
+        r0 /= DE[n]
+        r0n.append(r0)
 
     return r0n
 
@@ -519,12 +554,12 @@ def spin_square(rdm1, mo_coeff, ovlp=1):
     :return:
     """
     from functools import reduce
-    #from pyscf.fci.spin_op import spin_square_general
-    #spin_square_general(dma, dmb, dmaa, dmab, dmbb, mo_coeff, s)
+    # from pyscf.fci.spin_op import spin_square_general
+    # spin_square_general(dma, dmb, dmaa, dmab, dmbb, mo_coeff, s)
 
     # convert to U format
     dm1a, dm1b = convert_g_to_ru_rdm1(rdm1)[1]
-    nao = mo_coeff.shape[0]//2
+    nao = mo_coeff.shape[0] // 2
 
     mo_coeff_a = mo_coeff[:nao, 0::2]
     mo_coeff_b = mo_coeff[nao:, 1::2]
@@ -540,17 +575,18 @@ def spin_square(rdm1, mo_coeff, ovlp=1):
     else:
         ovlpaa = np.dot(mo_coeff_a.T, mo_coeff_a)
         ovlpbb = np.dot(mo_coeff_b.T, mo_coeff_b)
-    
+
     ssz = (np.einsum('ji,ij->', dm1a, ovlpaa)
-        + np.einsum('ji,ij->', dm1b, ovlpbb)) *.25
-    ssxy =(np.einsum('ji,ij->', dm1a, ovlpaa)
-         + np.einsum('ji,ij->', dm1b, ovlpbb)) * .5
+           + np.einsum('ji,ij->', dm1b, ovlpbb)) * .25
+    ssxy = (np.einsum('ji,ij->', dm1a, ovlpaa)
+            + np.einsum('ji,ij->', dm1b, ovlpbb)) * .5
     ss = ssxy + ssz
 
-    s = np.sqrt(ss+.25) - .5
-    multip = s*2+1
+    s = np.sqrt(ss + .25) - .5
+    multip = s * 2 + 1
 
     return multip
+
 
 #################
 # linear algebra
@@ -570,7 +606,7 @@ def get_norm(rs, ls, r0, l0):
     # check shape
     if rs.shape != ls.shape:
         raise ValueError('Shape of both set of amplitudes must be the same')
-    c = l0*r0.conjugate()+np.sum(rs.conjugate()*ls)
+    c = l0 * r0.conjugate() + np.sum(rs.conjugate() * ls)
 
     return c
 
@@ -594,7 +630,7 @@ def ortho_SVD(mol, cL, cR):
     See Molecular Physics, 105(9), 1239–1249. https://doi.org/10.1080/00268970701326978
 
     :param mol: PySCF mol object for AOs overlap matrix or overlap matrix
-    :param cL,cR: set of MOs coefficients for bra (Left) and ket (Right) vectors
+    :param cL, cR: set of MOs coefficients for bra (Left) and ket (Right) vectors
     :return:
     """
 
@@ -606,24 +642,24 @@ def ortho_SVD(mol, cL, cR):
     else:
         raise ValueError('AOs overlap must be a ndarray or a PySCF Mole class')
 
-    # check shape
-    if S_AO.shape != cL.shape:
-        raise ValueError('MOs coefficients and AO overlap matrix must be the same size')
+    # if cL and cR are given in G format
+    if S_AO.shape[0] * 2 == cL.shape[0]:
+        S_AO = convert_r_to_g_rdm1(S_AO)
 
     # Build MOs overlap matrix
-    S = np.einsum('mp,nq,mn->pq',cL.conj(),cR,S_AO)
+    S = np.einsum('mp,nq,mn->pq', cL.conj(), cR, S_AO)
 
     # perform svd
-    u,S_sv,v = np.linalg.svd(S)
+    u, S_sv, v = np.linalg.svd(S)
 
     # build transformation matrices TL and TR
     S_sv = np.sqrt(np.linalg.inv(np.diag(S_sv)))
-    TL = np.dot(u,S_sv)
-    TR = np.dot(v.conj().T,S_sv)
+    TL = np.dot(u, S_sv)
+    TR = np.dot(v.conj().T, S_sv)
 
     # transform L and R basis
-    newcL = np.dot(cL,TL)
-    newcR = np.dot(cR,TR)
+    newcL = np.dot(cL, TL)
+    newcR = np.dot(cR, TR)
 
     return newcL, newcR
 
@@ -684,9 +720,9 @@ def check_ortho(rn, ln, r0n, l0n):
 
     for k in range(nbr_of_states):
         for l in range(nbr_of_states):
-             c_l = get_norm(rn[k], ln[l], r0n[k], l0n[l])
-             c_r = get_norm(rn[l], ln[k], r0n[l], l0n[k])
-             C_norm[k, l] = (c_l+c_r)/2.
+            c_l = get_norm(rn[k], ln[l], r0n[k], l0n[l])
+            c_r = get_norm(rn[l], ln[k], r0n[l], l0n[k])
+            C_norm[k, l] = (c_l + c_r) / 2.
 
     return C_norm
 
@@ -706,8 +742,8 @@ def ortho_es(rn, ln, r0n, l0n):
     nbr_states = len(rn)
 
     # matrix of r/l vectors as column
-    Matvec_r = np.zeros((nocc*nvir+1, nbr_states))
-    Matvec_l = np.zeros((nocc*nvir+1, nbr_states))
+    Matvec_r = np.zeros((nocc * nvir + 1, nbr_states))
+    Matvec_l = np.zeros((nocc * nvir + 1, nbr_states))
 
     # amplitude to vector into Matvec matrix
     for j in range(nbr_states):
@@ -749,7 +785,7 @@ def biortho_es(r1, l1, r0, l0):
     nocc, nvir = r1.shape
 
     # decompose Matvec
-    Matvec = np.zeros((nocc*nvir+1, 2))
+    Matvec = np.zeros((nocc * nvir + 1, 2))
     Matvec[1:, 0] = r1.flatten().copy()
     Matvec[0, 0] = r0
     Matvec[1:, 1] = l1.flatten().copy()
@@ -808,6 +844,7 @@ def ortho_norm(rn, ln, rn0, ln0, ortho=True):
 
     return rn_new, ln_new, rn0_new, ln0_new
 
+
 #################################
 # Printing density and orbitals
 #################################
@@ -842,8 +879,8 @@ def printNO(rdm1, mf, mol, fout):
 
     # print molden format with MOs energy (...)
     with open(fout, 'w') as f1:
-       molden.header(mol, f1)
-       molden.orbital_coeff(mol, f1, no_coeff, ene=mo_ene,occ=no_occ)
+        molden.header(mol, f1)
+        molden.orbital_coeff(mol, f1, no_coeff, ene=mo_ene, occ=no_occ)
 
 
 def cube(rdm1, mo_coeff, mol, fout, g=True):
@@ -857,10 +894,10 @@ def cube(rdm1, mo_coeff, mol, fout, g=True):
     :return:
     """
 
-    fout = fout+'.cube'
+    fout = fout + '.cube'
 
     # express rdm1 in AOs
-    rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff,rdm1,mo_coeff.conj())
+    rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
 
     # convert generalized rdm1 to restricted format
     if g:
@@ -869,7 +906,7 @@ def cube(rdm1, mo_coeff, mol, fout, g=True):
     cubegen.density(mol, fout, rdm1)
 
 
-def diff_cube(file1,file2,out):
+def diff_cube(file1, file2, out):
     """
     Takes the difference between two cube files
 
@@ -887,7 +924,7 @@ def diff_cube(file1,file2,out):
 
     file1 = open(file1)
     file2 = open(file2)
-    file_out = open(out+'.cube','w')
+    file_out = open(out + '.cube', 'w')
 
     f1 = file1.readlines()
     f2 = file2.readlines()
@@ -895,11 +932,11 @@ def diff_cube(file1,file2,out):
     string_out = ''
     for i in range(initial_line):
         string_out += f1[i]
-    for i in range(initial_line,len(f1)):
+    for i in range(initial_line, len(f1)):
         line1 = f1[i].split()
         line2 = f2[i].split()
     for j in range(len(line1)):
-        string_out += str(float(line1[j])-float(line2[j]))
+        string_out += str(float(line1[j]) - float(line2[j]))
         string_out += ' '
     string_out += ("\n")
 
@@ -957,20 +994,20 @@ def v1e(mol, rdm1, g=True, aobasis=True, mo_coeff=None, v1e_int=None):
 
     # rdm1 must be in AOs basis
     if aobasis is False:
-       if mo_coeff is None:
-           raise ValueError('mo_coeff must be given if rdm is not in AOs basis')
-       rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
+        if mo_coeff is None:
+            raise ValueError('mo_coeff must be given if rdm is not in AOs basis')
+        rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
 
     # convert GHF rdm1 to RHF rdm1
     if g:
-       rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
+        rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
 
     # v1e integral in AO basis
     if v1e_int is None:
         v1e_int = mol.intor_symmetric('int1e_nuc')
 
     # VeN --> one electron coulombic potential
-    v1e = np.einsum('ij,ji',v1e_int,rdm1)
+    v1e = np.einsum('ij,ji', v1e_int, rdm1)
 
     return v1e
 
@@ -989,16 +1026,16 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     :return:
 
     """
-    
+
     # rdm1 must be in AOs basis
     if aobasis is False:
         if mo_coeff is None:
             raise ValueError('mo_coeff must be given if rdm is not in AOs basis')
         rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
-    
+
     # convert GHF rdm1 to RHF rdm1
     if g:
-       rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
+        rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
 
     # dipole integral
     if dip_int is None:
@@ -1015,7 +1052,7 @@ def dipole(mol, rdm1, g=True, aobasis=True, mo_coeff=None, dip_int=None):
     return ans
 
 
-def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=None,
+def structure_factor(mol, h, rdm1, mo_coeff, g=True, aobasis=True, F_int=None,
                      rec_vec=np.asarray([10., 10., 10.])):
     """
     Calculates the structure factors for a given rdm1 and list of Miller indices
@@ -1048,9 +1085,9 @@ def structure_factor(mol, h, rdm1, g=True, aobasis=True, mo_coeff=None, F_int=No
         F_int = FT_MO(mol, h, mo_coeff, rec_vec)[0]
 
     # contract rdm and Fint
-    ans = np.einsum('hij,ji->h', F_int, rdm1)
+    F = np.einsum('hij,ji->h', F_int, rdm1)
 
-    return ans
+    return F
 
 
 def FT_MO(mol, h, mo_coeff, rec_vec=np.asarray([10., 10., 10.])):
@@ -1079,7 +1116,7 @@ def FT_MO(mol, h, mo_coeff, rec_vec=np.asarray([10., 10., 10.])):
     rec_vec = scipy.linalg.inv(rec_vec)
 
     # build k-vectors
-    gv = 2*np.pi * np.dot(h, rec_vec)
+    gv = 2 * np.pi * np.dot(h, rec_vec)
 
     # gs = number of h point in each directions
     gs = None
@@ -1124,9 +1161,9 @@ if __name__ == '__main__':
 
     # QChem EOM-CCSD calculation of the first singlet states
     exp = []
-    exp.append((0,0,0.622537))
-    exp.append((0,0,0.056985))
-    r, tdm_diff = get_init_r(mol,roots=10)
+    exp.append((0, 0, 0.622537))
+    exp.append((0, 0, 0.056985))
+    r, tdm_diff = get_init_r(mol, roots=10)
 
     print(tdm_diff)
 
@@ -1143,13 +1180,13 @@ if __name__ == '__main__':
     myrci = ci.RCISD(mfr)
     myrci.kernel()
     c = myrci.ci
-    co,c1,c2 = myrci.cisdvec_to_amplitudes(c)
+    co, c1, c2 = myrci.cisdvec_to_amplitudes(c)
     c1_g = convert_r_to_g_amp(c1)
-    print('rci shape= ',c1.shape)
-    print('gci shape= ',c1_g.shape)
+    print('rci shape= ', c1.shape)
+    print('gci shape= ', c1_g.shape)
     cg = pyscf.cc.addons.spatial2spin(c1)
     print('Difference with PySCF function')
-    print(np.subtract(cg,c1_g))
+    print(np.subtract(cg, c1_g))
 
     print()
     print('########################')
@@ -1170,19 +1207,20 @@ if __name__ == '__main__':
     mygcc = cc.GCCSD(new_mfg)
     eris = Eris.geris(mygcc)
     fock = eris.fock
-    
+
     # random R t1 and t2
-    ts = np.random.random((nocc//2,nvir//2))*0.1
-    #t_save = ts.copy()
-    td = np.random.random((nocc//2,nocc//2,nvir//2,nvir//2))*0.1
+    ts = np.random.random((nocc // 2, nvir // 2)) * 0.1
+    # t_save = ts.copy()
+    td = np.random.random((nocc // 2, nocc // 2, nvir // 2, nvir // 2)) * 0.1
     ts = convert_r_to_g_amp(ts)
     td = convert_r_to_g_amp(td)
-    #print('Test t1')
-    #print(np.subtract(t_save, convert_g_to_r_amp(ts)))
+    # print('Test t1')
+    # print(np.subtract(t_save, convert_g_to_r_amp(ts)))
 
     # T1 eq
     import CC_raw_equations
-    T1,T2 = CC_raw_equations.T1T2eq(ts, td, eris)
+
+    T1, T2 = CC_raw_equations.T1T2eq(ts, td, eris)
 
     print('Test T1')
     print(np.subtract(convert_g_to_r_amp(convert_r_to_g_amp(T1)), T1))
@@ -1190,12 +1228,12 @@ if __name__ == '__main__':
     # print sub-gradient
     alpha = 0.
     print('alpha=0')
-    W1 = subdiff(T1,ts,alpha)
-    W2 = subdiff(T2,td,alpha)
+    W1 = subdiff(T1, ts, alpha)
+    W2 = subdiff(T2, td, alpha)
     print('W1-T1')
-    print(np.sum(np.subtract(W1,T1)))
+    print(np.sum(np.subtract(W1, T1)))
     print('W2-T2')
-    print(np.sum(np.subtract(W2,T2)))
+    print(np.sum(np.subtract(W2, T2)))
     print()
     print('Test G->R->G conversion')
     print('alpha=0')
@@ -1204,21 +1242,21 @@ if __name__ == '__main__':
     W1_new = subdiff(T1, ts, alpha, R_format=True)
     W2_new = subdiff(T2, td, alpha, R_format=True)
     print('W1')
-    print(np.sum(np.subtract(W1,W1_new)))
+    print(np.sum(np.subtract(W1, W1_new)))
     print('W2')
-    print(np.sum(np.subtract(W2,W2_new)))
+    print(np.sum(np.subtract(W2, W2_new)))
     print('alpha=0.1')
-    alpha = 0.1 
+    alpha = 0.1
     W1 = subdiff(T1, ts, alpha)
     W2 = subdiff(T2, td, alpha)
     W1_new = subdiff(T1, ts, alpha, R_format=True)
     W2_new = subdiff(T2, td, alpha, R_format=True)
     print('W1')
-    print(np.sum(np.subtract(W1,W1_new)))
+    print(np.sum(np.subtract(W1, W1_new)))
     print('W2')
-    print(np.sum(np.subtract(W2,W2_new)))
+    print(np.sum(np.subtract(W2, W2_new)))
     print()
-    
+
     print()
     print('################################')
     print('# Test SVD for orbital rotation ')
@@ -1227,15 +1265,15 @@ if __name__ == '__main__':
 
     # create MOs coeff
     dim = mol.nao
-    cL = np.random.random((dim,dim))
-    cR = np.random.random((dim,dim))
+    cL = np.random.random((dim, dim))
+    cR = np.random.random((dim, dim))
 
-    cL,cR = ortho_SVD(mol, cL, cR)
+    cL, cR = ortho_SVD(mol, cL, cR)
     S_AO = mol.intor('int1e_ovlp')
 
     print('check orthogonality --> OK')
-    print(np.einsum('mp,nq,mn->pq',cL,cR,S_AO))
-    print('norm=', get_norm(cL,cR, 0, 0))
+    print(np.einsum('mp,nq,mn->pq', cL, cR, S_AO))
+    print('norm=', get_norm(cL, cR, 0, 0))
 
     print()
     print('################################')
@@ -1265,25 +1303,24 @@ if __name__ == '__main__':
     print('before: ', np.dot(vec_1, vec_2))
     print('after: ', np.dot(ans[:, 0], ans[:, 1]))
 
-
     print()
     print('################################')
     print('# Test tr_rdm1 for Slater       ')
     print('################################')
     print()
-    
+
     print()
     print('################################')
     print('# Test Koopman\'s guess         ')
     print('################################')
     print()
 
-    c0, DE = koopman_init_guess(mfg.mo_energy, mfg.mo_occ, nstates=(2,2))
+    c0, DE = koopman_init_guess(mfg.mo_energy, mfg.mo_occ, nstates=(2, 2))
     print('DE valence= ', DE[:2])
     print('DE core = ', DE[2:])
     print('r1 valence= ', c0[0])
     print('r1 core= ', c0[2])
-    
+
     print()
     print('################################')
     print('# Test spin                     ')
@@ -1294,10 +1331,10 @@ if __name__ == '__main__':
     rs = np.random.random((c0[0].shape))
     ls = rs.copy()
     norm = check_ortho([rs], [ls], [0], [0])
-    ls = ls/norm
+    ls = ls / norm
     print('norm = ', check_ortho([rs], [ls], [0], [0]))
     S2 = check_spin(rs, ls)
-    print('2S+1= ', 2*S1+1, 2*S2+1)
+    print('2S+1= ', 2 * S1 + 1, 2 * S2 + 1)
 
     print()
     print('################################')
@@ -1321,25 +1358,25 @@ if __name__ == '__main__':
     print('orthogonalized rn and ln vectors')
     rs, ls, r0, l0 = ortho_es(rs, ls, r0, l0)
     print('rn vector ortho ? -> YES')
-    print(np.sum(rs[0].flatten()*rs[1].flatten())+r0[0]*r0[1])
+    print(np.sum(rs[0].flatten() * rs[1].flatten()) + r0[0] * r0[1])
     print('ln vectors ortho ? -> YES')
-    print(np.sum(ls[0].flatten() * ls[1].flatten())+l0[0]*l0[1])
+    print(np.sum(ls[0].flatten() * ls[1].flatten()) + l0[0] * l0[1])
     print('rn-lk ortho ? -> NO')
-    print(np.sum(rs[0].flatten() * ls[1].flatten())+r0[0]*l0[1])
-    print(np.sum(ls[0].flatten() * rs[1].flatten())+l0[0]*r0[1])
+    print(np.sum(rs[0].flatten() * ls[1].flatten()) + r0[0] * l0[1])
+    print(np.sum(ls[0].flatten() * rs[1].flatten()) + l0[0] * r0[1])
     print()
 
     print("bi-orthogonalize rn and lk")
     rs[0], ls[1], r0[0], l0[1] = biortho_es(rs[0], ls[1], r0[0], l0[1])
     rs[1], ls[0], r0[1], l0[0] = biortho_es(rs[1], ls[0], r0[1], l0[0])
     print('rn vector ortho ? -> NO')
-    print(np.sum(rs[0].flatten()*rs[1].flatten())+r0[0]*r0[1])
+    print(np.sum(rs[0].flatten() * rs[1].flatten()) + r0[0] * r0[1])
     print('ln vectors ortho ? -> NO')
-    print(np.sum(ls[0].flatten() * ls[1].flatten())+l0[0]*l0[1])
+    print(np.sum(ls[0].flatten() * ls[1].flatten()) + l0[0] * l0[1])
     print('rn-lk ortho ? -> YES')
-    print(np.sum(rs[0].flatten() * ls[1].flatten())+r0[0]*l0[1])
+    print(np.sum(rs[0].flatten() * ls[1].flatten()) + r0[0] * l0[1])
     print('rk-ln ortho ? -> YES')
-    print(np.sum(ls[0].flatten() * rs[1].flatten())+l0[0]*r0[1])
+    print(np.sum(ls[0].flatten() * rs[1].flatten()) + l0[0] * r0[1])
     print()
 
     print('ortho_norm function ')

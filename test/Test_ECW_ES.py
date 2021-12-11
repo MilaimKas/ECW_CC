@@ -22,9 +22,9 @@ mol.build()
 # GHF calc
 mf = scf.RHF(mol).run()
 mgf = scf.addons.convert_to_ghf(mf)
-#mgf = scf.GHF(mol).run()
+# mgf = scf.GHF(mol).run()
 mo_occ = mgf.mo_occ
-mo_energy =mgf.mo_energy
+mo_energy = mgf.mo_energy
 mocc = mgf.mo_coeff[:, mo_occ > 0]
 mvir = mgf.mo_coeff[:, mo_occ == 0]
 gnocc = mocc.shape[1]

@@ -22,19 +22,20 @@ import utilities
 class Solver_CCS:
     def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, diis='',
                  maxiter=40, maxdiis=15, CCS_grad=None):
-        '''
-        
-        :param mycc: class containing the CCS functions and equations 
+        """
+        Solver for the GS-ECW-CCS equations
+
+        :param mycc: class containing the CCS functions and equations
         :param VX_exp: object containing the functions to calculate Vexp and X2
         :param conv: string of the parameter for convergence check: 'Ep' or 'tl'
-        :param conv_thres: convergence threshold 
+        :param conv_thres: convergence threshold
         :param tsini: initial values for ts
         :param lsini: initial values for ls
         :param diis: string 'rdm1' or 'tl'
         :param maxiter: max number of SCF iteration
         :param maxdiis: maximum space for DIIS
         :param CCS_grad: object containing the XCW-CCS gradient and Newton's method
-        '''
+        """
 
         # get nocc,nvir from ccs object
         self.nocc = mycc.nocc
@@ -76,6 +77,7 @@ class Solver_CCS:
     #####################
 
     def Ep_check(self, dic):
+        # obsolete
         ts = dic.get('ts')
         fsp = dic.get('fsp')
         Ep = self.mycc.energy_ccs(ts, fsp)
@@ -241,7 +243,7 @@ class Solver_CCS:
     # Gradient method
     ###################
 
-    def Gradient(self, L, method='newton', ts=None, ls=None, diis=[], beta=0.1, store_ite=False):
+    def Gradient(self, L, method='newton', ts=None, ls=None, diis='', beta=0.1, store_ite=False):
         """
         Solver the ECW-CCS equations with gradient based methods
 
@@ -519,7 +521,7 @@ class Solver_CCS:
 
 class Solver_CCSD:
     def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, tdini=None, ldini=None,
-                 diis=[], maxiter=50, maxdiis=15):
+                 diis='', maxiter=50, maxdiis=15):
         """
         Solver Class for the ECW-CCSD equations
 
@@ -531,7 +533,7 @@ class Solver_CCSD:
         :param lsini: initial values for l1, if None = 0
         :param tdini: initial values for t2, if None taken from mp2
         :param ldini: initial values for l2, if None taken from mp2
-        :param diis: list of 'rdm1', 'tl' variables on which to apply diis
+        :param diis: 'rdm1' or 'tl'
         :param maxiter: max number of SCF iteration, default = 50
         :param maxdiis: maximum space for DIIS, default = 15
         """
@@ -617,7 +619,7 @@ class Solver_CCSD:
     # SCF method
     #############
 
-    def SCF(self, L, ts=None, ls=None, td=None, ld=None, alpha=None, diis=None):
+    def SCF(self, L, ts=None, ls=None, td=None, ld=None, alpha=None, diis=''):
         """
         Standard SCF+DIIS solver for the GS-ECW-CCSD equations with additional L1 reg term
         Corresponds to a quasi Newton method
@@ -628,7 +630,7 @@ class Solver_CCSD:
         :param td: t2 amplitudes
         :param ld: lambda2 amplitudes
         :param alpha: L1 reg parameter
-        :param diis: tuple ('t','l','tl' and/or 'rdm1')
+        :param diis: 'tl' or 'rdm1'
         :return: [0] = convergence text
                  [1] = Ep(it)
                  [2] = X2(it)
@@ -661,16 +663,15 @@ class Solver_CCSD:
         X2_ite = []
         Ep_ite = []
 
-        # initialize diis for ts,ls, rdm1
-        if diis:
-            if 'rdm1' in diis:
-                adiis = lib.diis.DIIS()
-                adiis.space = self.maxdiis
-                adiis.min_space = 2
-            if 'tl' in diis:
-                tl_diis = lib.diis.DIIS()
-                tl_diis.space = self.maxdiis
-                tl_diis.min_space = 2
+        # initialize diis for ts,ls or rdm1
+        if 'rdm1' in diis:
+            adiis = lib.diis.DIIS()
+            adiis.space = self.maxdiis
+            adiis.min_space = 2
+        if 'tl' in diis:
+            tl_diis = lib.diis.DIIS()
+            tl_diis.space = self.maxdiis
+            tl_diis.min_space = 2
 
         while Dconv > self.conv_thres:
 
@@ -686,8 +687,10 @@ class Solver_CCSD:
 
             # update fock matrix and store X2
             # ---------------------------------
-            V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))
-            fsp = np.subtract(self.fock, V*L)
+            # V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0)) # old
+            # fsp = np.subtract(self.fock, V*L) # old
+            X2, vmax = VXexp.Vexp_update(rdm1, rdm1, (0, 0), L=L)
+            fsp = np.subtract(self.fock, VXexp.Vexp[0, 0])
             X2_ite.append((X2, vmax))
 
             # Store Ep energy

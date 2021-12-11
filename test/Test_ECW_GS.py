@@ -7,8 +7,8 @@ basis = '6-31+g**'
 # Choose lambda array
 # ---------------------
 lambi = 0.  # weight for Vexp, initial value
-lambf = 0.05  # lambda final
-lambn = 5  # number of Lambda value
+lambf = 0.8  # lambda final
+lambn = 10  # number of Lambda value
 Larray = np.linspace(lambi, lambf, num=lambn)
 
 # Build molecules and basis
@@ -17,12 +17,16 @@ ecw = Main.ECW(molecule, basis)
 
 # Build GS exp data from HF/CC+field
 # ------------------------------------
-# ecw.Build_GS_exp('mat', 'CCSD', field=[0.05, 0.01, 0.])  # gamma_exp
-ecw.Build_GS_exp(['mat'], 'CCSD', field=[0.005, 0.001, 0.], basis='6-311+g**')  # list of prop
+# gamma_exp
+ecw.Build_GS_exp(['mat'], 'CCSDt')
+#ecw.Build_GS_exp(['mat'], 'HF', field=[0.005, 0.001, 0.], basis='6-311+g**')
+# list of prop
+# ecw.Build_GS_exp(['dip', 'Ek'], 'CCSD', basis='6-311+g**')
 
 # Directly gave experimental data for the GS
 # -------------------------------------------
-# ecw.exp_data[0, 0] = [['Ek', 75.], ['dip', [0., 0,02, 0,8]]]
+# ecw.exp_data[0, 0] = [['Ek', 75.], ['dip', [0., 0,02, 0,8]]] # old format
+# ecw.exp_data[0] = [['Ek', 75.], ['dip', [0., 0,02, 0,8]]] # new format
 
 # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
 # ---------------------------------------------------------------------
@@ -30,8 +34,8 @@ ecw.Build_GS_exp(['mat'], 'CCSD', field=[0.005, 0.001, 0.], basis='6-311+g**')  
 diis = 'rdm1'
 # Results, plot = ecw.CCSD_GS(Larray, graph=True)
 # Results, plot = ecw.CCSD_GS(Larray, graph=True, print_ite_info=False)
-Results, plot = ecw.CCS_GS(Larray, graph=True, print_ite_info=False, conv_thres=10**-5, diis=diis, maxiter=50)
-plot.show()
+Results = ecw.CCS_GS(Larray, print_ite_info=False, conv_thres=10**-5, diis=diis, maxiter=50)
+ecw.plot_results()
 
 #print(Results[2])
 # Results contains the following info for the last value of L:
