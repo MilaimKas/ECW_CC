@@ -9,7 +9,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from pyscf import gto, scf, cc
 
 # CCS files
-from context import CCS, Solver_GS, exp_pot, Eris, exp_pot_new
+from context import CCS, Solver_GS, Eris, exp_pot
 
 ##################
 # Build molecule
@@ -81,7 +81,7 @@ conv = 10**-5
 # exp_data[0, 0] = ['mat', rdm1_exp] # old
 # VX_exp = exp_pot.Exp(exp_data, mol, mgf.mo_coeff)  # old
 exp_data = [[['mat', rdm1_exp]]]
-VX_exp = exp_pot_new.Exp(Larray[0], exp_data, mol, mgf.mo_coeff)
+VX_exp = exp_pot.Exp(Larray[0], exp_data, mol, mgf.mo_coeff)
 
 # Gradient object
 mygrad = CCS.ccs_gradient(geris)

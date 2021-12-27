@@ -27,7 +27,7 @@
 # QChem H2O/AVTZ EOM-CCSD and CVS-EOM-CCSD calculation results:
 # ----------------------------------------------------------------------
 #
-# Carefull with the definition of the axes
+# Careful with the definition of the axes
 #
 #  EOMEE transition 1/A
 #  Total energy = -76.05418671 a.u.  Excitation energy = 7.6051 eV. 
@@ -119,7 +119,7 @@ class Gexp:
 
         # deformed HF object
         self.mol_def = gto.mole.copy(mol)
-        if basis:
+        if basis is not None:
             if not isinstance(basis, str):
                 raise ValueError('basis must be a string')
             self.mol_def.basis = basis
@@ -237,7 +237,7 @@ class Gexp:
             from pyscf.cc import gccsd_t_rdm
             from pyscf.cc import gccsd_t_lambda
 
-            moc = self.mf_def.mo_coeff
+            # moc = self.mf_def.mo_coeff
 
             # CCSD calc
             mycc = cc.GCCSD(self.mf_def)
@@ -465,15 +465,13 @@ class ESexp:
             tdm = utilities.tdm_slater(TcL, TcR, moc)
             self.gamma_tr_ao.append(['core', tdm])
 
-    def EOM(self):
+    def EOM(self, nbr_ES):
         """
         PySCF RCCSD-EOM calculation
-        Stores the rdm1 for each states in G format
-        Stores the transition density matrices wrt the ground state for each state in G format
-
+        returns the Ek for each states
         """
 
-        raise NotImplementedError('EOM Vexp not implemented')
+        raise NotImplementedError
 
         import CCSD
         from pyscf import cc
@@ -492,35 +490,6 @@ class ESexp:
 
         # Do singlet excitation EOM(2,2) and store excitation energies and r amplitudes
         DE_r, rn = myeom.kernel()  # mycc.eomee_ccsd_singlet(nroots=nroots)
-
-        # Solve the L equations
-        # DE_l, ln = mycc.eomee_ccsd_singlet(nroots=nroots,left=True)
-
-        # store GS rdm1
-        tmp = mycc.make_rdm1()  # in deformed MOs basis
-        self.gamma_ao_gs = utilities.mo_to_ao(tmp, self.mo_coeff)  # in AOs
-
-        for i in range(len(rn)):
-            # Convert vector to amplitudes
-            # r1, r2 = mycc.vector_to_amplitudes(rn[i])
-            # l1, l2 = mycc.vector_to_amplitudes(ln[i])
-
-            # Convert amplitudes in G format
-            # r1 = cc.addons.spatial2spin(r1)
-            l1 = cc.addons.spatial2spin(l1)
-            # r2 = cc.addons.spatial2spin(r2)
-            l2 = cc.addons.spatial2spin(l2)
-
-            # calculate tdm <ES||GS> in deformed MOs basis
-            r1 = np.zeros_like(l1)
-            r2 = np.zeros_like(l2)
-            r0 = 1.
-            inter = CCSD.tr_rdm1_inter(t1, t2, l1, l2, r1, r2, r0)
-            rdm1 = CCSD.tr_rdm1(t1, t2, l1, l2, r1, r2, r0, inter)
-
-            # Convert in AOs basis
-            rdm1 = utilities.mo_to_ao(rdm1, self.mo_coeff)
-            self.gamma_ao.append(rdm1)
 
 
 if __name__ == "__main__":

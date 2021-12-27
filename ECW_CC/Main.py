@@ -1,12 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-'''
+"""
  ECW-CC
  Contains the main loop over experimental weight L
  Calls the different Solver
  print results and plot X2(L)
-'''
+"""
+
 import copy
 
 import matplotlib.pyplot as plt
@@ -20,7 +21,7 @@ from pyscf import gto, scf, cc
 
 # Import ECW modules
 # from . import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
-import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES, exp_pot_new, Solver_ES_new
+import CCS, CCSD, gamma_exp, utilities, Eris, Solver_GS, exp_pot, Solver_ES
 
 # Global float format for print
 # ------------------------------
@@ -39,7 +40,7 @@ class ECW:
         :param basis: string with basis set to be used
         :param int_thresh: threshold for 2 electron integrals
         :param out_dir: path to the directory where the output files (cube files, results, etc)
-                        are saved (string), if None do not print output files
+                        are saved, if None do not print output files
         :param U_format: if True, the spin-orbital basis are converted from a UHF calculation,
                          if False, the spin-orbital are converted from a RHF calc (a and b SO are degenerate)
         """
@@ -182,10 +183,14 @@ class ECW:
         # self.mf = mf
         self.mol = mol
 
-        # print cube file for L=0 (HF density)
+        # print cube file for HF density
         # --------------------------------------
         self.out_dir = out_dir
         if out_dir is not None:
+            import os
+            # create directory if does not exist
+            if not os.path.exists(out_dir):
+                os.mkdir(out_dir)
             from pyscf.tools import cubegen
             # convert g to r
             rdm1_hf = utilities.convert_g_to_ru_rdm1(self.rdm1_hf)[0]
@@ -210,7 +215,9 @@ class ECW:
         self.l_ini = None
         self.r0_ini = None
         self.l0_ini = None
-        self.Ek_exp_GS = None # GS exp kinetic energy
+        self.Ek_exp_GS = None  # GS exp kinetic energy
+        self.nbr_ES = 0
+        self.Delta_rdm1 = None
 
         # Target energies
         # --------------------
@@ -340,7 +347,8 @@ class ECW:
         if self.out_dir:
             from pyscf.tools import cubegen
             fout = self.out_dir + '/target_GS.cube'
-            cubegen.density(self.mol, fout, gexp.gamma_ao)
+            tmp = utilities.convert_g_to_ru_rdm1(gexp.gamma_ao)[0]
+            cubegen.density(self.mol, fout, tmp)
 
         print('*** GS data stored ***')
 
@@ -354,7 +362,7 @@ class ECW:
         :return: updated exp_data matrix and list of initial r1 vectors
         """
 
-        print(" Functions not yet tested")
+        print(" WARNING: Functions not yet tested")
 
         es_exp = gamma_exp.ESexp(self.mol, Vext=field, nbr_of_states=nbr_of_es)
         es_exp.MOM()
@@ -390,6 +398,7 @@ class ECW:
                          or kinetic energy difference for the target states
                          len(exp_prop) = nbr of ES
                          ex: exp_prop for 2 ES = [[['dip', (x,y,z)],['DEk', value]],[['dip', (x,y,z)]]]
+                             first ES with 2 prop and second ES with 1 prop
         :param rini_list: initial i->a one-electron excitation for each target states
                -> if rini are not given, they are taken from valence Koopman's initial guess
         :param val_core: tuple with number of valence and core excited states
@@ -416,6 +425,8 @@ class ECW:
             if len(rini_list) != len(es_prop):
                 raise ValueError('The number of given initial r vectors is not '
                                  'equal to consistent with the given experimental data for ES')
+
+        print('*** ES data stored ***')
 
     def CCS_GS(self, Larray, alpha=None, method='scf', diis='',
                nbr_cube_file=2, tl1ini=0, print_ite_info=False, beta=None, diis_max=15, conv='tl',
@@ -460,7 +471,7 @@ class ECW:
 
         # Vexp class
         #  VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)  # old format
-        VXexp = exp_pot_new.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
+        VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
         # initial values for ts and ls
         # CCSD initial values
@@ -545,10 +556,10 @@ class ECW:
 
             # print convergence text
             print(Result[0])
-            print()
             Ep = Result[1][-1]
             Delta = Result[2][-1][0]
             print('Delta = ', Delta)
+            print()
             vmax = Result[2][-1][1]
 
             # store list for graph and output files
@@ -624,13 +635,13 @@ class ECW:
         ts = tsini.copy()
         ls = lsini.copy()
 
-        # L value at which a cube file is to be generated
+        # L value at which a cube file is to be generated (first one and last one by default)
         idx = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
         L_print = Larray[idx]
 
         # Vexp class
         # VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
-        VXexp = exp_pot_new.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
+        VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
         # CCSD class
         if self.myccsd is None:
@@ -681,10 +692,10 @@ class ECW:
 
             # print convergence text
             print(Result[0])
-            print()
             Ep = Result[1][-1]
             Delta = Result[2][-1][0]
             print('Delta = ', Delta)
+            print()
             vmax = Result[2][-1][1]
 
             # store array for graph or output file
@@ -697,7 +708,7 @@ class ECW:
         print()
         print("FINAL RESULTS")
         print("Ep   = " + format_float.format(Ep + self.EHF))
-        print("X2   = " + format_float.format(Delta))
+        print("Delta   = " + format_float.format(Delta))
         if VXexp.Delta_Ek_GS is not None:
             print("DEk  = " + format_float.format(VXexp.Delta_Ek_GS))
         print()
@@ -709,17 +720,23 @@ class ECW:
 
         return Result
 
-    def CCS_ES(self, L, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis=''):
-        # todo: make loop over L values
+    def CCS_ES(self, L, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis='',
+               L_loop=False, nbr_cube_file=0, target_rdm1_GS=None):
         """
         Calls the excited state solver
 
+        :param target_rdm1_GS: rdm1 for the target GS in MO G basis
+        :param nbr_cube_file: number of GS cube files to be printed
         :param method: scf or diagonalization method
         :param conv: convergence criteria applies to 'tl' (ES amplitudes), 'rl' (GS amplitudes) or 'Ep'
         :param diis: use diis solver on top of scf or diag
         :param maxiter: max number of iteration
-        :param conv_thres: convergence threshold applied to the convegrence criteria 'conv'
-        :param L: array of L values (weight of exp data) for each state and each property
+        :param conv_thres: convergence threshold applied to the convergence criteria 'conv'
+        :param L: either array of L values (weight of exp data) for each state and each property
+                  or single float value
+                  or array of float with L_loop=True
+        :param L_loop: if True, reads L as increasing L single values and calls the ES solver for each.
+                        L must be a float.
         :param exp_data: list containing the experimental data for GS and ES ([[GS prop],[ES1 prop], ...])
         :return:
         """
@@ -730,7 +747,8 @@ class ECW:
                 raise Warning('No data for excited state')
         if exp_data is None:
             raise ValueError('exp_data list must be provided')
-        nbr_ES = len(exp_data) - 1
+
+        self.nbr_ES = len(exp_data) - 1
 
         # initial value for r1 and r0
         if self.r_ini is None:
@@ -740,15 +758,22 @@ class ECW:
         if self.myccs is None:
             self.myccs = CCS.Gccs(self.eris)
 
-        # Vexp class
-        Vexp = exp_pot_new.Exp(L, exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
-
-        # check L format
-        L = Vexp.L_check(L)
+        # check L format and create Vexp class
+        if L_loop:
+            if isinstance(L, float):
+                raise ValueError('If L_loop is True, L must be a 1D ndarray')
+            elif isinstance(L, np.ndarray) and isinstance(L[0], np.ndarray):
+                raise ValueError('If L_loop is True, L must be a 1D ndarray')
+            # Vexp class
+            Vexp = exp_pot.Exp(L[0], exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
+        else:
+            # Vexp class
+            Vexp = exp_pot.Exp(L, exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
+            L = Vexp.L_check(L)  # check L format: must be [[]*nbr_states]
 
         # Solver class
-        Solver = Solver_ES_new.Solver_ES(self.myccs, Vexp, conv_var=conv,
-                                         conv_thres=conv_thres, maxiter=maxiter, diis=diis)
+        Solver = Solver_ES.Solver_ES(self.myccs, Vexp, conv_var=conv,
+                                     conv_thres=conv_thres, maxiter=maxiter, diis=diis)
 
         print()
         print("########################################")
@@ -756,44 +781,167 @@ class ECW:
         print("########################################")
         print()
 
-        if method == "scf":
-            Solver.SCF(L)
-        elif method == "diag":
-            Solver.SCF_diag(L)
+        # Single lambda calculation with possible different lamb for each state and prop
+        if not L_loop:
+            if method == "scf":
+                Conv_text, dic_amp_ini, Delta, Ep, rdm1_GS = Solver.SCF(L)
+            elif method == "diag":
+                raise NotImplementedError
+                # Solver.SCF_diag(L)
+            else:
+                raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
+
+            if target_rdm1_GS is not None:
+                # calculate Delta from target rdm1
+                diff = np.subtract(target_rdm1_GS, rdm1_GS)
+                self.Delta_rdm1 = np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS))
+
+        # loop over lamb values (with same value for all sates and prop)
         else:
-            raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
+
+            # L value at which a cube file is to be generated
+            if self.out_dir is not None:
+                idx = np.round(np.linspace(0, len(L) - 1, nbr_cube_file)).astype(int)
+                L_print = L[idx]
+
+            dic_amp_ini = None
+            self.Delta_lamb = []
+            self.Ep_lamb = []
+            self.Larray = L
+
+            if target_rdm1_GS is not None:
+                self.Delta_rdm1 = []
+
+            for lamb in L:
+
+                print("LAMBDA= ", lamb)
+
+                if method == "scf":
+                    Conv_text, dic_amp_ini, Delta, Ep, rdm1_GS = Solver.SCF(L=lamb, dic_amp_ini=dic_amp_ini)
+                elif method == "diag":
+                    raise NotImplementedError
+                    # Solver.SCF_diag(lamb)
+                else:
+                    raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
+
+                if self.out_dir:
+                    if L in L_print:
+                        fout = self.out_dir + '/L{}'.format(int(L)) + '.cube'
+                        utilities.cube(rdm1_GS, self.mo_coeff, self.mol, fout)
+
+                self.Delta_lamb.append([Delta[0, 1:], Delta[1:, 0]])  # only take ES prop Delta
+                self.Ep_lamb.append([np.ravel(Ep[:, 0]), np.ravel(Ep[:, 1])])
+
+                if target_rdm1_GS is not None:
+                    # calculate Delta from target rdm1
+                    diff = np.subtract(target_rdm1_GS, rdm1_GS)
+                    self.Delta_rdm1.append(np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS)))
 
     ##################################
     # Print results and infos in file
     ##################################
 
-    def print_results(self):
+    def print_results(self, out_dir=None):
         """
+        For the GS results
         create an output file in out_dir directory with following infos:
+
         - name of molecule
-        - method used (basis, SCF, diis, etc)
+        - method used (basis, SCF or grad)
         - type of experimental data
         - convergence criteria
         - Delta, vmax, EHF-Ep and Ek as a function of Lambda
+
+        :param out_dir: path to the output file. Overwrite if given in ecw.Build.
         """
 
-        header = 'molecule: {} /n method: {} /n basis: {} /n target data: {} /n'.format(
+        if out_dir is not None:
+            self.out_dir = out_dir
+
+        if isinstance(self.Delta_lamb[0], np.ndarray):
+            print('Warning: excited state results detected, call appropriate print function')
+            return self.print_results_ES()
+
+        info = 'molecule: {} \n method: {} \n basis: {} \n target data: {} \n'.format(
             self.molecule, self.method, self.mol.basis, self.exp_data)
 
         if self.Delta_Ek:
             data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb, self.Delta_Ek])
-            header += "L    Delta   EHF-Ep  vmax    Delta_Ek"
+            header = ["L", "Delta(%)", "EHF-Ep", "vmax", "Delta_Ek(%)"]
         else:
             data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb])
-            header += "L    Delta   EHF-Ep  vmax"
+            header = ["L", "Delta(%)", "EHF-Ep", "vmax"]
 
-        np.savetxt(self.out_dir + '/output.txt', data, fmt="%10.5f", header=header)
+        if self.out_dir is not None:
+            with open(self.out_dir + '/output.txt', 'w') as f:
+                f.write(info)
+                f.write(tabulate(data, headers=header))
+
+        else:
+            print(info)
+            print(tabulate(data, headers=header))
+
+    def print_results_ES(self, out_dir):
+        """
+        For the ES results
+        create an output file in out_dir directory with following infos:
+
+        - name of molecule
+        - method used (basis, SCF or diag)
+        - type of experimental data
+        - convergence criteria
+        - Delta, left and right Ep as a function of Lambda
+
+        :param out_dir: path to the output file. Overwrite if given in ecw.Build.
+        """
+
+        if out_dir is not None:
+            self.out_dir = out_dir
+
+        if not isinstance(self.Delta_lamb[0], list):
+            print('Warning: ground state results detected, call appropriate print function')
+            return self.print_results()
+
+        info = 'molecule: {} \n method: {} \n basis: {} \n target data: {} \n'.format(
+            self.molecule, self.method, self.mol.basis, self.exp_data)
+
+        # create headers
+        header = ["L", "Ep_GS"]
+        for n in range(1, self.nbr_ES+1):
+            header.extend(["Deltar_{}".format(n), "Deltal_{}".format(n), "Er_{}".format(n), "El_{}".format(n)])
+
+        # create data to print
+        data = np.zeros((len(self.Ep_lamb), 2+4*self.nbr_ES))
+        data[:, 0] = self.Larray
+        for i in range(len(self.Larray)):
+            data[i, 2::4] = self.Delta_lamb[i][0]
+            data[i, 3::4] = self.Delta_lamb[i][1]
+            data[i, 1] = self.Ep_lamb[i][0][0]  # GS energy
+            data[i, 4::4] = self.Ep_lamb[i][0][1:]
+            data[i, 5::4] = self.Ep_lamb[i][1][1:]
+
+        # add Delta_GS if calculates
+        if self.Delta_rdm1 is not None:
+            header.extend(["Delta_rdm1_GS"])
+            data = np.column_stack(data, np.asarray(self.Delta_rdm1))
+
+        if self.out_dir:
+            with open(self.out_dir + '/output.txt', 'w') as f:
+                f.write(info)
+                f.write(tabulate(data, headers=header))
+
+        else:
+            print(info)
+            print(tabulate(data, headers=header))
 
     def plot_results(self):
-        # todo: deal with ES case and neested Larray
         """
         Plot Ep, Delta, vmax and DEk as a function of L
         """
+
+        if isinstance(self.Delta_lamb[0], list):
+            print('Warning: excited state results detected, call appropriate print function')
+            return self.print_results_ES()
 
         from matplotlib import rc
         rc('text', usetex=True)
@@ -806,7 +954,7 @@ class ECW:
                     color='grey', linewidth=1)
         # axs[0].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
         axs[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
-        axs[0].set_ylabel('E$_{HF}$-E$_p$', color='black')
+        axs[0].set_ylabel('E$_{HF}$-E$_p$ (au)', color='black')
 
         # X2 and vmax
         axs[1].plot(self.Larray, self.Delta_lamb, marker='o', markerfacecolor='red', markersize=4,
@@ -827,6 +975,55 @@ class ECW:
             ax2.plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=8,
                      color='black', linewidth=1)
             ax2.set_ylabel(r'$\Delta$ Ek (\%)', color='grey')
+
+        plt.show()
+
+    def plot_results_ES(self):
+        """
+        Plot left and right Ep, Delta as a function of L for each excited states
+        """
+
+        if not isinstance(self.Delta_lamb[0], list):
+            print('Warning: ground state results detected, call appropriate print function')
+            return self.print_results()
+
+        from matplotlib import rc
+        rc('text', usetex=True)
+
+        fig, axs = plt.subplots(2, sharex='col')
+        # Plot Ep, X2 and vmax only for converged lambdas
+
+        color1 = ['red', 'blue', 'darkgreen']
+        color2 = ['orange', 'lightblue', 'green']
+
+        # GS Energy
+        axs[0].plot(self.Larray, [e[0][0] for e in self.Ep_lamb[:]], marker='o', markerfacecolor='black', markersize=4,
+                    color='grey', linewidth=1)
+
+        # ES energy and Delta
+        for n in range(self.nbr_ES):
+            # Energy right
+            axs[0].plot(self.Larray, [e[0][n+1] for e in self.Ep_lamb[:]], marker='o', markerfacecolor=color1[n],
+                        markersize=4, color=color2[n], linewidth=1, linestyle='-.')
+            # Energy left
+            axs[0].plot(self.Larray, [e[1][n+1] for e in self.Ep_lamb[:]], marker='o', markerfacecolor=color1[n],
+                        markersize=4, color=color2[n], linewidth=1, linestyle='--')
+
+            axs[1].plot(self.Larray, [d[0][n] for d in self.Delta_lamb[:]], marker='o', markerfacecolor=color1[n],
+                        markersize=4, color=color2[n], linewidth=1, linestyle='-.')
+            axs[1].plot(self.Larray, [d[1][n] for d in self.Delta_lamb[:]], marker='o', markerfacecolor=color1[n],
+                        markersize=4, color=color2[n], linewidth=1, linestyle='--')
+
+        if self.Delta_rdm1 is not None:
+            axs[1].plot(self.Larray, self.Delta_rdm1, marker='o', markerfacecolor='black', markersize=4, color='grey',
+                        linewidth=1)
+
+        # labels
+        axs[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
+        axs[0].set_ylabel('E$_{HF}$ (au)', color='black')
+        axs[1].set_ylabel(r'$\Delta$ (\%)', color='red')
+        axs[1].set_xlabel(r'$\lambda$')
+        axs[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
 
         plt.show()
 
@@ -870,9 +1067,9 @@ if __name__ == '__main__':
     # ecw.plot_results()
 
     # Add excited state experimental data from 2 ES (taken from QChem, see gamma_exp.py)
-    dip_z = (0.523742 + 0.550251)/2.
-    DE = 7.6051*0.03675
-    es_prop = [[['trdip', (0., 0., dip_z)]], [['DEk', DE]]]
+    dip = (0.523742 + 0.550251)/2.
+    DEk = 7.6051*0.03675
+    es_prop = [[['trdip', (dip, 0., 0)]], [['DEk', DEk]]]
     ecw.Build_ES_exp_input(es_prop)
     print()
     print('Exp data: ')

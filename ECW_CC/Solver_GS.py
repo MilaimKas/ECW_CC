@@ -97,6 +97,7 @@ class Solver_CCS:
     # SCF method
     #############
 
+    # @profile
     def SCF(self, L, ts=None, ls=None, diis='', alpha=None, store_ite=False):
         """
         SCF+DISS solver for the ECW-CCS equations with L1 regularization term
@@ -782,8 +783,8 @@ if __name__ == "__main__":
     gexp.Vext(field)
     gexp.build()
     rdm1_exp = gexp.gamma_ao
-    exp = np.full((2, 2), None)
-    exp[0, 0] = ['mat', rdm1_exp]
+    exp_data = [['mat', rdm1_exp]]
+    L = 0.01
 
     print()
     print('################')
@@ -797,11 +798,12 @@ if __name__ == "__main__":
 
     # GCCS object
     mccsg = CCS.Gccs(geris)
+
     # CCS gradient object
     mygrad = CCS.ccs_gradient_old(geris)
 
     # Vexp object
-    VXexp = exp_pot.Exp(exp, mol, mgf.mo_coeff)
+    VXexp = exp_pot.Exp(L, exp_data, mol, mgf.mo_coeff)
 
     # initial ts and ls
     #tsini = np.random.rand(gnocc, gnvir)*0.01
@@ -811,16 +813,15 @@ if __name__ == "__main__":
 
     # convergence options
     conv_thres = 10 ** -6
-    diis = ['rdm1']
+    diis = 'tl'
 
     # initialise Solver_CCS Class
     Solver_CCS = Solver_CCS(mccsg, VXexp, 'tl', conv_thres, tsini=tsini, lsini=lsini, diis=diis, CCS_grad=mygrad)
 
-    # Solve for L = 0
-    L = 0.01
+    # Solve for L
     Results = Solver_CCS.SCF(L)
     print(Results[0])
-    print('X2= ', Results[2][-1])
+    print('Delta= ', Results[2][-1])
     print()
     print('Ep')
     print(Results[1])

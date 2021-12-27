@@ -645,6 +645,7 @@ class Gccs:
 
         return lsnew
 
+    # @profile
     def L1inter(self, ts, fsp, E_term=True):
         """
         Lambda 1 intermediates
@@ -900,7 +901,6 @@ class Gccs:
         Rov += rs[o, v] * F
         Rov += r0 * Zia[o, v]
         Rov += Pia[o, v]
-
         Em = Rov/rs[o, v]
 
         return Em, o, v

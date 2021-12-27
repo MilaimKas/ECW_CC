@@ -598,8 +598,10 @@ def get_norm(rs, ls, r0, l0):
     Return the linear product between two sets of amplitudes
     c = |<Psi_r|Psi_l>|**2
 
-    :param rs: set of amplitudes
-    :param ls: set of amplitudes
+    :param rs: array of r1 amplitudes
+    :param ls: array of l1 amplitudes
+    :param r0: float for the r0 amplitude
+    :param l0: float for the l0 amplitude
     :return:
     """
 
@@ -702,10 +704,10 @@ def check_ortho(rn, ln, r0n, l0n):
     diagonal are the normalization constant for state k -> <Psi_k|Psi_k>
     off-diagonal are the averaged orthogonalization constant for state ij -> (<Psi_k|Psi_l>+<Psi_l|Psi_k>)/2
 
-    :param ln: list of l vectors
-    :param rn: list of r vectors
-    :param l0n: list of l0 values
-    :param r0n: list of r0 values
+    :param ln: list of l arrays
+    :param rn: list of r arrays
+    :param l0n: list of l0 floats
+    :param r0n: list of r0 floats
     :return:
     """
 

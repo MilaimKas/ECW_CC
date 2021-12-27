@@ -10,7 +10,7 @@ initial_line = 14
 file1 = open(sys.argv[-2])
 file2 = open(sys.argv[-3])
 file3 = sys.argv[-1]
-file_out = open(file3,'w')
+file_out = open(file3, 'w')
 
 f1 = file1.readlines()
 f2 = file2.readlines()
@@ -26,5 +26,5 @@ for i in range(initial_line,len(f1)):
     string_out += ' '
   string_out += ("\n") 
 
-print >> file_out,string_out
+print >> file_out, string_out
 
