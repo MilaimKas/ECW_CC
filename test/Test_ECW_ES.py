@@ -33,7 +33,7 @@ gs_rdm1 = utilities.convert_r_to_g_rdm1(gs_rdm1)
 # VES2 => ['trdip', [0.000000, 0.000000, -0.622534]]  # DE = 10.06 eV
 # VES3 => ['trdip', [0.000000, -0.09280, 0.00000]]    # DE = 10.81 eV
 # CES1 => ['trdip', [0., 0. ,0.030970]]                # DE = 536 eV
-ecw.Build_ES_exp_input([[['trdip', [0.523742, 0., 0.]]]])
+ecw.Build_ES_exp_input([[['trdip', [0., 0., 0.030970]]]])
 
 # Solve ECW-ES-CCS equations using SCF algorithm
 # -----------------------------------------------

@@ -390,7 +390,7 @@ class ECW:
 
         del es_exp
 
-    def Build_ES_exp_input(self, es_prop, rini_list=None, val_core=(1, 0)):
+    def Build_ES_exp_input(self, es_prop, rini_list=None, val_core=None):
         """
         Store excited states data from given properties
 
@@ -405,6 +405,11 @@ class ECW:
         :return: updated exp_data matrix
         """
 
+        if val_core is None:
+            val_core = (len(es_prop), 0)
+        elif val_core.sum() != len(es_prop):
+            raise ValueError('Number of given core and valence states do not match the number of given exp prop')
+
         # Update exp_data with given ES prop
         for es in es_prop:
             self.exp_data.append(es)
@@ -418,9 +423,9 @@ class ECW:
             r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, val_core)
             r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
             self.r_ini = r1
-            self.l_ini = r1.copy()
+            self.l_ini = np.deepcopy(r1)
             self.r0_ini = r0ini
-            self.l0_ini = r0ini.copy()
+            self.l0_ini = np.deepcopy(r0ini)
         else:
             if len(rini_list) != len(es_prop):
                 raise ValueError('The number of given initial r vectors is not '
