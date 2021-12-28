@@ -1,19 +1,19 @@
 import numpy as np
 from context import Main
 
-molecule = 'urea'
+molecule = 'h2o'
 basis = '6-31+g*'
 
 # Choose lambda array
 # ---------------------
 lambi = 0.  # weight for Vexp, initial value
-lambf = 16.  # lambda final
-lambn = 1  # number of Lambda value
+lambf = 10.  # lambda final
+lambn = 11  # number of Lambda value
 Larray = np.linspace(lambi, lambf, num=lambn)
 
 # Build molecules and basis
 # ------------------------------
-ecw = Main.ECW(molecule, basis)#, out_dir="/Users/milaimkas/Documents/Post_these/ECW_results/urea")
+ecw = Main.ECW(molecule, basis, out_dir="/Users/milaimkas/Documents/Post_these/ECW_results/h2o_test")
 
 # Build GS exp data from HF/CC+field
 # ------------------------------------

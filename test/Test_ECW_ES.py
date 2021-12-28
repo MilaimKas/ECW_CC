@@ -1,5 +1,7 @@
 import numpy as np
-from context import Main
+from context import Main, utilities
+
+from pyscf import scf, cc
 
 molecule = 'h2o'
 basis = '6-31+g*'
@@ -7,11 +9,22 @@ basis = '6-31+g*'
 # Choose lambda
 # --------------
 # lamb = 0.1
-lamb = np.linspace(0, 0.4, 5)
+lamb = np.linspace(0, 0.1, 3)
 
 # Build molecules and basis
 # ------------------------------
 ecw = Main.ECW(molecule, basis)
+
+# Build target GS rdm1
+# --------------------------------
+myhf = scf.RHF(ecw.mol)
+myhf.kernel()
+mycc = cc.RCCSD(myhf, frozen=0)
+mycc.kernel()
+# mycc = cc.addons.convert_to_gccsd(mycc)
+gs_rdm1 = mycc.make_rdm1()  # mo
+gs_rdm1 = np.einsum('pi,ij,qj->pq', myhf.mo_coeff, gs_rdm1, myhf.mo_coeff.conj())  # ao
+gs_rdm1 = utilities.convert_r_to_g_rdm1(gs_rdm1)
 
 # Build ES exp data:
 # ------------------
@@ -25,6 +38,6 @@ ecw.Build_ES_exp_input([[['trdip', [0.523742, 0., 0.]]]])
 # Solve ECW-ES-CCS equations using SCF algorithm
 # -----------------------------------------------
 
-ecw.CCS_ES(lamb, diis='all', L_loop=True, maxiter=80)
+ecw.CCS_ES(lamb, diis='all', L_loop=True, maxiter=80, target_rdm1_GS=gs_rdm1, print_ite=False)
 ecw.plot_results_ES()
 ecw.print_results_ES()

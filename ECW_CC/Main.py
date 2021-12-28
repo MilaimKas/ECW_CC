@@ -577,6 +577,7 @@ class ECW:
         print()
         print("EHF    = " + format_float.format(self.EHF))
         print("Eexp   = " + format_float.format(self.Eexp_GS))
+        print()
 
         if self.out_dir:
             self.print_results()
@@ -721,10 +722,11 @@ class ECW:
         return Result
 
     def CCS_ES(self, L, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis='',
-               L_loop=False, nbr_cube_file=0, target_rdm1_GS=None):
+               L_loop=False, nbr_cube_file=0, target_rdm1_GS=None, print_ite=True):
         """
         Calls the excited state solver
 
+        :param print_ite: True if convergence information at each micro iteration are to be printed
         :param target_rdm1_GS: rdm1 for the target GS in MO G basis
         :param nbr_cube_file: number of GS cube files to be printed
         :param method: scf or diagonalization method
@@ -784,7 +786,7 @@ class ECW:
         # Single lambda calculation with possible different lamb for each state and prop
         if not L_loop:
             if method == "scf":
-                Conv_text, dic_amp_ini, Delta, Ep, rdm1_GS = Solver.SCF(L)
+                Conv_text, dic_amp_ini, Delta, Ep, rdm1_GS = Solver.SCF(L, print_ite=print_ite)
             elif method == "diag":
                 raise NotImplementedError
                 # Solver.SCF_diag(L)
@@ -800,6 +802,7 @@ class ECW:
         else:
 
             # L value at which a cube file is to be generated
+            L_print = []
             if self.out_dir is not None:
                 idx = np.round(np.linspace(0, len(L) - 1, nbr_cube_file)).astype(int)
                 L_print = L[idx]
@@ -817,7 +820,8 @@ class ECW:
                 print("LAMBDA= ", lamb)
 
                 if method == "scf":
-                    Conv_text, dic_amp_ini, Delta, Ep, rdm1_GS = Solver.SCF(L=lamb, dic_amp_ini=dic_amp_ini)
+                    Conv_text, dic_amp_ini, Delta, Ep, rdm1_GS = \
+                        Solver.SCF(L=lamb, dic_amp_ini=dic_amp_ini, print_ite=print_ite)
                 elif method == "diag":
                     raise NotImplementedError
                     # Solver.SCF_diag(lamb)
@@ -856,14 +860,27 @@ class ECW:
         """
 
         if out_dir is not None:
+            import os
+            # create directory if does not exist
+            if not os.path.exists(out_dir):
+                os.mkdir(out_dir)
             self.out_dir = out_dir
 
         if isinstance(self.Delta_lamb[0], np.ndarray):
             print('Warning: excited state results detected, call appropriate print function')
             return self.print_results_ES()
 
+        # avoid to print the entire target rdm1
+        out_target = []
+        for st in self.exp_data:
+            for prop in st:
+                if 'mat' in prop[0]:
+                    out_target.append(['mat'])
+                else:
+                    out_target.append([prop])
+
         info = 'molecule: {} \n method: {} \n basis: {} \n target data: {} \n'.format(
-            self.molecule, self.method, self.mol.basis, self.exp_data)
+            self.molecule, self.method, self.mol.basis, out_target)
 
         if self.Delta_Ek:
             data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb, self.Delta_Ek])
@@ -881,7 +898,7 @@ class ECW:
             print(info)
             print(tabulate(data, headers=header))
 
-    def print_results_ES(self, out_dir):
+    def print_results_ES(self, out_dir=None):
         """
         For the ES results
         create an output file in out_dir directory with following infos:
@@ -896,6 +913,10 @@ class ECW:
         """
 
         if out_dir is not None:
+            import os
+            # create directory if does not exist
+            if not os.path.exists(out_dir):
+                os.mkdir(out_dir)
             self.out_dir = out_dir
 
         if not isinstance(self.Delta_lamb[0], list):
@@ -923,7 +944,7 @@ class ECW:
         # add Delta_GS if calculates
         if self.Delta_rdm1 is not None:
             header.extend(["Delta_rdm1_GS"])
-            data = np.column_stack(data, np.asarray(self.Delta_rdm1))
+            data = np.hstack((data, np.asarray(self.Delta_rdm1).reshape((len(self.Delta_rdm1)), 1)))
 
         if self.out_dir:
             with open(self.out_dir + '/output.txt', 'w') as f:
@@ -950,7 +971,7 @@ class ECW:
         # Plot Ep, X2 and vmax only for converged lambdas
 
         # Energy
-        axs[0].plot(self.Larray, self.Ep_lamb, marker='o', markerfacecolor='black', markersize=8,
+        axs[0].plot(self.Larray, self.Ep_lamb, marker='o', markerfacecolor='black', markersize=4,
                     color='grey', linewidth=1)
         # axs[0].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
         axs[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
@@ -960,7 +981,7 @@ class ECW:
         axs[1].plot(self.Larray, self.Delta_lamb, marker='o', markerfacecolor='red', markersize=4,
                     color='orange', linewidth=1)
         ax2 = axs[1].twinx()
-        ax2.plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=8, color='lightblue',
+        ax2.plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=4, color='lightblue',
                  linewidth=1)
         ax2.set_ylabel('V$_{max}$', color='blue')
         axs[1].set_ylabel(r'$\Delta$ (\%)', color='red')
@@ -972,7 +993,7 @@ class ECW:
         # Ek difference
         if self.Delta_Ek:
             ax2 = axs[0].twinx()
-            ax2.plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=8,
+            ax2.plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=4,
                      color='black', linewidth=1)
             ax2.set_ylabel(r'$\Delta$ Ek (\%)', color='grey')
 

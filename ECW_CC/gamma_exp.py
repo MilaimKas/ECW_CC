@@ -11,13 +11,13 @@
  - Start from HF
  - Using CCSD or CCSD(T)
  - Adding external static field
+ - Add geometry deformation
  - simulate under-fitting
 
  ESexp: excited state
  Class for the simulated experimental reduced transition density matrix
  or reduced density matrix for some excited states
  - MOM methods: to be tested
- - TDA (CIS): to implement
  - EOM-CCSD: to implement (L equations not implemented for EOM-EE)
 
  returns gamma_exp for excited states, initial guess for r and E'n

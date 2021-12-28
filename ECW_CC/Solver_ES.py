@@ -225,8 +225,9 @@ class Solver_ES:
 
         # Printed information
         table = []
-        headers = ['ite', 'Dconv ' + str(self.conv_var)]  # First line of printed table
+        headers = []
         if print_ite:
+            headers = ['ite', 'Dconv ' + str(self.conv_var)]  # First line of printed table
             for i in range(nbr_states-1):
                 if i == 0:
                     headers.extend(['ES {}'.format(i+1), 'norm', 'X2_r', 'X2_l', '2S+1',
@@ -473,10 +474,9 @@ class Solver_ES:
                 Conv_text = 'Max iteration reached'
                 print()
                 print(Conv_text)
-                if not print_ite:
-                    table.append([ite, Dconv])
-                print(tabulate(table, headers, tablefmt=self.tablefmt))
-                print('Final Delta: \n')
+                if print_ite:
+                    print(tabulate(table, headers, tablefmt=self.tablefmt))
+                print('Final Delta:')
                 print(Delta)
                 break
 
@@ -485,10 +485,9 @@ class Solver_ES:
                 Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L, ite)
                 print()
                 print(Conv_text)
-                if not print_ite:
-                    table.append([ite, Dconv])
-                print(tabulate(table, headers, tablefmt=self.tablefmt))
-                print('Final Delta: \n')
+                if print_ite:
+                    print(tabulate(table, headers, tablefmt=self.tablefmt))
+                print('Final Delta:')
                 print(Delta)
                 break
 
@@ -498,10 +497,9 @@ class Solver_ES:
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L, ite)
             print(Conv_text)
             print()
-            if not print_ite:
-                table.append([ite, Dconv])
-            print(tabulate(table, headers, tablefmt=self.tablefmt))
-            print('Final Delta: \n')
+            if print_ite:
+                print(tabulate(table, headers, tablefmt=self.tablefmt))
+            print('Final Delta:')
             print(Delta)
             print()
              
