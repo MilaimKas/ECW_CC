@@ -139,7 +139,7 @@ class Solver_CCS:
         conv = 0.
         Dconv = 1.
         ite = 0
-        X2_ite = []
+        Delta_ite = []
         Ep_ite = []
         conv_ite = []
 
@@ -163,11 +163,9 @@ class Solver_CCS:
 
             # update fock matrix and store X2
             # ---------------------------------
-            #  V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0))  # olf format
-            #  fsp = np.subtract(self.fock, L*VXexp.Vexp[0, 0])  # old format
-            X2, vmax = VXexp.Vexp_update(rdm1, rdm1, (0, 0), L=L)
+            Delta, vmax = VXexp.Vexp_update(rdm1, rdm1, (0, 0), L=L)
             fsp = np.subtract(self.fock, VXexp.Vexp[0, 0])
-            X2_ite.append((X2, vmax))
+            Delta_ite.append((Delta, vmax))
 
             # update t amplitudes
             # ---------------------------------
@@ -235,10 +233,10 @@ class Solver_CCS:
         if store_ite:
             ts_ite = np.asarray(ts_ite)
             ls_ite = np.asarray(ls_ite)
-            return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, ts_ite, ls_ite
+            return Conv_text, np.asarray(Ep_ite), np.asarray(Delta_ite), np.asarray(conv_ite), rdm1, ts_ite, ls_ite
 
         else:
-            return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, (ts, ls)
+            return Conv_text, np.asarray(Ep_ite), np.asarray(Delta_ite), np.asarray(conv_ite), rdm1, (ts, ls)
 
     ###################
     # Gradient method
@@ -522,7 +520,7 @@ class Solver_CCS:
 
 class Solver_CCSD:
     def __init__(self, mycc, VX_exp, conv='tl', conv_thres=10**-6, tsini=None, lsini=None, tdini=None, ldini=None,
-                 diis='', maxiter=50, maxdiis=15):
+                 diis='', maxiter=40, maxdiis=15):
         """
         Solver Class for the ECW-CCSD equations
 
@@ -535,7 +533,7 @@ class Solver_CCSD:
         :param tdini: initial values for t2, if None taken from mp2
         :param ldini: initial values for l2, if None taken from mp2
         :param diis: 'rdm1' or 'tl'
-        :param maxiter: max number of SCF iteration, default = 50
+        :param maxiter: max number of SCF iteration, default = 40
         :param maxdiis: maximum space for DIIS, default = 15
         """
 
@@ -661,7 +659,7 @@ class Solver_CCSD:
         conv_ite = []
         Dconv = 1.0
         ite = 0
-        X2_ite = []
+        Delta_ite = []
         Ep_ite = []
 
         # initialize diis for ts,ls or rdm1
@@ -673,6 +671,8 @@ class Solver_CCSD:
             tl_diis = lib.diis.DIIS()
             tl_diis.space = self.maxdiis
             tl_diis.min_space = 2
+
+        rdm1 = []
 
         while Dconv > self.conv_thres:
 
@@ -688,11 +688,9 @@ class Solver_CCSD:
 
             # update fock matrix and store X2
             # ---------------------------------
-            # V, X2, vmax = VXexp.Vexp_update(rdm1, (0, 0)) # old
-            # fsp = np.subtract(self.fock, V*L) # old
-            X2, vmax = VXexp.Vexp_update(rdm1, rdm1, (0, 0), L=L)
+            Delta, vmax = VXexp.Vexp_update(rdm1, rdm1, (0, 0), L=L)
             fsp = np.subtract(self.fock, VXexp.Vexp[0, 0])
-            X2_ite.append((X2, vmax))
+            Delta_ite.append((Delta, vmax))
 
             # Store Ep energy
             # ----------------------------------------------
@@ -732,9 +730,8 @@ class Solver_CCSD:
             if ite >= self.maxiter:
                 Conv_text = 'Max iteration reached'
                 break
-            # if Ep - OLDEp > 1.:
             if Dconv > 1.0:
-                Conv_text = 'Diverges for lambda = {} and alpha={} after {} iterations'.format(L, alpha, ite)
+                Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L, ite)
                 break
 
             ite += 1
@@ -742,7 +739,7 @@ class Solver_CCSD:
         else:
             Conv_text = 'Convergence reached for lambda= {} and alpha={}, after {} iteration'.format(L, alpha, ite)
 
-        return Conv_text, np.asarray(Ep_ite), np.asarray(X2_ite), np.asarray(conv_ite), rdm1, [ts, ls, td, ld]
+        return Conv_text, np.asarray(Ep_ite), np.asarray(Delta_ite), np.asarray(conv_ite), rdm1, [ts, ls, td, ld]
 
 
 if __name__ == "__main__":

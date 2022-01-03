@@ -41,25 +41,28 @@ def subdiff(eq, var, alpha, R_format=False):
 
     # transform in R format
     if R_format:
-        eq = convert_g_to_r_amp(eq)
-        var = convert_g_to_r_amp(var)
+        e = convert_g_to_r_amp(eq)
+        v = convert_g_to_r_amp(var)
+    else:
+        e = eq
+        v = var
 
     # initialize sub-gradient W
-    dW = np.zeros_like(eq)
+    dW = np.zeros_like(e)
 
     # check for non zero elements in var
-    ind = np.argwhere(np.abs(var) > 0.)
+    ind = np.argwhere(np.abs(v) > 0.)
     for ix in ind:
-        dW[tuple(ix)] = eq[tuple(ix)] + alpha * np.sign(var[tuple(ix)])
+        dW[tuple(ix)] = e[tuple(ix)] + alpha * np.sign(v[tuple(ix)])
 
     # zero elements in var
-    ind = np.argwhere(var <= 0.)
+    ind = np.argwhere(v <= 0.)
     for ix in ind:
         ix = tuple(ix)
-        if eq[ix] < -alpha:
-            dW[ix] = eq[ix] + alpha
-        elif eq[ix] > alpha:
-            dW[ix] = eq[ix] - alpha
+        if e[ix] < -alpha:
+            dW[ix] = e[ix] + alpha
+        elif e[ix] > alpha:
+            dW[ix] = e[ix] - alpha
         else:
             dW[ix] = 0.
 
@@ -185,7 +188,7 @@ def convert_g_to_r_amp(amp, orbspin=None):
 
 def convert_g_to_ru_rdm1(rdm1_g):
     """
-    Transform generalised rdm1 to R and U rdm1
+    Transform AO generalised rdm1 to AO R and AO U rdm1
 
     :param rdm1_g: one-electron reduced density matrix in AOs basis
     :return: rdm1 in R and U format
@@ -205,7 +208,7 @@ def convert_g_to_ru_rdm1(rdm1_g):
 
 def convert_u_to_g_rdm1(rdm_u):
     """
-    convert U rdm1 to G rdm1
+    convert AOs U rdm1 to G rdm1
 
     :param rdm_u: unrestricted format rdm1 in AOs basis
     :return:
@@ -221,25 +224,23 @@ def convert_u_to_g_rdm1(rdm_u):
 
 
 def convert_r_to_g_rdm1(rdm_r):
-    # todo: check that the trace remains the same
     """
     convert R rdm1 to G rdm1
 
-    :param rdm_r: restricted format rdm1 in AOs basis
+    :param rdm_r: restricted format rdm1 in AOs or MOs basis
     :return:
     """
 
     nao, nao = rdm_r.shape
 
     rdm_g = np.zeros((nao * 2, nao * 2))
-    rdm_g[::2, ::2] = rdm_r
-    rdm_g[1::2, 1::2] = rdm_r
+    rdm_g[:nao, :nao] = 0.5*rdm_r
+    rdm_g[nao:, nao:] = 0.5*rdm_r
 
     return rdm_g
 
 
 def convert_r_to_g_coeff(mo_coeff):
-    # todo: trace of the transformed rdm1 is not = nelec
     """
     Convert mo_coeff in spatial format into spin-orbital format
 
@@ -257,6 +258,7 @@ def convert_r_to_g_coeff(mo_coeff):
     """
 
     dim = mo_coeff.shape[0] * 2
+
     new_coeff = np.zeros((dim, dim))
     new_coeff[0:dim // 2, 0::2] = mo_coeff
     new_coeff[dim // 2:, 1::2] = mo_coeff
@@ -273,6 +275,7 @@ def convert_g_to_r_coeff(mo_coeff):
     """
 
     dim = mo_coeff.shape[0] // 2
+
     new_coeff = mo_coeff[:dim, 0::2]
 
     return new_coeff
@@ -286,6 +289,7 @@ def convert_u_to_g_coeff(mo_coeff):
     """
 
     dim = mo_coeff[0].shape[0] * 2
+
     new_coeff = np.zeros((dim, dim))
     new_coeff[0:dim // 2, 0::2] = mo_coeff[0]
     new_coeff[dim // 2:, 1::2] = mo_coeff[1]
@@ -307,7 +311,7 @@ def convert_u_to_g_moc(moc_u):
     return moc_g
 
 
-def convert_aoint(int_ao, mo_coeff):
+def convert_aoint(int_ao, mo_coeff, g=True):
     """
     Transform AO integrals into spin-orbital (G) MO integrals
 
@@ -316,19 +320,29 @@ def convert_aoint(int_ao, mo_coeff):
     :return:
     """
 
+    if g:
+        mo = convert_g_to_r_coeff(mo_coeff)
+    else:
+        mo = mo_coeff
+
     # dipole case
     if int_ao.shape[0] == 3:
         dim = mo_coeff.shape[0]
         int_mo = np.zeros((3, dim, dim))
         for int, i in zip(int_ao, [0, 1, 2]):
-            tmp = ao_to_mo(int, convert_g_to_r_coeff(mo_coeff))
-            # R -> G
-            int_mo[i, :, :] = convert_r_to_g_rdm1(tmp)
+            # AO -> MO
+            tmp = ao_to_mo(int, mo)
+            if g:
+                # R -> G
+                int_mo[i, :, :] = convert_r_to_g_rdm1(tmp)
+            else:
+                int_mo[i, :, :] = tmp
 
     else:
-        int_mo = ao_to_mo(int_ao, convert_g_to_r_coeff(mo_coeff))
+        int_mo = ao_to_mo(int_ao, mo)
         # R -> G
-        int_mo = convert_r_to_g_rdm1(int_mo)
+        if g:
+            int_mo = convert_r_to_g_rdm1(int_mo)
 
     return int_mo
 
@@ -391,7 +405,7 @@ def mo_to_ao(rdm1_mo, mo_coeff):
 def koopman_init_guess(mo_energy, mo_occ, nstates=(1, 0), core_ene_thresh=10.):
     """
     Generates list of koopman guesses for r1 vectors in G format
-    The guess is obtained in the restricted R format to avoid breaking symmetry
+    The guess is obtained in the restricted R format to avoid breaking symmetry, before being converted to G format
 
     :param mo_energy: MOs energies
     :param: mo_occ: occupation array
@@ -617,7 +631,7 @@ def ortho_QR(Mvec):
     """
     Use numpy QR factorisation to orthogonalize a set of vectors
     math: Mvec = Q.R
-    wher Q has orthonormal column vectors and R is a a upper triangular matrix
+    where Q has orthonormal column vectors and R is a a upper triangular matrix
 
     :param Mvec: NxM matrix where the columns are the vectors to orthogonalize
     :return:
@@ -865,7 +879,7 @@ def printNO(rdm1, mf, mol, fout):
     """
 
     mo_ene = mf.mo_energy
-    fout = fout + '.molden'
+    out = fout + '.molden'
 
     # diagonalize rdm1 to yield NOs expansion coeff in MO basis
     # occupation results are generated in ascending order
@@ -880,7 +894,7 @@ def printNO(rdm1, mf, mol, fout):
     no_coeff = mf.mo_coeff.dot(no)
 
     # print molden format with MOs energy (...)
-    with open(fout, 'w') as f1:
+    with open(out, 'w') as f1:
         molden.header(mol, f1)
         molden.orbital_coeff(mol, f1, no_coeff, ene=mo_ene, occ=no_occ)
 
@@ -896,16 +910,16 @@ def cube(rdm1, mo_coeff, mol, fout, g=True):
     :return:
     """
 
-    fout = fout + '.cube'
+    out = fout + '.cube'
 
     # express rdm1 in AOs
-    rdm1 = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
+    rdm1_ao = np.einsum('pi,ij,qj->pq', mo_coeff, rdm1, mo_coeff.conj())
 
     # convert generalized rdm1 to restricted format
     if g:
-        rdm1 = convert_g_to_ru_rdm1(rdm1)[0]
+        rdm1_ao = convert_g_to_ru_rdm1(rdm1_ao)[0]
 
-    cubegen.density(mol, fout, rdm1)
+    cubegen.density(mol, out, rdm1_ao)
 
 
 def diff_cube(file1, file2, out):
@@ -931,6 +945,9 @@ def diff_cube(file1, file2, out):
     f1 = file1.readlines()
     f2 = file2.readlines()
 
+    line1 = ''
+    line2 = ''
+
     string_out = ''
     for i in range(initial_line):
         string_out += f1[i]
@@ -940,10 +957,10 @@ def diff_cube(file1, file2, out):
     for j in range(len(line1)):
         string_out += str(float(line1[j]) - float(line2[j]))
         string_out += ' '
-    string_out += ("\n")
+    string_out += "\n"
 
-    print >> file_out, string_out
-
+    file_out.write(string_out)
+    file_out.close()
 
 ###########################
 # One electron properties
@@ -1216,16 +1233,11 @@ if __name__ == '__main__':
     td = np.random.random((nocc // 2, nocc // 2, nvir // 2, nvir // 2)) * 0.1
     ts = convert_r_to_g_amp(ts)
     td = convert_r_to_g_amp(td)
-    # print('Test t1')
-    # print(np.subtract(t_save, convert_g_to_r_amp(ts)))
 
     # T1 eq
     import CC_raw_equations
 
     T1, T2 = CC_raw_equations.T1T2eq(ts, td, eris)
-
-    print('Test T1')
-    print(np.subtract(convert_g_to_r_amp(convert_r_to_g_amp(T1)), T1))
 
     # print sub-gradient
     alpha = 0.
@@ -1238,7 +1250,7 @@ if __name__ == '__main__':
     print(np.sum(np.subtract(W2, T2)))
     print()
     print('Test G->R->G conversion')
-    print('alpha=0')
+    print('For alpha=0')
     W1 = subdiff(T1, ts, alpha)
     W2 = subdiff(T2, td, alpha)
     W1_new = subdiff(T1, ts, alpha, R_format=True)
@@ -1247,7 +1259,7 @@ if __name__ == '__main__':
     print(np.sum(np.subtract(W1, W1_new)))
     print('W2')
     print(np.sum(np.subtract(W2, W2_new)))
-    print('alpha=0.1')
+    print('For alpha=0.1')
     alpha = 0.1
     W1 = subdiff(T1, ts, alpha)
     W2 = subdiff(T2, td, alpha)

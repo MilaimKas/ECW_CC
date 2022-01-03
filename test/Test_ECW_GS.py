@@ -1,40 +1,38 @@
 import numpy as np
 from context import Main
 
-molecule = 'h2o'
-basis = '6-31+g*'
+molecule = 'allene'
+basis = '6-31+g**'
 
 # Choose lambda array
 # ---------------------
 lambi = 0.  # weight for Vexp, initial value
-lambf = 10.  # lambda final
+lambf = 10  # lambda final
 lambn = 11  # number of Lambda value
 Larray = np.linspace(lambi, lambf, num=lambn)
 
 # Build molecules and basis
 # ------------------------------
-ecw = Main.ECW(molecule, basis, out_dir="/Users/milaimkas/Documents/Post_these/ECW_results/h2o_test")
+ecw = Main.ECW(molecule, basis)#, out_dir="/Users/milaimkas/Documents/Post_these/ECW_results/allene/CCS/mat")
 
 # Build GS exp data from HF/CC+field
 # ------------------------------------
 # gamma_exp
-# ecw.Build_GS_exp(['mat'], 'CCSDt')
-ecw.Build_GS_exp(['mat'], 'HF', field=[0.005, 0.001, 0.])
+ecw.Build_GS_exp(['mat'], 'CCSD')
 # list of prop
-# ecw.Build_GS_exp(['dip', 'Ek'], 'CCSD', basis='6-311+g**')
+# ecw.Build_GS_exp(['dip', 'Ek'], 'CCSD(T)', basis='6-311+g**', field=[0.001, 0., 0.])
+# print(ecw.exp_data)
 
 # Directly gave experimental data for the GS
 # -------------------------------------------
-# ecw.exp_data[0, 0] = [['Ek', 75.], ['dip', [0., 0,02, 0,8]]] # old format
-# ecw.exp_data[0] = [['Ek', 75.], ['dip', [0., 0,02, 0,8]]] # new format
+# ecw.exp_data[0] = [['Ek', 76.26263875454327], ['dip', [0, 0, -8.42688035e-01]]] # H2O ()CCSD(T)/6311+g**
 
 # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
 # ---------------------------------------------------------------------
 
 diis = 'tl'
-Results = ecw.CCS_GS(Larray, diis=diis)
+Results = ecw.CCS_GS(Larray, diis=diis, nbr_cube_file=4, maxiter=80)
 # Results, plot = ecw.CCSD_GS(Larray, graph=True, print_ite_info=False)
-# Results = ecw.CCS_GS(Larray, print_ite_info=False, conv_thres=10**-5, diis=diis, maxiter=50)
 ecw.plot_results()
 
 # print(Results[2])

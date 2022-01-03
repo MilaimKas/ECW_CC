@@ -48,8 +48,6 @@ class Exp:
 
         # store necessary AOs and MOs integrals
         # ---------------------------------------
-        # todo: write integrals on external file to save memory ?
-        # todo: calculate integrals on the fly instead of storing them in memory ?
 
         # AOs integrals
         self.Ek_int = None
@@ -128,11 +126,13 @@ class Exp:
         and calculates the relative difference Delta.
 
         math:
-        Vexp^nm  = 2/M sum_i^{M} (|Aexp_i-sum_pq gamma^nm_pq * Ai_pq|)/sig_i * Ai_rs
-        Vexp2^nm = 2/M sum_i^{M} (|Aexp_i-sum_pquv gamma^mn_pq * gamma^nm_vu * Ai_pq * Ai_uv.conj |)/sig_i
-                   * Ai_rs.conj * sum_pq gamma^mn_pq Ai_pq
 
-        second definition for transition properties (norm squared)
+        For target = rdm1 and GS prop (norm)
+        Vexp^nm  = 2/M sum_i^{M} (|Aexp_i-sum_pq gamma^nm_pq * Ai_pq|)/sig_i * Ai_rs
+
+        For target = tr_rdm1 or ES prop (norm squared)
+        Vexp^nm = 2/M sum_i^{M} (|Aexp_i-sum_pquv gamma^mn_pq * gamma^nm_vu * Ai_pq * Ai_uv.conj |)/sig_i
+                   * Ai_rs.conj * sum_pq gamma^mn_pq Ai_pq
 
         Delta = sum_ij |gamma_exp_ij - gamma_calc_ij| / (sum_ij |gamma_exp_ij|
          or sum_i|A_exp,i-A_calc,i|/A_exp,i
@@ -183,7 +183,7 @@ class Exp:
                     # calculate kinetic energy Ek_calc
                     if self.Ek_exp_GS is not None:
                         self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, aobasis=False,
-                                                         mo_coeff=self.mo_coeff, ek_int=self.Ek_int)
+                                                         mo_coeff=self.mo_coeff, ek_int=self.Ek_int, g=True)
                         # store Delta value for Ek
                         self.Delta_Ek_GS = np.abs(self.Ek_exp_GS - self.Ek_calc_GS)/np.abs(self.Ek_exp_GS)
 

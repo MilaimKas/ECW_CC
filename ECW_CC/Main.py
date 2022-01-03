@@ -18,6 +18,7 @@ from tabulate import tabulate
 
 # PySCF
 from pyscf import gto, scf, cc
+from pyscf.tools import cubegen
 
 # Import ECW modules
 # from . import CCS, CCSD, exp_pot, gamma_exp, utilities, Eris, Solver_GS, Solver_ES
@@ -53,7 +54,7 @@ class ECW:
 
         # Geometry
 
-        mol_list = ['h2', 'c2h4', 'h2o2', 'h2o', 'allene', 'urea']
+        mol_list = ['h2', 'c2h2', 'h2o2', 'h2o', 'allene', 'urea']
 
         if molecule == 'h2':
             mol.atom = '''
@@ -61,8 +62,8 @@ class ECW:
             H 0 0 0.74
             '''
 
-        elif molecule == 'c2h4':
-            # C2H4
+        elif molecule == 'c2h2':
+            # C2H2
             mol.atom = """
             C	0.0000000	0.0000000	0.6034010
             C	0.0000000	0.0000000	-0.6034010
@@ -190,8 +191,7 @@ class ECW:
             import os
             # create directory if does not exist
             if not os.path.exists(out_dir):
-                os.mkdir(out_dir)
-            from pyscf.tools import cubegen
+                os.makedirs(out_dir)
             # convert g to r
             rdm1_hf = utilities.convert_g_to_ru_rdm1(self.rdm1_hf)[0]
             cubegen.density(mol, out_dir + '/HF.cube', rdm1_hf, nx=80, ny=80, nz=80)
@@ -264,7 +264,7 @@ class ECW:
                 print('WARNING: If rdm1 are to be compared, target and calculated rdm1 must be in the same basis.'
                       'the {} basis will be used to calculate the target rdm1'.format(self.mol.basis))
                 basis = None
-        # if 'mat' is given, the geomerty must be the same (otherwise the basis is not the same)
+        # if 'mat' is given, the geometry must be the same (otherwise the basis is not the same)
         if 'mat' in prop and max_def is not None:
             print('WARNING: If rdm1 are to be compared, the geometry for exp anc calc must be the same')
             max_def = None
@@ -302,10 +302,12 @@ class ECW:
 
             # directly compare rdm1
             if p == 'mat':
-                gamma_mo = utilities.ao_to_mo(gexp.gamma_ao, self.mo_coeff)
-                self.Ek_exp_GS = utilities.Ekin(gexp.mol_def, gexp.gamma_ao)
-                # self.exp_data[0, 0] = ['mat', gamma_mo]  # old format
+                gamma_mo = utilities.convert_r_to_g_rdm1(gexp.gamma_ao)
+                gamma_mo = utilities.ao_to_mo(gamma_mo, self.mo_coeff)
+                # store target rdm1 in MO basis G format
                 self.exp_data[0].append(['mat', gamma_mo])
+                # calculate Ekin of the target
+                self.Ek_exp_GS = utilities.Ekin(gexp.mol_def, gexp.gamma_ao, g=False)
 
             # Structure Factor p=['F', h, (a,b,c)]
             if isinstance(p, (list, np.ndarray)):
@@ -321,34 +323,29 @@ class ECW:
                 #    h = p[1]
                 #    # calculate list of structure factors for each given set of Miller indices
                 #    F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao, gexp.mo_coeff_def,
-                #                                   aobasis=True, rec_vec=rec_vec)
+                #                                   aobasis=True, rec_vec=rec_vec, g=False)
                 #    # self.exp_data[0, 0].append(['F', F])  # old format
                 #    self.exp_data[0].append(['F', F, h, rec_vec])
 
             # Kinetic energy
             if p == 'Ek':
-                ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao)
-                #  self.exp_data[0, 0].append(['Ek', ek])  # old format
+                ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['Ek', ek])
 
             # one-electron potential
             if p == 'v1e':
-                v1e = utilities.v1e(gexp.mol_def, gexp.gamma_ao)
-                #  self.exp_data[0, 0].append(['v1e', v1e])  # olf format
+                v1e = utilities.v1e(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['v1e', v1e])
 
             # dipole moment
             if p == 'dip':
-                dip = utilities.dipole(gexp.mol_def, gexp.gamma_ao)
-                #  self.exp_data[0, 0].append(['dip', dip])  # olf format
+                dip = utilities.dipole(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['dip', dip])
 
         # store cube file with the target density in "out_dir"
-        if self.out_dir:
-            from pyscf.tools import cubegen
+        if self.out_dir is not None:
             fout = self.out_dir + '/target_GS.cube'
-            tmp = utilities.convert_g_to_ru_rdm1(gexp.gamma_ao)[0]
-            cubegen.density(self.mol, fout, tmp)
+            cubegen.density(gexp.mol_def, fout, gexp.gamma_ao)
 
         print('*** GS data stored ***')
 
@@ -423,9 +420,9 @@ class ECW:
             r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, val_core)
             r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
             self.r_ini = r1
-            self.l_ini = np.deepcopy(r1)
+            self.l_ini = copy.deepcopy(r1)
             self.r0_ini = r0ini
-            self.l0_ini = np.deepcopy(r0ini)
+            self.l0_ini = copy.deepcopy(r0ini)
         else:
             if len(rini_list) != len(es_prop):
                 raise ValueError('The number of given initial r vectors is not '
@@ -435,7 +432,7 @@ class ECW:
 
     def CCS_GS(self, Larray, alpha=None, method='scf', diis='',
                nbr_cube_file=2, tl1ini=0, print_ite_info=False, beta=None, diis_max=15, conv='tl',
-               conv_thres=10 ** -6, maxiter=40, tablefmt='rst'):
+               conv_thres=10 ** -5, maxiter=80, tablefmt='rst'):
         """
         Call CCS solver for the ground state using the SCF+DIIS+L1 or the gradient (steepest descend/Newton) method
 
@@ -500,8 +497,7 @@ class ECW:
         ls = lsini.copy()
 
         # L value at which a cube file is to be generated
-        idx = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
-        L_print = Larray[idx]
+        idx_L_print = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
 
         # CCS class
         if self.myccs is None:
@@ -515,10 +511,11 @@ class ECW:
         Solve = Solver_GS.Solver_CCS(self.myccs, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
                                      diis=diis, maxdiis=diis_max, maxiter=maxiter, CCS_grad=mygrad)
 
-        # printed final results
+        # initialize, other
         Result = None
         Ep = None
         Delta = None
+        idx_L_loop = 0
 
         print()
         print("#######################################################")
@@ -545,9 +542,9 @@ class ECW:
             ts, ls = Result[5]
 
             # print cube file for L listed in L_print in dir_cube path
-            if self.out_dir:
-                if L in L_print:
-                    fout = self.out_dir + '/L{}'.format(int(L)) + '.cube'
+            if self.out_dir is not None:
+                if idx_L_loop in idx_L_print:
+                    fout = self.out_dir + '/L{:.2f}'.format(L)
                     utilities.cube(Result[4], self.mo_coeff, self.mol, fout)
 
             if print_ite_info:
@@ -574,6 +571,8 @@ class ECW:
             if VXexp.Delta_Ek_GS is not None:
                 self.Delta_Ek.append(100. * VXexp.Delta_Ek_GS)
 
+            idx_L_loop += 1
+
         print("FINAL RESULTS")
         print("Ep   = " + format_float.format(Ep + self.EHF))
         print("Delta   = " + format_float.format(Delta))
@@ -584,13 +583,13 @@ class ECW:
         print("Eexp   = " + format_float.format(self.Eexp_GS))
         print()
 
-        if self.out_dir:
+        if self.out_dir is not None:
             self.print_results()
 
         return Result
 
     def CCSD_GS(self, Larray, alpha=None, diis='', nbr_cube_file=2, tl1ini=0,
-                print_ite_info=False, diis_max=15, conv='tl', conv_thres=10 ** -6, maxiter=40, tablefmt='rst'):
+                print_ite_info=False, diis_max=15, conv='tl', conv_thres=10 ** -5, maxiter=40, tablefmt='rst'):
         """
         Call CCSD solver for the ground state using SCF+DIIS method
 
@@ -642,11 +641,10 @@ class ECW:
         ls = lsini.copy()
 
         # L value at which a cube file is to be generated (first one and last one by default)
-        idx = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
-        L_print = Larray[idx]
+        idx_L_print = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
+        # L_print = Larray[idx]
 
         # Vexp class
-        # VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)
         VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
         # CCSD class
@@ -657,12 +655,13 @@ class ECW:
         Solve = Solver_GS.Solver_CCSD(self.myccd, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
                                       diis=diis, maxdiis=diis_max, maxiter=maxiter)
 
-        # initialize double amp
+        # initialize
         td = None
         ld = None
         Result = None
         Ep = None
         Delta = None
+        loop_idx = 0
 
         print()
         print("##############################################")
@@ -679,17 +678,16 @@ class ECW:
 
             # Use previous amplitudes as initial guess
             ts, ls, td, ld = Result[5]
-            # print(VXexp.Ek_exp_GS, VXexp.Ek_calc_GS)
 
             # print cube file for L listed in L_print in out_dir path
-            if self.out_dir:
-                if L in L_print:
-                    fout = self.out_dir + '/L{}'.format(int(L)) + '.cube'
+            if self.out_dir is not None:
+                if loop_idx in idx_L_print:
+                    fout = self.out_dir + '/L{:.2f}'.format(L)
                     utilities.cube(Result[4], self.mo_coeff, self.mol, fout)
 
             if print_ite_info:
                 print('Iteration steps')
-                headers = ['ite', 'Ep', str(conv), 'X2']
+                headers = ['ite', 'Ep', str(conv), 'Delta']
                 table = []
                 for i in range(len(Result[1])):
                     table.append([i, '{:.4e}'.format(Result[1][i]), "{:.4e}".format(Result[3][i]),
@@ -711,6 +709,8 @@ class ECW:
             if VXexp.Delta_Ek_GS is not None:
                 self.Delta_Ek.append(100. * VXexp.Delta_Ek_GS)
 
+            loop_idx += 1
+
         print()
         print("FINAL RESULTS")
         print("Ep   = " + format_float.format(Ep + self.EHF))
@@ -721,7 +721,7 @@ class ECW:
         print("EHF    = " + format_float.format(self.EHF))
         print("Eexp   = " + format_float.format(self.Eexp_GS))
 
-        if self.out_dir:
+        if self.out_dir is not None:
             self.print_results()
 
         return Result
@@ -807,15 +807,16 @@ class ECW:
         else:
 
             # L value at which a cube file is to be generated
-            L_print = []
+            idx_L_print = []
             if self.out_dir is not None:
-                idx = np.round(np.linspace(0, len(L) - 1, nbr_cube_file)).astype(int)
-                L_print = L[idx]
+                idx_L_print = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
 
+            # initialize
             dic_amp_ini = None
             self.Delta_lamb = []
             self.Ep_lamb = []
             self.Larray = L
+            idx_L_loop = 0
 
             if target_rdm1_GS is not None:
                 self.Delta_rdm1 = []
@@ -833,9 +834,9 @@ class ECW:
                 else:
                     raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
 
-                if self.out_dir:
-                    if L in L_print:
-                        fout = self.out_dir + '/L{}'.format(int(L)) + '.cube'
+                if self.out_dir is not None:
+                    if idx_L_loop in idx_L_print:
+                        fout = self.out_dir + '/L{:.2f}'.format(L)
                         utilities.cube(rdm1_GS, self.mo_coeff, self.mol, fout)
 
                 self.Delta_lamb.append([Delta[0, 1:], Delta[1:, 0]])  # only take ES prop Delta
@@ -845,6 +846,8 @@ class ECW:
                     # calculate Delta from target rdm1
                     diff = np.subtract(target_rdm1_GS, rdm1_GS)
                     self.Delta_rdm1.append(np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS)))
+
+                idx_L_loop += 1
 
     ##################################
     # Print results and infos in file
@@ -868,7 +871,7 @@ class ECW:
             import os
             # create directory if does not exist
             if not os.path.exists(out_dir):
-                os.mkdir(out_dir)
+                os.makedirs(out_dir)
             self.out_dir = out_dir
 
         if isinstance(self.Delta_lamb[0], np.ndarray):
@@ -921,7 +924,7 @@ class ECW:
             import os
             # create directory if does not exist
             if not os.path.exists(out_dir):
-                os.mkdir(out_dir)
+                os.makedirs(out_dir)
             self.out_dir = out_dir
 
         if not isinstance(self.Delta_lamb[0], list):
@@ -951,7 +954,7 @@ class ECW:
             header.extend(["Delta_rdm1_GS"])
             data = np.hstack((data, np.asarray(self.Delta_rdm1).reshape((len(self.Delta_rdm1)), 1)))
 
-        if self.out_dir:
+        if self.out_dir is not None:
             with open(self.out_dir + '/output.txt', 'w') as f:
                 f.write(info)
                 f.write(tabulate(data, headers=header))

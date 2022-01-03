@@ -95,20 +95,16 @@
 #
 ###################################################################
 
-import copy
-
 import numpy as np
-import scipy
-# from . import utilities
 import utilities
 
-from pyscf import scf, gto, cc, dft, tddft
+from pyscf import scf, gto, cc
 
 
 class Gexp:
     def __init__(self, mol, method, basis=None):
         """
-        Returns the rdm1 in AOs basis (G format) from a GHF, GCCSD or GCCSD(T) calculation with deformed geometry
+        Returns the rdm1 in AOs basis (G format) from a RHF, RCCSD or RCCSD(T) calculation with deformed geometry
         and/or additional external static field
         --> called 'experimental' rdm1 (or 'target' rdm1 or gamma)
 
@@ -124,13 +120,13 @@ class Gexp:
                 raise ValueError('basis must be a string')
             self.mol_def.basis = basis
             self.mol_def.build()
-        self.mf_def = scf.GHF(self.mol_def)
+        self.mf_def = scf.RHF(self.mol_def)
         self.mo_coeff_def = None
         self.nocc = None
         self.nvir = None
 
-        # Exp rdm1
-        self.gamma_ao = None  # in AOs basis
+        # Exp or target rdm1
+        self.gamma_ao = None  # in AOs basis R format
 
         self.method = method
         self.mycc = None
@@ -169,7 +165,7 @@ class Gexp:
         self.mol_def.build()
 
         # re-initialize mf object
-        self.mf_def = scf.GHF(self.mol_def)
+        self.mf_def = scf.RHF(self.mol_def)
 
     def Vext(self, field):
         """
@@ -190,7 +186,7 @@ class Gexp:
         h_def = (self.mol_def.intor('cint1e_kin_sph') + self.mol_def.intor('cint1e_nuc_sph')  # Ekin_e + Ve-n
                  + np.einsum('x,xij->ij', field,
                              self.mol_def.intor('cint1e_r_sph', comp=3)))  # <psi|E.r|psi> dipole int.(comp ?)
-        h_def = scipy.linalg.block_diag(h_def, h_def)  # make hcore in SO basis
+        # h_def = scipy.linalg.block_diag(h_def, h_def)  # make hcore in SO basis
         self.mf_def.get_hcore = lambda *args: h_def  # pass the new one electron hamiltonian
         self.mol_def.incore_anyway = True  # force to use new h1e even when memory is not enough
 
@@ -214,33 +210,30 @@ class Gexp:
         self.EHF_def = self.mf_def.e_tot
         self.Eexp = self.EHF_def
 
-        # rdm1 in AOs
-        self.gamma_ao = self.mf_def.make_rdm1()
+        # rdm1 in AOs R format
+        tmp_rdm1 = self.mf_def.make_rdm1()
 
         # CCSD calculation
         if self.method == 'CCSD':
 
-            moc = self.mf_def.mo_coeff
-
-            mycc = cc.GCCSD(self.mf_def)
+            mycc = cc.CCSD(self.mf_def, frozen=0)
             mycc.set(max_cycle=100)
             mycc.set(diis_space=10)
             self.ECCSD_def = mycc.kernel()[0]
             self.Eexp = self.ECCSD_def + self.EHF_def
 
-            tmp = mycc.make_rdm1()  # in deformed MOs basis
-            self.gamma_ao = utilities.mo_to_ao(tmp, moc)  # in AOs
+            tmp_rdm1 = mycc.make_rdm1()  # in deformed MOs basis R format
 
         # CCSD(T) calculation
-        elif self.method in ['CCSD(T)', 'CCSD(t)', 'CCSDT', "CCSDt"]:
+        elif self.method in ['CCSD(T)', 'CCSD(t)', 'CCSDT', 'CCSDt', 'ccsd(t)', 'ccsdt']:
 
-            from pyscf.cc import gccsd_t_rdm
-            from pyscf.cc import gccsd_t_lambda
+            from pyscf.cc import ccsd_t_lambda_slow
+            from pyscf.cc import ccsd_t_rdm_slow
 
             # moc = self.mf_def.mo_coeff
 
             # CCSD calc
-            mycc = cc.GCCSD(self.mf_def)
+            mycc = cc.CCSD(self.mf_def, frozen=0)
             mycc.set(max_cycle=100)
             mycc.set(diis_space=15)
             self.ECCSD_def, t1, t2 = mycc.kernel()
@@ -249,14 +242,17 @@ class Gexp:
             self.Eexp = self.ECCSD_t_def + self.EHF_def
 
             # Solve Lambda
-            l1, l2 = gccsd_t_lambda.kernel(mycc, eris, t1, t2, verbose=0)[1:]
+            l1, l2 = ccsd_t_lambda_slow.kernel(mycc, eris, t1, t2, verbose=0)[1:]
 
             # get rdm1
-            tmp = gccsd_t_rdm.make_rdm1(mycc, t1, t2, l1, l2, eris=eris)  # in def MOs
-            self.gamma_ao = utilities.mo_to_ao(tmp, self.mo_coeff_def)  # in AOs
+            tmp_rdm1 = ccsd_t_rdm_slow.make_rdm1(mycc, t1, t2, l1, l2, eris=eris)  # in def MOs R format
 
         elif self.method != 'HF':
             raise ValueError('Method not recognized')
+
+        # convert to AO R format
+        self.gamma_ao = utilities.mo_to_ao(tmp_rdm1, self.mo_coeff_def)  # in AOs R format
+        # self.gamma_ao = utilities.convert_r_to_g_rdm1(self.gamma_ao_R)    # in AOs G format
 
     def underfit(self, para_factor):
         """

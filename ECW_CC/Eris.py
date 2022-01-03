@@ -27,6 +27,7 @@ class geris():
     see pyscf.cc.gccsd._make_eris_incore function
     """
 
+    # @profile
     def __init__(self, mycc, int_thresh=10 ** -13, dir_cont=False):
         """
         PySCF electron repulsion integrals in physics notation
@@ -96,6 +97,7 @@ class geris():
         else:
             # mol.intor('int2e', aosym='s8') -> AO in spatial format
             eri_ao = mycc._scf._eri
+
             # with or without orbspin gives same result
             if orbspin is None:
                 eri = ao2mo.kernel(eri_ao, mo_a)   # alpha integral aa|aa
@@ -124,8 +126,8 @@ class geris():
             eri = eri.reshape(nmo, nmo, nmo, nmo)  # reshape into nmo (nbr of spin orb.)
 
             eri = eri.transpose(0, 2, 1, 3) - eri.transpose(0, 2, 3, 1)  # make pqrs-pqsr
-            low_values_flags = abs(eri) < self.threshold  # Where values are low
-            eri[low_values_flags] = 0  # All low values set to 0
+            #low_values_flags = abs(eri) < self.threshold  # Where values are low
+            #eri[low_values_flags] = 0  # All low values set to 0
 
         self.fock = np.diag(eris.mo_energy)
         self.oooo = eri[:nocc, :nocc, :nocc, :nocc].copy()
@@ -150,6 +152,7 @@ class geris():
         self.mo_occ = mycc.mo_occ
         self.nocc = mycc.nocc
         self.EHF = eris.e_hf
+
 
 if __name__ == "__main__":
 
