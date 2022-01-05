@@ -226,6 +226,9 @@ def convert_u_to_g_rdm1(rdm_u):
 def convert_r_to_g_rdm1(rdm_r):
     """
     convert R rdm1 to G rdm1
+    if MO basis, convert to G [0 1 0 1] spin format: same as R->G PySCF conversion
+
+    !!! Sign problem for MO !!!
 
     :param rdm_r: restricted format rdm1 in AOs or MOs basis
     :return:
@@ -243,14 +246,7 @@ def convert_r_to_g_rdm1(rdm_r):
 def convert_r_to_g_coeff(mo_coeff):
     """
     Convert mo_coeff in spatial format into spin-orbital format
-
-    example:
-                      phi_a,1 phi_b,1 phi_a,2 phi_b,2
-                      --------------------------------
-                Xa,1 | c       0        c       0
-                Xa,2 | c       0        c       0
-    new_coeff = Xb,1 | 0       c        0       c
-                Xb,2 | 0       c        0       c
+    Produces G [0 1 0 1] spin format: same as R->G PySCF conversion
 
 
     :param mo_coeff: mo_coeff in spatial format (R format)
@@ -269,6 +265,7 @@ def convert_r_to_g_coeff(mo_coeff):
 def convert_g_to_r_coeff(mo_coeff):
     """
     convert MO coeff from spin-orbital (G) to spatial (R) format
+    only works for G [0 1 0 1] spin format: same as R->G PySCF conversion
 
     :param mo_coeff: MO coeff in G format
     :return:
@@ -287,7 +284,7 @@ def convert_u_to_g_coeff(mo_coeff):
     :param mo_coeff: mo coefficients in G format
     :return:
     """
-
+    print('WARNING: U to G conversion for MO not tested')
     dim = mo_coeff[0].shape[0] * 2
 
     new_coeff = np.zeros((dim, dim))
@@ -321,28 +318,23 @@ def convert_aoint(int_ao, mo_coeff, g=True):
     """
 
     if g:
-        mo = convert_g_to_r_coeff(mo_coeff)
-    else:
         mo = mo_coeff
+    else:
+        mo = convert_r_to_g_coeff(mo_coeff)
 
     # dipole case
     if int_ao.shape[0] == 3:
         dim = mo_coeff.shape[0]
         int_mo = np.zeros((3, dim, dim))
-        for int, i in zip(int_ao, [0, 1, 2]):
+        for int, cart in zip(int_ao, [0, 1, 2]):
             # AO -> MO
+            int = convert_r_to_g_rdm1(int)
             tmp = ao_to_mo(int, mo)
-            if g:
-                # R -> G
-                int_mo[i, :, :] = convert_r_to_g_rdm1(tmp)
-            else:
-                int_mo[i, :, :] = tmp
+            int_mo[cart, :, :] = tmp
 
     else:
-        int_mo = ao_to_mo(int_ao, mo)
-        # R -> G
-        if g:
-            int_mo = convert_r_to_g_rdm1(int_mo)
+        int_mo = convert_r_to_g_rdm1(int_ao)
+        int_mo = ao_to_mo(int_mo, mo)
 
     return int_mo
 

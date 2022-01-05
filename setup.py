@@ -10,7 +10,7 @@ setup(
     author_email='milaim.kas@gmail.com',
     license='MIT License',
     packages=['ECW_CC'],
-    install_requires=['PySCF',
+    install_requires=['pyscf',
                       'numpy',
                       'matplotlib',
                       'tabulate',

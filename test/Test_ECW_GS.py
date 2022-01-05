@@ -1,14 +1,14 @@
 import numpy as np
 from context import Main
 
-molecule = 'allene'
-basis = '6-31+g**'
+molecule = 'h2o'
+basis = '6-31+g*'
 
 # Choose lambda array
 # ---------------------
 lambi = 0.  # weight for Vexp, initial value
-lambf = 10  # lambda final
-lambn = 11  # number of Lambda value
+lambf = 0.3  # lambda final
+lambn = 10  # number of Lambda value
 Larray = np.linspace(lambi, lambf, num=lambn)
 
 # Build molecules and basis
@@ -18,14 +18,13 @@ ecw = Main.ECW(molecule, basis)#, out_dir="/Users/milaimkas/Documents/Post_these
 # Build GS exp data from HF/CC+field
 # ------------------------------------
 # gamma_exp
-ecw.Build_GS_exp(['mat'], 'CCSD')
+# ecw.Build_GS_exp(['mat'], 'CCSD')
 # list of prop
-# ecw.Build_GS_exp(['dip', 'Ek'], 'CCSD(T)', basis='6-311+g**', field=[0.001, 0., 0.])
-# print(ecw.exp_data)
+ecw.Build_GS_exp(['Ek'], 'CCSD(T)', basis='6-311+g**')
 
 # Directly gave experimental data for the GS
 # -------------------------------------------
-# ecw.exp_data[0] = [['Ek', 76.26263875454327], ['dip', [0, 0, -8.42688035e-01]]] # H2O ()CCSD(T)/6311+g**
+# ecw.exp_data[0] = [['Ek', 76.26263875454327], ['dip', [0, 0, -8.42688035e-01]]]  # H2O ()CCSD(T)/6311+g**
 
 # Solve ECW-CCS/CCSD equations using SCF algorithm with given alpha
 # ---------------------------------------------------------------------

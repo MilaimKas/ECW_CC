@@ -5,15 +5,13 @@
  ECW-CC
  Contains the main loop over experimental weight L
  Calls the different Solver
- print results and plot X2(L)
+ print results and plot functions
 """
-
-import copy
-
-import matplotlib.pyplot as plt
 
 # Python
 import numpy as np
+import copy
+import matplotlib.pyplot as plt
 from tabulate import tabulate
 
 # PySCF
@@ -200,14 +198,9 @@ class ECW:
         # ----------------------------------
         self.eris = Eris.geris(cc.GCCSD(mf))
         self.fock = self.eris.fock
-        # fock = np.diag(mo_ene)
-        # S = mf.get_ovlp() # overlap of the AOs basis
-        # ccsd = cc.GCCSD(mf)
-        # eris = ccsd.ao2mo(mo_coeff)
 
         # initialize exp_data
         # --------------------------
-        # self.exp_data = np.full((1, 1), None)  # old format
         self.exp_data = []
         self.exp_data.append([])  # add GS
         # r and l vectors for the ES
@@ -238,6 +231,18 @@ class ECW:
         self.Delta_Ek = []  # Relative Ek difference |Ek_calc-Ek_exp|/|Ek_exp|
 
         print('*** Molecule build ***')
+
+    def init_plot_var(self, Larray):
+        """
+        initialize list of results as a function of L
+        :return:
+        """
+
+        self.Larray = Larray
+        self.Delta_lamb = []  # Relative prop., sum of prop. or rdm1 difference |A_calc-A_exp|/|A_exp|
+        self.Ep_lamb = []  # EHF-Ep
+        self.vmax_lamb = []  # vmax
+        self.Delta_Ek = []  # Relative Ek difference |Ek_calc-Ek_exp|/|Ek_exp|
 
     def Build_GS_exp(self, prop, posthf='HF', field=None, para_factor=None, max_def=None, basis=None):
         """
@@ -374,7 +379,6 @@ class ECW:
 
         # expand exp_data with tr_rdm1
         for tr_rdm1, rini in zip(es_exp.gamma_tr_ao, es_exp.ini_r):
-
             # store tr_rdm1 in MO basis
             tr_rdm1 = utilities.ao_to_mo(tr_rdm1, self.mo_coeff)
             self.exp_data.append(['trmat', [tr_rdm1, tr_rdm1]])  # left and right tr_rdm1 are the same -> verify
@@ -394,18 +398,19 @@ class ECW:
         :param es_prop: list with either transition dipole moment values np.array(x,y,z)
                          or kinetic energy difference for the target states
                          len(exp_prop) = nbr of ES
-                         ex: exp_prop for 2 ES = [[['dip', (x,y,z)],['DEk', value]],[['dip', (x,y,z)]]]
+                         ex: exp_prop for 2 ES = [[['dip', (x,y,z)],['DEk', value]],[['trdip', (x,y,z)]]]
                              first ES with 2 prop and second ES with 1 prop
         :param rini_list: initial i->a one-electron excitation for each target states
-               -> if rini are not given, they are taken from valence Koopman's initial guess
-        :param val_core: tuple with number of valence and core excited states
+               -> if rini are not given, they are taken from valence or core Koopman's initial guess
+        :param val_core: tuple with number of valence and core excited states (nval, ncore)
         :return: updated exp_data matrix
         """
 
         if val_core is None:
             val_core = (len(es_prop), 0)
         elif val_core.sum() != len(es_prop):
-            raise ValueError('Number of given core and valence states do not match the number of given exp prop')
+            raise ValueError('Number of given core and valence states do not match the number of given exp prop. '
+                             'If core excited states are included, val_core tuple must be given')
 
         # Update exp_data with given ES prop
         for es in es_prop:
@@ -426,7 +431,7 @@ class ECW:
         else:
             if len(rini_list) != len(es_prop):
                 raise ValueError('The number of given initial r vectors is not '
-                                 'equal to consistent with the given experimental data for ES')
+                                 'consistent with the given experimental data for ES')
 
         print('*** ES data stored ***')
 
@@ -460,36 +465,33 @@ class ECW:
 
         self.diis = diis + ' diis_max={}'.format(diis_max)
 
-        self.Larray = Larray
-
         if method == 'L1_grad' and beta is None:
             raise ValueError('A value for beta (gradient step) must be given for the L1_grad method')
 
         if len(self.exp_data) > 1:
-            self.exp_data = self.exp_data[0]  # new format
+            self.exp_data = self.exp_data[0]
             raise Warning('Data for excited states have been found but a ground state solver is used, '
                           'the Vexp potential will only contain GS data')
         self.method = method
 
         # Vexp class
-        #  VXexp = exp_pot.Exp(self.exp_data, self.mol, self.mo_coeff, rec_vec=self.rec_vec, h=self.h)  # old format
         VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
 
         # initial values for ts and ls
-        # CCSD initial values
         if tl1ini == 1:
+            # CCSD initial values
             mo_ene = np.diag(self.fock)
             eia = mo_ene[:self.nocc, None] - mo_ene[None, self.nocc:]
             tsini = self.fock[:self.nocc, self.nocc:] / eia
             lsini = tsini.copy()
-        # random number: only for debugging purpose
         elif tl1ini == 2:
+            # random number: only for debugging purpose
             tsini = np.random.rand(self.nocc // 2, self.nvir // 2) * 0.01
             lsini = np.random.rand(self.nocc // 2, self.nvir // 2) * 0.01
             tsini = utilities.convert_r_to_g_amp(tsini)
             lsini = utilities.convert_r_to_g_amp(lsini)
-        # zero
         else:
+            # zero -> HF init
             tsini = np.zeros((self.nocc, self.nvir))
             lsini = np.zeros((self.nocc, self.nvir))
 
@@ -516,6 +518,7 @@ class ECW:
         Ep = None
         Delta = None
         idx_L_loop = 0
+        self.init_plot_var(Larray)
 
         print()
         print("#######################################################")
@@ -541,7 +544,7 @@ class ECW:
                 raise ValueError('method not recognize')
             ts, ls = Result[5]
 
-            # print cube file for L listed in L_print in dir_cube path
+            # print cube file for L listed in L_print
             if self.out_dir is not None:
                 if idx_L_loop in idx_L_print:
                     fout = self.out_dir + '/L{:.2f}'.format(L)
@@ -565,7 +568,7 @@ class ECW:
             vmax = Result[2][-1][1]
 
             # store list for graph and output files
-            self.Delta_lamb.append(100. * Delta)
+            self.Delta_lamb.append(Delta * 100)
             self.Ep_lamb.append(self.EHF - Ep)
             self.vmax_lamb.append(vmax)
             if VXexp.Delta_Ek_GS is not None:
@@ -580,7 +583,7 @@ class ECW:
             print("Delta Ek  = " + format_float.format(VXexp.Delta_Ek_GS))
         print()
         print("EHF    = " + format_float.format(self.EHF))
-        print("Eexp   = " + format_float.format(self.Eexp_GS))
+        print("Eexp   = ", self.Eexp_GS)
         print()
 
         if self.out_dir is not None:
@@ -613,7 +616,6 @@ class ECW:
                  [5] = list [t1,l2,t2,l2] with final amplitudes
         """
 
-        self.Larray = Larray
         self.diis = diis + ' diis_max={}'.format(diis_max)
 
         if len(self.exp_data) > 1:
@@ -662,6 +664,7 @@ class ECW:
         Ep = None
         Delta = None
         loop_idx = 0
+        self.init_plot_var(Larray)
 
         print()
         print("##############################################")
@@ -739,11 +742,11 @@ class ECW:
         :param diis: use diis solver on top of scf or diag
         :param maxiter: max number of iteration
         :param conv_thres: convergence threshold applied to the convergence criteria 'conv'
-        :param L: either array of L values (weight of exp data) for each state and each property
+        :param L: either
+                  nested array of L values (weight of exp data) for each state and each property
                   or single float value
                   or array of float with L_loop=True
         :param L_loop: if True, reads L as increasing L single values and calls the ES solver for each.
-                        L must be a float.
         :param exp_data: list containing the experimental data for GS and ES ([[GS prop],[ES1 prop], ...])
         :return:
         """
@@ -751,7 +754,8 @@ class ECW:
         if exp_data is None:
             exp_data = self.exp_data
             if len(exp_data) == 1:
-                raise Warning('No data for excited state')
+                raise NotImplementedError("No data for excited state detected, "
+                                          "ES solver with only GS exp prop not tested you should use GS solver instead")
         if exp_data is None:
             raise ValueError('exp_data list must be provided')
 
@@ -813,10 +817,8 @@ class ECW:
 
             # initialize
             dic_amp_ini = None
-            self.Delta_lamb = []
-            self.Ep_lamb = []
-            self.Larray = L
             idx_L_loop = 0
+            self.init_plot_var(L)
 
             if target_rdm1_GS is not None:
                 self.Delta_rdm1 = []
@@ -845,7 +847,13 @@ class ECW:
                 if target_rdm1_GS is not None:
                     # calculate Delta from target rdm1
                     diff = np.subtract(target_rdm1_GS, rdm1_GS)
-                    self.Delta_rdm1.append(np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS)))
+                    self.Delta_rdm1.append(100 * np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS)))
+
+                # Print information
+                print(Conv_text)
+                print('Delta = \n', Delta)
+                print('Calculated properties = \n', Vexp.prop_calc)
+                print()
 
                 idx_L_loop += 1
 
@@ -936,11 +944,11 @@ class ECW:
 
         # create headers
         header = ["L", "Ep_GS"]
-        for n in range(1, self.nbr_ES+1):
+        for n in range(1, self.nbr_ES + 1):
             header.extend(["Deltar_{}".format(n), "Deltal_{}".format(n), "Er_{}".format(n), "El_{}".format(n)])
 
         # create data to print
-        data = np.zeros((len(self.Ep_lamb), 2+4*self.nbr_ES))
+        data = np.zeros((len(self.Ep_lamb), 2 + 4 * self.nbr_ES))
         data[:, 0] = self.Larray
         for i in range(len(self.Larray)):
             data[i, 2::4] = self.Delta_lamb[i][0]
@@ -975,35 +983,36 @@ class ECW:
         from matplotlib import rc
         rc('text', usetex=True)
 
-        fig, axs = plt.subplots(2, sharex='col')
-        # Plot Ep, X2 and vmax only for converged lambdas
+        fig, axs1 = plt.subplots(2, sharex='col')
+        axs2 = [a1.twinx() for a1 in axs1]
 
         # Energy
-        axs[0].plot(self.Larray, self.Ep_lamb, marker='o', markerfacecolor='black', markersize=4,
-                    color='grey', linewidth=1)
+        # -------------
+        axs1[0].plot(self.Larray, self.Ep_lamb, marker='o', markerfacecolor='black', markersize=4,
+                     color='grey', linewidth=1)
         # axs[0].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
-        axs[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
-        axs[0].set_ylabel('E$_{HF}$-E$_p$ (au)', color='black')
+        axs1[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
+        axs1[0].set_ylabel('E$_{HF}$-E$_p$ (au)', color='black')
 
-        # X2 and vmax
-        axs[1].plot(self.Larray, self.Delta_lamb, marker='o', markerfacecolor='red', markersize=4,
-                    color='orange', linewidth=1)
-        ax2 = axs[1].twinx()
-        ax2.plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=4, color='lightblue',
-                 linewidth=1)
-        ax2.set_ylabel('V$_{max}$', color='blue')
-        axs[1].set_ylabel(r'$\Delta$ (\%)', color='red')
-        axs[1].set_xlabel(r'$\lambda$')
-        # axs[1].yaxis.set_major_formatter(ticker.FormatStrFormatter('%.2E'))
-        axs[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
-        ax2.ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
+        # Delta and vmax
+        # ---------------
+        axs1[1].plot(self.Larray, self.Delta_lamb, marker='o', markerfacecolor='red', markersize=5,
+                     color='orange', linewidth=1)
+
+        axs2[1].plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=4,
+                     color='lightblue', linewidth=1)
+
+        axs2[1].set_ylabel('V$_{max}$', color='blue')
+        axs1[1].set_ylabel(r'$\Delta$ (\%)', color='red')
+        axs1[1].set_xlabel(r'$\lambda$')
+        axs1[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
+        axs2[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
 
         # Ek difference
         if self.Delta_Ek:
-            ax2 = axs[0].twinx()
-            ax2.plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=4,
-                     color='black', linewidth=1)
-            ax2.set_ylabel(r'$\Delta$ Ek (\%)', color='grey')
+            axs2[0].plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=4,
+                         color='black', linewidth=1)
+            axs2[0].set_ylabel(r'$\Delta$ Ek (\%)', color='grey')
 
         plt.show()
 
@@ -1019,40 +1028,48 @@ class ECW:
         from matplotlib import rc
         rc('text', usetex=True)
 
-        fig, axs = plt.subplots(2, sharex='col')
-        # Plot Ep, X2 and vmax only for converged lambdas
+        fig, axs1 = plt.subplots(2, sharex='col')
+        axs2 = [a1.twinx() for a1 in axs1]
 
         color1 = ['red', 'blue', 'darkgreen']
         color2 = ['orange', 'lightblue', 'green']
 
         # GS Energy
-        axs[0].plot(self.Larray, [e[0][0] for e in self.Ep_lamb[:]], marker='o', markerfacecolor='black', markersize=4,
-                    color='grey', linewidth=1)
+        axs2[0].plot(self.Larray, [e[0][0] for e in self.Ep_lamb[:]], marker='o', markerfacecolor='black', markersize=4,
+                     color='grey', linewidth=1)
 
         # ES energy and Delta
         for n in range(self.nbr_ES):
             # Energy right
-            axs[0].plot(self.Larray, [e[0][n+1] for e in self.Ep_lamb[:]], marker='o', markerfacecolor=color1[n],
-                        markersize=4, color=color2[n], linewidth=1, linestyle='-.')
+            axs1[0].plot(self.Larray, [e[0][n + 1] for e in self.Ep_lamb[:]], marker='o', markerfacecolor=color1[n],
+                         markersize=4, color=color2[n], linewidth=1, linestyle='-.')
             # Energy left
-            axs[0].plot(self.Larray, [e[1][n+1] for e in self.Ep_lamb[:]], marker='o', markerfacecolor=color1[n],
-                        markersize=4, color=color2[n], linewidth=1, linestyle='--')
+            axs1[0].plot(self.Larray, [e[1][n + 1] for e in self.Ep_lamb[:]], marker='o', markerfacecolor=color1[n],
+                         markersize=4, color=color2[n], linewidth=1, linestyle='--')
 
-            axs[1].plot(self.Larray, [d[0][n] for d in self.Delta_lamb[:]], marker='o', markerfacecolor=color1[n],
-                        markersize=4, color=color2[n], linewidth=1, linestyle='-.')
-            axs[1].plot(self.Larray, [d[1][n] for d in self.Delta_lamb[:]], marker='o', markerfacecolor=color1[n],
-                        markersize=4, color=color2[n], linewidth=1, linestyle='--')
+            # Delta right
+            axs1[1].plot(self.Larray, [d[0][n] * 100 for d in self.Delta_lamb[:]], marker='o',
+                         markerfacecolor=color1[n],
+                         markersize=5, color=color2[n], linewidth=1, linestyle='-.')
+            # Delta left
+            axs1[1].plot(self.Larray, [d[1][n] * 100 for d in self.Delta_lamb[:]], marker='o',
+                         markerfacecolor=color1[n],
+                         markersize=5, color=color2[n], linewidth=1, linestyle='--')
 
         if self.Delta_rdm1 is not None:
-            axs[1].plot(self.Larray, self.Delta_rdm1, marker='o', markerfacecolor='black', markersize=4, color='grey',
-                        linewidth=1)
+            axs2[1].plot(self.Larray, self.Delta_rdm1, marker='o', markerfacecolor='black',
+                         markersize=4, color='grey', linewidth=1)
 
         # labels
-        axs[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
-        axs[0].set_ylabel('E$_{HF}$ (au)', color='black')
-        axs[1].set_ylabel(r'$\Delta$ (\%)', color='red')
-        axs[1].set_xlabel(r'$\lambda$')
-        axs[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
+        axs1[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
+        axs2[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
+        axs1[0].set_ylabel("E'$_{ES}$ (au)", color='red')
+        axs2[0].set_ylabel("E'$_{GS}$ (au)", color='black')
+        axs1[1].set_ylabel(r'$\Delta_{ES}$ (\%)', color='red')
+        axs2[1].set_ylabel(r'$\Delta_{GS}$ (\%)', color='black')
+        axs1[1].set_xlabel(r'$\lambda$')
+        axs1[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
+        axs2[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
 
         plt.show()
 
@@ -1096,8 +1113,8 @@ if __name__ == '__main__':
     # ecw.plot_results()
 
     # Add excited state experimental data from 2 ES (taken from QChem, see gamma_exp.py)
-    dip = (0.523742 + 0.550251)/2.
-    DEk = 7.6051*0.03675
+    dip = (0.523742 + 0.550251) / 2.
+    DEk = 7.6051 * 0.03675
     es_prop = [[['trdip', (dip, 0., 0)]], [['DEk', DEk]]]
     ecw.Build_ES_exp_input(es_prop)
     print()

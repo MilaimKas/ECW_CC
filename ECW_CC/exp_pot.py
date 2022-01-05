@@ -40,6 +40,7 @@ class Exp:
         self.exp_data = exp_data
         self.mo_coeff = mo_coeff
         self.mol = mol
+        self.prop_calc = []
 
         # check L format
         self.L = self.L_check(L)
@@ -130,7 +131,7 @@ class Exp:
         For target = rdm1 and GS prop (norm)
         Vexp^nm  = 2/M sum_i^{M} (|Aexp_i-sum_pq gamma^nm_pq * Ai_pq|)/sig_i * Ai_rs
 
-        For target = tr_rdm1 or ES prop (norm squared)
+        For target = tr_rdm1, trdip or ES prop (norm squared)
         Vexp^nm = 2/M sum_i^{M} (|Aexp_i-sum_pquv gamma^mn_pq * gamma^nm_vu * Ai_pq * Ai_uv.conj |)/sig_i
                    * Ai_rs.conj * sum_pq gamma^mn_pq Ai_pq
 
@@ -153,6 +154,7 @@ class Exp:
         self.Vexp[n, m] = np.zeros_like(rdm1)
         Delta = 0.
         vmax = 0.
+        self.prop_calc = []
 
         # experimental weight
         if L is None:
@@ -160,7 +162,7 @@ class Exp:
         else:
             L = self.L_check(L)
 
-        # check if prop, lis of prop or matrix comparison
+        # check if prop, list of prop or matrix comparison
         # -> st_idx = index to retrieve the name of the property from given state
         st_idx = np.max(index)
 
@@ -190,7 +192,7 @@ class Exp:
                 elif n == m:
                     diff = np.subtract(self.exp_data[n][i][1], rdm1)
                     self.Vexp[n, n] += L[st_idx][i] * diff
-                    Delta += np.sum(abs(diff))/(sum(abs(self.exp_data[n][i][1])))
+                    Delta += np.sum(abs(diff))/(np.sum(abs(self.exp_data[n][i][1])))
                     vmax += np.max(abs(diff))
 
             # ------------ given ES left and right exp tr_rdm1 ------------------
@@ -218,7 +220,8 @@ class Exp:
                 diff = np.abs(exp_prop - calc_prop) * self.dic_int[prop]
                 self.Vexp[n, n] += L[st_idx][i] * diff
                 Delta += np.abs(exp_prop - calc_prop)/np.abs(exp_prop)
-                vmax = np.max(abs(diff))
+                vmax += np.max(abs(diff))
+                self.prop_calc.append([prop, calc_prop])
 
             # Kinetic energy difference
             if 'DEk' in prop and n == m and n != 0:
@@ -236,6 +239,7 @@ class Exp:
                     self.Vexp[0, 0] += L[st_idx][i] * v_tmp
                 Delta += np.abs(exp_prop - calc_prop)/np.abs(exp_prop)
                 vmax += np.max(np.abs(v_tmp))
+                self.prop_calc.append([prop, calc_prop])
 
             # dipole moment
             if prop == 'dip' and n == m:
@@ -249,20 +253,22 @@ class Exp:
                     vmax += np.max(np.abs(diff))
                 # delta /= 3.
                 Delta += delta/(np.sum(np.abs(exp_prop)))
+                self.prop_calc.append([prop, calc_prop])
 
-            # transition dipole moment -> Vexp2^nm
+            # transition dipole moment
             if prop == 'trdip' and n != m:
                 calc_prop, A_scale = self.calc_prop('dip', rdm1, rdm1_add=rdm1_add)
                 exp_prop = self.exp_data[st_idx][i][1]
-                self.Vexp[n, m] = np.zeros_like(rdm1)
+                # self.Vexp[n, m] = np.zeros_like(rdm1)
                 delta = 0.
                 for d_calc, d_exp, j, A in zip(calc_prop, exp_prop, [0, 1, 2], A_scale):
                     diff = np.abs(d_exp - d_calc) * self.dic_int['dip'][j] * A
-                    self.Vexp[n, m] += L[st_idx][i] * 2. * diff
+                    self.Vexp[n, m] += L[st_idx][i] * diff
                     delta += np.abs(d_exp - d_calc)
                     vmax += np.max(np.abs(diff))
                 # delta /= 3.
                 Delta += delta/(np.sum(np.abs(exp_prop)))
+                self.prop_calc.append([prop, calc_prop])
 
             # structure factor
             if prop == 'F' and n == m:
@@ -280,6 +286,7 @@ class Exp:
                     vmax += np.max(np.abs(diff))
                 # X2 += x2
                 Delta += delta
+                self.prop_calc.append([prop, calc_prop])
 
             i += 1
 

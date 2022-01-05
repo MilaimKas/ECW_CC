@@ -9,7 +9,7 @@ basis = '6-31+g*'
 # Choose lambda
 # --------------
 # lamb = 0.1
-lamb = np.linspace(0, 0.1, 3)
+lamb = np.linspace(0., 0.8, 9)
 
 # Build molecules and basis
 # ------------------------------
@@ -17,23 +17,23 @@ ecw = Main.ECW(molecule, basis)
 
 # Build target GS rdm1
 # --------------------------------
-myhf = scf.GHF(ecw.mol)
+myhf = scf.RHF(ecw.mol)
 myhf.kernel()
-mycc = cc.GCCSD(myhf, frozen=0)
+mycc = cc.CCSD(myhf, frozen=0)
 mycc.kernel()
-# mycc = cc.addons.convert_to_gccsd(mycc)
 gs_rdm1 = mycc.make_rdm1()  # mo
 gs_rdm1 = np.einsum('pi,ij,qj->pq', myhf.mo_coeff, gs_rdm1, myhf.mo_coeff.conj())  # ao
+gs_rdm1 = utilities.convert_r_to_g_rdm1(gs_rdm1)
 gs_rdm1 = utilities.ao_to_mo(gs_rdm1, ecw.mo_coeff)
 
 # Build ES exp data:
 # ------------------
-# QChem results:
+# QChem results for transition dipole moment:
 # VES1 => ['trdip', [0.000000, 0.523742, 0.0000]]     # DE = 0.28 au
 # VES2 => ['trdip', [0.000000, 0.000000, -0.622534]]  # DE = 10.06 eV
 # VES3 => ['trdip', [0.000000, -0.09280, 0.00000]]    # DE = 10.81 eV
 # CES1 => ['trdip', [0., 0. ,0.030970]]                # DE = 536 eV
-ecw.Build_ES_exp_input([[['trdip', [0.523742, 0., 0.]]]])
+ecw.Build_ES_exp_input([[['trdip', [0.523742, 0, 0]]]])
 
 # Solve ECW-ES-CCS equations using SCF algorithm
 # -----------------------------------------------

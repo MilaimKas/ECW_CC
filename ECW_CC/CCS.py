@@ -873,7 +873,7 @@ class Gccs:
 
     def Extract_Em_r(self, rs, r0, Rinter, ov=None):
         """
-        Extract Em from the largest r1 element
+        Extract Em from the largest r1 element (Em = Em_tot-EHF)
 
         :param ov: index for initial Koopman excitation. If not given, takes the largest element
         :param rs: r1 amplitude of state m
@@ -1287,7 +1287,7 @@ class Gccs:
 
     def Extract_Em_l(self, ls, l0, L1inter, ov=None):
         """
-        Extract Em from the largest l1 element
+        Extract Em from the largest l1 element (Em = Em_tot-EHF)
 
         :param ls: l1 amplitude of state m
         :param l0: l0 amplitude of state m

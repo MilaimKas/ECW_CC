@@ -230,10 +230,10 @@ class Solver_ES:
             headers = ['ite', 'Dconv ' + str(self.conv_var)]  # First line of printed table
             for i in range(nbr_states-1):
                 if i == 0:
-                    headers.extend(['ES {}'.format(i+1), 'norm', 'X2_r', 'X2_l', '2S+1',
+                    headers.extend(['ES {}'.format(i+1), 'norm', 'Delta_r', 'Delta_l', '2S+1',
                                     'r0', 'l0', 'Er', 'El'])
                 else:
-                    headers.extend(['ES {}'.format(i + 1), 'norm', 'X2_r', 'X2_l', '2S+1',
+                    headers.extend(['ES {}'.format(i + 1), 'norm', 'Delta_r', 'Delta_l', '2S+1',
                                     'r0', 'l0', 'Er', 'El', 'Ortho wrt ES 1'])
 
         #############
@@ -263,14 +263,14 @@ class Solver_ES:
                 tr_rdm1[n-1] = list((tr_r, tr_l))
 
             #
-            # Update Vexp, calculate effective fock matrices and store X2,vmax
-            # ------------------------------------------------------------------
+            # Update Vexp, calculate effective fock matrices and store Delta,vmax
+            # --------------------------------------------------------------------
 
             # calculate GS Vexp from GS prop
             if Vexp_class.exp_data[0]:
                 Delta[0, 0], vmax = Vexp_class.Vexp_update(rdm1[0], tr_rdm1, (0, 0), L=L)
 
-            # calculate ES Vexp and update GS Vexp (if DEk) from prop and tr prop
+            # calculate ES Vexp and update GS Vexp (if DEk) from ES prop and tr prop
             for n in range(1, nbr_states):
                 # if ES prop
                 if Vexp_class.exp_data[n]:
@@ -291,9 +291,6 @@ class Solver_ES:
                 fsp[0] = np.subtract(mycc.fock, Vexp_class.Vexp[0, 0])
 
             Delta_ite.append(Delta)
-
-            # CAREFUL WITH THE SIGN OF Vexp !
-            # for transition case vn = -Vexp
 
             #
             # update t amplitudes
@@ -329,7 +326,7 @@ class Solver_ES:
 
             for n in range(1, nbr_states):
 
-                # todo= most element in Rinter and Linter dot not depend on Vexp -> calculate ones for all states
+                # todo: most element in Rinter and Linter dot not depend on Vexp -> calculate ones for all states
 
                 # Ria intermediates
                 vexp = Vexp_class.Vexp[0, n]  # 0nV negative sign is taken care in R1inter
@@ -472,36 +469,23 @@ class Solver_ES:
             if ite >= self.maxiter:
 
                 Conv_text = 'Max iteration reached'
-                print()
-                print(Conv_text)
                 if print_ite:
                     print(tabulate(table, headers, tablefmt=self.tablefmt))
-                print('Final Delta:')
-                print(Delta)
                 break
 
             if Dconv > 10.:
 
                 Conv_text = 'Diverges for lambda = {} after {} iterations'.format(L, ite)
-                print()
-                print(Conv_text)
                 if print_ite:
                     print(tabulate(table, headers, tablefmt=self.tablefmt))
-                print('Final Delta:')
-                print(Delta)
                 break
 
             ite += 1
 
         else:
             Conv_text = 'Convergence reached for lambda= {}, after {} iteration'.format(L, ite)
-            print(Conv_text)
-            print()
             if print_ite:
                 print(tabulate(table, headers, tablefmt=self.tablefmt))
-            print('Final Delta:')
-            print(Delta)
-            print()
              
         return Conv_text, dic_amp, Delta, Ep, rdm1[0]
 
