@@ -177,10 +177,17 @@ class ECW:
         Nele_a = mol.nelec[0]  # mol.nelec gives the number of alpha and beta ele (nalpha,nbeta)
         Nele_b = mol.nelec[1]
 
-        # HF rdm1
+        # HF rdm1 in AO basis, G format
         self.rdm1_hf = mf.make_rdm1()
         # self.mf = mf
         self.mol = mol
+
+        # initialize list of HF prop
+        self.HF_prop = []
+        self.HF_prop.append([])  # add GS
+        self.Ek_HF_GS = utilities.Ekin(mol, self.rdm1_hf, aobasis=True, g=True, mo_coeff=self.mo_coeff)
+        self.v1e_HF_GS = utilities.v1e(self.mol, self.rdm1_hf, aobasis=True, g=True, mo_coeff=self.mo_coeff)
+        self.dip_HF_GS = utilities.dipole(self.mol, self.rdm1_hf, aobasis=True, g=True, mo_coeff=self.mo_coeff)
 
         # print cube file for HF density
         # --------------------------------------
@@ -302,17 +309,20 @@ class ECW:
             prop = list([prop])
 
         # loop over list of properties to calculate (F, Ek, dip, v1e)
-        # self.exp_data[0, 0] = [] # old format
         for p in prop:
 
             # directly compare rdm1
             if p == 'mat':
+
                 gamma_mo = utilities.convert_r_to_g_rdm1(gexp.gamma_ao)
                 gamma_mo = utilities.ao_to_mo(gamma_mo, self.mo_coeff)
                 # store target rdm1 in MO basis G format
                 self.exp_data[0].append(['mat', gamma_mo])
                 # calculate Ekin of the target
                 self.Ek_exp_GS = utilities.Ekin(gexp.mol_def, gexp.gamma_ao, g=False)
+
+                # update HF results: store HF rdm1 in MO basis, G format
+                self.HF_prop[0].append(np.diag(self.mo_occ))
 
             # Structure Factor p=['F', h, (a,b,c)]
             if isinstance(p, (list, np.ndarray)):
@@ -329,23 +339,30 @@ class ECW:
                 #    # calculate list of structure factors for each given set of Miller indices
                 #    F = utilities.structure_factor(gexp.mol_def, h, gexp.gamma_ao, gexp.mo_coeff_def,
                 #                                   aobasis=True, rec_vec=rec_vec, g=False)
-                #    # self.exp_data[0, 0].append(['F', F])  # old format
                 #    self.exp_data[0].append(['F', F, h, rec_vec])
+                #
+                #    # calculate the HF structure factors
+                #    F_hf = utilities.structure_factor(self.mol, h, self.rdm1_hf, self.mo_coeff,
+                #                                   aobasis=True, rec_vec=rec_vec, g=True)
+                #    self.HF_prop[0].append(['F', F_hf, h, rec_vec])
 
             # Kinetic energy
             if p == 'Ek':
                 ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['Ek', ek])
+                self.HF_prop[0].append(self.Ek_HF_GS)
 
             # one-electron potential
             if p == 'v1e':
                 v1e = utilities.v1e(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['v1e', v1e])
+                self.HF_prop[0].append(self.v1e_HF_GS)
 
             # dipole moment
             if p == 'dip':
                 dip = utilities.dipole(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['dip', dip])
+                self.HF_prop[0].append(self.dip_HF_GS)
 
         # store cube file with the target density in "out_dir"
         if self.out_dir is not None:
@@ -414,7 +431,12 @@ class ECW:
 
         # Update exp_data with given ES prop
         for es in es_prop:
+            # store exp_prop
             self.exp_data.append(es)
+            self.HF_prop.append([None for p in es])
+        # add empty HF prop for GS if not given
+        if not self.HF_prop[0]:
+            self.HF_prop[0].append(None)
 
         # CCS class
         if self.myccs is None:
@@ -437,7 +459,7 @@ class ECW:
 
     def CCS_GS(self, Larray, alpha=None, method='scf', diis='',
                nbr_cube_file=2, tl1ini=0, print_ite_info=False, beta=None, diis_max=15, conv='tl',
-               conv_thres=10 ** -5, maxiter=80, tablefmt='rst'):
+               conv_thres=10 ** -5, maxiter=80, tablefmt='rst', HF_prop=False):
         """
         Call CCS solver for the ground state using the SCF+DIIS+L1 or the gradient (steepest descend/Newton) method
 
@@ -454,6 +476,7 @@ class ECW:
         :param conv_thres: threshold for convergence
         :param maxiter: max number of iterations
         :param tablefmt: tabulate format for the printed table ('rst' or 'latex' for example)
+        :param HF_prop: if True, uses the HF prop to calculate a relative Delta (see exp_pot)
         :return: Converged results
                  [0] = convergence text
                  [1] = Ep(it)
@@ -475,7 +498,10 @@ class ECW:
         self.method = method
 
         # Vexp class
-        VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
+        if HF_prop:
+            HF_prop = self.HF_prop
+        VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS,
+                            HF_prop=HF_prop)
 
         # initial values for ts and ls
         if tl1ini == 1:
@@ -592,7 +618,8 @@ class ECW:
         return Result
 
     def CCSD_GS(self, Larray, alpha=None, diis='', nbr_cube_file=2, tl1ini=0,
-                print_ite_info=False, diis_max=15, conv='tl', conv_thres=10 ** -5, maxiter=40, tablefmt='rst'):
+                print_ite_info=False, diis_max=15, conv='tl', conv_thres=10 ** -5, maxiter=40, tablefmt='rst',
+                HF_prop=False):
         """
         Call CCSD solver for the ground state using SCF+DIIS method
 
@@ -647,14 +674,17 @@ class ECW:
         # L_print = Larray[idx]
 
         # Vexp class
-        VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS)
+        if HF_prop:
+            HF_prop = self.HF_prop
+        VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS,
+                            HF_prop=HF_prop)
 
         # CCSD class
         if self.myccsd is None:
-            self.myccd = CCSD.GCC(self.eris)
+            self.myccsd = CCSD.GCC(self.eris)
 
         # CCS_GS solver
-        Solve = Solver_GS.Solver_CCSD(self.myccd, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
+        Solve = Solver_GS.Solver_CCSD(self.myccsd, VXexp, conv=conv, conv_thres=conv_thres, tsini=tsini, lsini=lsini,
                                       diis=diis, maxdiis=diis_max, maxiter=maxiter)
 
         # initialize
@@ -730,12 +760,14 @@ class ECW:
         return Result
 
     def CCS_ES(self, L, method='scf', conv='rl', exp_data=None, conv_thres=10 ** -5, maxiter=40, diis='',
-               L_loop=False, nbr_cube_file=0, target_rdm1_GS=None, print_ite=True):
+               L_loop=False, nbr_cube_file=0, target_rdm1_GS=None, print_ite=True, maxdiis=15, mindiis=2):
         """
         Calls the excited state solver
 
+        :param mindiis: at which iteration to start diis
+        :param maxdiis: max vectors used in the diis space
         :param print_ite: True if convergence information at each micro iteration are to be printed
-        :param target_rdm1_GS: rdm1 for the target GS in MO G basis
+        :param target_rdm1_GS: rdm1 for the target GS in MO basis, G format
         :param nbr_cube_file: number of GS cube files to be printed
         :param method: scf or diagonalization method
         :param conv: convergence criteria applies to 'tl' (ES amplitudes), 'rl' (GS amplitudes) or 'Ep'
@@ -784,7 +816,8 @@ class ECW:
 
         # Solver class
         Solver = Solver_ES.Solver_ES(self.myccs, Vexp, conv_var=conv,
-                                     conv_thres=conv_thres, maxiter=maxiter, diis=diis)
+                                     conv_thres=conv_thres, maxiter=maxiter, diis=diis,
+                                     maxdiis=maxdiis, mindiis=mindiis)
 
         print()
         print("########################################")
@@ -805,7 +838,7 @@ class ECW:
             if target_rdm1_GS is not None:
                 # calculate Delta from target rdm1
                 diff = np.subtract(target_rdm1_GS, rdm1_GS)
-                self.Delta_rdm1 = np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS))
+                self.Delta_rdm1 = np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS-np.diag(self.mo_occ)))
 
         # loop over lamb values (with same value for all sates and prop)
         else:
@@ -847,7 +880,7 @@ class ECW:
                 if target_rdm1_GS is not None:
                     # calculate Delta from target rdm1
                     diff = np.subtract(target_rdm1_GS, rdm1_GS)
-                    self.Delta_rdm1.append(100 * np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS)))
+                    self.Delta_rdm1.append(np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS-np.diag(self.mo_occ))))
 
                 # Print information
                 print(Conv_text)

@@ -9,7 +9,8 @@ basis = '6-31+g*'
 # Choose lambda
 # --------------
 # lamb = 0.1
-lamb = np.linspace(0., 0.8, 9)
+lamb = np.linspace(0., 1., 15)  # value for trdip
+# lamb = np.linspace(0., 0.01, 3)
 
 # Build molecules and basis
 # ------------------------------
@@ -34,6 +35,7 @@ gs_rdm1 = utilities.ao_to_mo(gs_rdm1, ecw.mo_coeff)
 # VES3 => ['trdip', [0.000000, -0.09280, 0.00000]]    # DE = 10.81 eV
 # CES1 => ['trdip', [0., 0. ,0.030970]]                # DE = 536 eV
 ecw.Build_ES_exp_input([[['trdip', [0.523742, 0, 0]]]])
+# ecw.Build_ES_exp_input([[['DEk', 0.28]]])
 
 # Solve ECW-ES-CCS equations using SCF algorithm
 # -----------------------------------------------
@@ -41,3 +43,4 @@ ecw.Build_ES_exp_input([[['trdip', [0.523742, 0, 0]]]])
 ecw.CCS_ES(lamb, diis='all', L_loop=True, maxiter=80, target_rdm1_GS=gs_rdm1, print_ite=False)
 ecw.plot_results_ES()
 ecw.print_results_ES()
+
