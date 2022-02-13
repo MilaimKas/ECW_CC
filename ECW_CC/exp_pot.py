@@ -10,7 +10,7 @@ import utilities
 
 
 class Exp:
-    def __init__(self, L, exp_data, mol, mo_coeff, Ek_exp_GS=None, HF_prop=False):
+    def __init__(self, L, exp_data, mol, mo_coeff, Ek_exp_GS=None, Ek_HF_GS=None, HF_prop=False):
         """
         Class containing the experimental potentials Vnm
         Vnm is a matrix containing the Vexp potential associated to the state nn or the transition potential 0n, n0
@@ -47,6 +47,7 @@ class Exp:
             self.HF_prop = [[None for i in range(len(exp_data[n]))] for n in range(len(exp_data))]
         else:
             self.HF_prop = HF_prop
+        self.Ek_HF_GS=Ek_HF_GS
 
         # check L format
         self.L = self.L_check(L)
@@ -190,13 +191,20 @@ class Exp:
                     diff = np.subtract(self.exp_data[0][i][1], rdm1)
                     self.Vexp[0, 0] += L[st_idx][i] * diff
                     Delta += self.Delta(0, i, diff)
+
                     vmax += np.max(abs(diff))
                     # calculate kinetic energy Ek_calc
                     if self.Ek_exp_GS is not None:
                         self.Ek_calc_GS = utilities.Ekin(self.mol, rdm1, aobasis=False,
                                                          mo_coeff=self.mo_coeff, ek_int=self.Ek_int, g=True)
                         # store Delta value for Ek
-                        self.Delta_Ek_GS = np.abs(self.Ek_exp_GS - self.Ek_calc_GS)/np.abs(self.Ek_exp_GS)
+                        if self.Ek_HF_GS is None:
+                            self.Delta_Ek_GS = np.abs(self.Ek_exp_GS - self.Ek_calc_GS)/\
+                                               np.abs(self.Ek_exp_GS)
+                        # using HF value
+                        else:
+                            self.Delta_Ek_GS = np.abs(self.Ek_exp_GS - self.Ek_calc_GS) / \
+                                               np.abs(self.Ek_exp_GS-self.Ek_HF_GS)
 
                 # ES
                 elif n == m:
@@ -417,7 +425,7 @@ class Exp:
 
         # if F or dip or trdip (self.exp_data[n_st][i_prop][1] is list of x,y,z components)
         elif isinstance(self.exp_data[n_st][i_prop][1], list) \
-                and self.exp_data[n_st][i_prop][1][comp_idx] > threshold:
+                and abs(self.exp_data[n_st][i_prop][1][comp_idx]) > threshold:
 
             if self.HF_prop[n_st][i_prop] is None:
                 delta = prop_diff/np.abs(self.exp_data[n_st][i_prop][1][comp_idx])
@@ -426,7 +434,7 @@ class Exp:
                         np.abs(self.exp_data[n_st][i_prop][1][comp_idx]-self.HF_prop[n_st][i_prop][comp_idx])
 
         elif isinstance(self.exp_data[n_st][i_prop][1], float) \
-                and self.exp_data[n_st][i_prop][1] > threshold:
+                and abs(self.exp_data[n_st][i_prop][1]) > threshold:
 
             if self.HF_prop[n_st][i_prop] is None:
                 delta = prop_diff/np.abs(self.exp_data[n_st][i_prop][1])
