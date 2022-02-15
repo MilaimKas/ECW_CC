@@ -394,17 +394,40 @@ def mo_to_ao(rdm1_mo, mo_coeff):
     return rdm1_ao
 
 
-def koopman_init_guess(mo_energy, mo_occ, nstates=(1, 0), core_ene_thresh=10.):
+def koopman_init_guess(mo_energy, mo_occ, nstates=[1, 0], koop_idx=None, core_ene_thresh=10.):
     """
     Generates list of koopman guesses for r1 vectors in G format
     The guess is obtained in the restricted R format to avoid breaking symmetry, before being converted to G format
 
+    :param koop_idx: array containing the index of the single Koopman excitation to build rini
+                     first list the val states then the core states
     :param mo_energy: MOs energies
     :param: mo_occ: occupation array
     :param nstates: number of states valence and core excited states
     :param core_ene_thresh: energy threshold for the definition of core
-    :return: list of r_ini and koopman's excitation
+    :return: array of r_ini and koopman's excitation
     """
+
+    if koop_idx is not None and sum(nstates) != len(koop_idx):
+        raise ValueError('Number of given Koopman indices should be equal to the number of excited states')
+    elif koop_idx is None:
+        if nstates[0] != 0:
+            val_idx = np.zeros(nstates[0], dtype=int)
+        else:
+            val_idx = [0]
+        if nstates[1] != 0:
+            core_idx = np.zeros(nstates[1], dtype=int)
+        else:
+            core_idx = [0]
+    else:
+        if nstates[0] != 0:
+            val_idx = koop_idx[:nstates[0]]
+        else:
+            val_idx = [0]
+        if nstates[1] != 0:
+            core_idx = koop_idx[nstates[0]:]
+        else:
+            core_idx = [0]
 
     # convert to R format
     mo_energy = mo_energy[0::2]
@@ -429,28 +452,28 @@ def koopman_init_guess(mo_energy, mo_occ, nstates=(1, 0), core_ene_thresh=10.):
     nocc_val = nocc - ncore
     for i in range(nroot):
         tmp = np.zeros(eia_val.size)
-        tmp[idx[i]] = 1
+        tmp[idx[i+val_idx[i]]] = 1
         tmp = tmp.reshape((nocc_val, nvir))
         tmp = np.vstack((np.zeros((ncore, nvir)), tmp))
         tmp = convert_r_to_g_amp(tmp)
         id = tuple(np.transpose(np.nonzero(tmp))[0])
         tmp[id] = 0
         x0.append(tmp)  # Koopmans' excitations
-        DE.append(eia_val[idx[i]])
+        DE.append(eia_val[idx[i+val_idx[i]]])
 
     # Core
     nroot = min(nstates[1], eia_core.size)
     idx = np.argsort(eia_core)
     for i in range(nroot):
         tmp = np.zeros(eia_core.size)
-        tmp[idx[i]] = 1
+        tmp[idx[i+core_idx[i]]] = 1
         tmp = tmp.reshape((ncore, nvir))
         tmp = np.vstack((tmp, np.zeros((nocc_val, nvir))))
         tmp = convert_r_to_g_amp(tmp)
         id = np.transpose(np.nonzero(tmp))
         tmp[id[0]] = 0
         x0.append(tmp)  # Koopmans' excitations
-        DE.append(eia_core[idx[i]])
+        DE.append(eia_core[idx[i+core_idx[i]]])
 
     return x0, DE
 

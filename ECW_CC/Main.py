@@ -212,9 +212,9 @@ class ECW:
         self.exp_data.append([])  # add GS
         # r and l vectors for the ES
         self.r_ini = None
-        self.l_ini = None
-        self.r0_ini = None
-        self.l0_ini = None
+        # self.l_ini = None
+        # self.r0_ini = None
+        # self.l0_ini = None
         self.Ek_exp_GS = None  # GS exp kinetic energy
         self.nbr_ES = 0
         self.Delta_rdm1 = None
@@ -408,10 +408,12 @@ class ECW:
 
         del es_exp
 
-    def Build_ES_exp_input(self, es_prop, rini_list=None, val_core=None):
+    def Build_ES_exp_input(self, es_prop, rini_list=None, val_core=None, rini_koop_idx=None):
         """
         Store excited states data from given properties
 
+        :param rini_koop_idx: array containing the index of the single Koopman excitation to build rini
+                              first list the val states then the core states
         :param es_prop: list with either transition dipole moment values np.array(x,y,z)
                          or kinetic energy difference for the target states
                          len(exp_prop) = nbr of ES
@@ -419,15 +421,17 @@ class ECW:
                              first ES with 2 prop and second ES with 1 prop
         :param rini_list: initial i->a one-electron excitation for each target states
                -> if rini are not given, they are taken from valence or core Koopman's initial guess
-        :param val_core: tuple with number of valence and core excited states (nval, ncore)
+        :param val_core: array with number of valence and core excited states (nval, ncore)
         :return: updated exp_data matrix
         """
 
         if val_core is None:
-            val_core = (len(es_prop), 0)
-        elif val_core.sum() != len(es_prop):
+            val_core = [len(es_prop), 0]
+        elif sum(val_core) != len(es_prop):
             raise ValueError('Number of given core and valence states do not match the number of given exp prop. '
                              'If core excited states are included, val_core tuple must be given')
+        if rini_koop_idx is not None and sum(val_core) != len(rini_koop_idx):
+            raise ValueError('Number of given Koopman indices should be equal to the number of states')
 
         # Update exp_data with given ES prop
         for es in es_prop:
@@ -444,12 +448,12 @@ class ECW:
 
         # Koopman initial guess
         if rini_list is None:
-            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, val_core)
-            r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
+            r1, de = utilities.koopman_init_guess(np.diag(self.fock), self.mo_occ, val_core, koop_idx=rini_koop_idx)
+            # r0ini = [self.myccs.Extract_r0(r, np.zeros_like(r), self.fock, np.zeros_like(self.fock)) for r in r1]
             self.r_ini = r1
-            self.l_ini = copy.deepcopy(r1)
-            self.r0_ini = r0ini
-            self.l0_ini = copy.deepcopy(r0ini)
+            # self.l_ini = copy.deepcopy(r1)
+            # self.r0_ini = r0ini
+            # self.l0_ini = copy.deepcopy(r0ini)
         else:
             if len(rini_list) != len(es_prop):
                 raise ValueError('The number of given initial r vectors is not '
@@ -817,7 +821,7 @@ class ECW:
         # Solver class
         Solver = Solver_ES.Solver_ES(self.myccs, Vexp, conv_var=conv,
                                      conv_thres=conv_thres, maxiter=maxiter, diis=diis,
-                                     maxdiis=maxdiis, mindiis=mindiis)
+                                     maxdiis=maxdiis, mindiis=mindiis, rn_ini=self.r_ini)
 
         print()
         print("########################################")
@@ -846,7 +850,7 @@ class ECW:
             # L value at which a cube file is to be generated
             idx_L_print = []
             if self.out_dir is not None:
-                idx_L_print = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
+                idx_L_print = np.round(np.linspace(0, len(L) - 1, nbr_cube_file)).astype(int)
 
             # initialize
             dic_amp_ini = None
@@ -885,7 +889,7 @@ class ECW:
                 # Print information
                 print(Conv_text)
                 print('Delta = \n', Delta)
-                print('Calculated properties = \n', Vexp.prop_calc)
+                print('Last calculated properties = \n', Vexp.prop_calc)
                 print()
 
                 idx_L_loop += 1
