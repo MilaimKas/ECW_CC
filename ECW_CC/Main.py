@@ -90,6 +90,17 @@ class ECW:
             H	-0.9259120	0.0000000	-1.8616000
             """
 
+        elif molecule == 'formamide':
+            # (geo = CCSD(T)=FULL/cc-pVTZ)
+            mol.atom = """
+            C	-0.1602460	0.3869220	0.0000360
+            O	-1.1915410	-0.2451360	0.0001150
+            N	1.0794370	-0.1581170	-0.0013270
+            H	-0.1354140	1.4855780	0.0008460
+            H	1.1758790	-1.1556350	0.0035780
+            H	1.8972850	0.4164350	0.0037260
+            """
+
         elif molecule == 'h2o':
             # Water molecule
             mol.atom = [
@@ -208,6 +219,8 @@ class ECW:
 
         # initialize exp_data
         # --------------------------
+        self.target_rdm1_GS = None
+        self.cal_rdm1_Delta = False  # if prop are given in exp_data but target rdm1 is provided, calculate Delta_rdm1
         self.exp_data = []
         self.exp_data.append([])  # add GS
         # r and l vectors for the ES
@@ -298,6 +311,7 @@ class ECW:
 
         gexp.build()
 
+
         # add zero elements in gamma_exp to simulate under-fitting
         if para_factor is not None:
             gexp.underfit(para_factor)
@@ -313,11 +327,12 @@ class ECW:
 
             # directly compare rdm1
             if p == 'mat':
+                # store target rdm1 in MO basis, G format
+                target_rdm1_GS = utilities.convert_r_to_g_rdm1(gexp.gamma_ao)
+                target_rdm1_GS = utilities.ao_to_mo(target_rdm1_GS, self.mo_coeff)
 
-                gamma_mo = utilities.convert_r_to_g_rdm1(gexp.gamma_ao)
-                gamma_mo = utilities.ao_to_mo(gamma_mo, self.mo_coeff)
                 # store target rdm1 in MO basis G format
-                self.exp_data[0].append(['mat', gamma_mo])
+                self.exp_data[0].append(['mat', target_rdm1_GS])
                 # calculate Ekin of the target
                 self.Ek_exp_GS = utilities.Ekin(gexp.mol_def, gexp.gamma_ao, g=False)
 
@@ -351,18 +366,29 @@ class ECW:
                 ek = utilities.Ekin(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['Ek', ek])
                 self.HF_prop[0].append(self.Ek_HF_GS)
+                self.cal_rdm1_Delta = True
 
             # one-electron potential
             if p == 'v1e':
                 v1e = utilities.v1e(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['v1e', v1e])
                 self.HF_prop[0].append(self.v1e_HF_GS)
+                self.cal_rdm1_Delta = True
 
             # dipole moment
             if p == 'dip':
                 dip = utilities.dipole(gexp.mol_def, gexp.gamma_ao, g=False)
                 self.exp_data[0].append(['dip', dip])
                 self.HF_prop[0].append(self.dip_HF_GS)
+                self.cal_rdm1_Delta = True
+
+        # if basis for the target is different from ECW basis, do not calculate Delta_rdm1
+        if basis is not None and self.mol.basis != basis:
+            self.cal_rdm1_Delta = False
+        elif self.cal_rdm1_Delta:
+            # store target rdm1 in MO basis, G format
+            self.target_rdm1_GS = utilities.convert_r_to_g_rdm1(gexp.gamma_ao)
+            self.target_rdm1_GS = utilities.ao_to_mo(self.target_rdm1_GS, self.mo_coeff)
 
         # store cube file with the target density in "out_dir"
         if self.out_dir is not None:
@@ -463,7 +489,7 @@ class ECW:
 
     def CCS_GS(self, Larray, alpha=None, method='scf', diis='',
                nbr_cube_file=2, tl1ini=0, print_ite_info=False, beta=None, diis_max=15, conv='tl',
-               conv_thres=10 ** -5, maxiter=80, tablefmt='rst', HF_prop=False):
+               conv_thres=10 ** -5, maxiter=80, tablefmt='rst', HF_prop=False, target_rdm1_GS=None):
         """
         Call CCS solver for the ground state using the SCF+DIIS+L1 or the gradient (steepest descend/Newton) method
 
@@ -501,11 +527,19 @@ class ECW:
                           'the Vexp potential will only contain GS data')
         self.method = method
 
+        # use the GS target rdm1 if given, otherwise use the one obtained from build.
+        if target_rdm1_GS is None:
+            target_rdm1_GS = self.target_rdm1_GS
+        self.Delta_rdm1 = []
+
         # Vexp class
         if HF_prop:
             HF_prop = self.HF_prop
+            Ek_HF_GS = self.Ek_HF_GS
+        else:
+            Ek_HF_GS = None
         VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS,
-                            HF_prop=HF_prop)
+                            HF_prop=HF_prop, Ek_HF_GS=Ek_HF_GS)
 
         # initial values for ts and ls
         if tl1ini == 1:
@@ -597,12 +631,17 @@ class ECW:
             print()
             vmax = Result[2][-1][1]
 
+            if target_rdm1_GS is not None and self.cal_rdm1_Delta:
+                # calculate Delta from target rdm1
+                diff = np.subtract(target_rdm1_GS, Result[4])
+                self.Delta_rdm1.append(np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS - np.diag(self.mo_occ))))
+
             # store list for graph and output files
-            self.Delta_lamb.append(Delta * 100)
-            self.Ep_lamb.append(self.EHF - Ep)
+            self.Delta_lamb.append(Delta)
+            self.Ep_lamb.append(Ep)
             self.vmax_lamb.append(vmax)
             if VXexp.Delta_Ek_GS is not None:
-                self.Delta_Ek.append(100. * VXexp.Delta_Ek_GS)
+                self.Delta_Ek.append(VXexp.Delta_Ek_GS)
 
             idx_L_loop += 1
 
@@ -623,7 +662,7 @@ class ECW:
 
     def CCSD_GS(self, Larray, alpha=None, diis='', nbr_cube_file=2, tl1ini=0,
                 print_ite_info=False, diis_max=15, conv='tl', conv_thres=10 ** -5, maxiter=40, tablefmt='rst',
-                HF_prop=False):
+                HF_prop=False, target_rdm1_GS=None):
         """
         Call CCSD solver for the ground state using SCF+DIIS method
 
@@ -677,11 +716,19 @@ class ECW:
         idx_L_print = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
         # L_print = Larray[idx]
 
+        # use the GS target rdm1 if given, otherwise use the one obtained from build.
+        if target_rdm1_GS is None:
+            target_rdm1_GS = self.target_rdm1_GS
+        self.Delta_rdm1 = []
+
         # Vexp class
         if HF_prop:
             HF_prop = self.HF_prop
+            Ek_HF_GS = self.Ek_HF_GS
+        else:
+            Ek_HF_GS = None
         VXexp = exp_pot.Exp(Larray[0], self.exp_data, self.mol, self.mo_coeff, Ek_exp_GS=self.Ek_exp_GS,
-                            HF_prop=HF_prop)
+                            HF_prop=HF_prop, Ek_HF_GS=Ek_HF_GS)
 
         # CCSD class
         if self.myccsd is None:
@@ -739,12 +786,17 @@ class ECW:
             print()
             vmax = Result[2][-1][1]
 
+            if target_rdm1_GS is not None and self.cal_rdm1_Delta:
+                # calculate Delta from target rdm1
+                diff = np.subtract(target_rdm1_GS, Result[4])
+                self.Delta_rdm1.append(np.sum(abs(diff)) / np.sum(abs(target_rdm1_GS - np.diag(self.mo_occ))))
+
             # store array for graph or output file
-            self.Delta_lamb.append(100. * Delta)
+            self.Delta_lamb.append(Delta)
             self.Ep_lamb.append(self.EHF - Ep)
             self.vmax_lamb.append(vmax)
             if VXexp.Delta_Ek_GS is not None:
-                self.Delta_Ek.append(100. * VXexp.Delta_Ek_GS)
+                self.Delta_Ek.append(VXexp.Delta_Ek_GS)
 
             loop_idx += 1
 
@@ -796,6 +848,10 @@ class ECW:
             raise ValueError('exp_data list must be provided')
 
         self.nbr_ES = len(exp_data) - 1
+
+        # if stored or given, use the rdm1 of the target GS
+        if target_rdm1_GS is None:
+            target_rdm1_GS = self.target_rdm1_GS
 
         # initial value for r1 and r0
         if self.r_ini is None:
@@ -874,8 +930,7 @@ class ECW:
                     raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
 
                 if self.out_dir is not None:
-                    if idx_L_loop in idx_L_print:
-                        fout = self.out_dir + '/L{:.2f}'.format(L)
+                        fout = self.out_dir + '/L{:.2f}'.format(lamb)
                         utilities.cube(rdm1_GS, self.mo_coeff, self.mol, fout)
 
                 self.Delta_lamb.append([Delta[0, 1:], Delta[1:, 0]])  # only take ES prop Delta
@@ -935,13 +990,20 @@ class ECW:
         info = 'molecule: {} \n method: {} \n basis: {} \n target data: {} \n'.format(
             self.molecule, self.method, self.mol.basis, out_target)
 
-        if self.Delta_Ek:
-            data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb, self.Delta_Ek])
-            header = ["L", "Delta(%)", "EHF-Ep", "vmax", "Delta_Ek(%)"]
-        else:
-            data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb])
-            header = ["L", "Delta(%)", "EHF-Ep", "vmax"]
+        data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb])
+        header = ["L", "Delta", "Ep", "vmax"]
 
+        # add GS Ek
+        if self.Delta_Ek:
+            data = np.column_stack([data, self.Delta_Ek])
+            header.append("Delta_Ek")
+
+        # add Delta wrt the target GS rdm1
+        if self.Delta_rdm1:
+            data = np.column_stack([data, self.Delta_rdm1])
+            header.append("Delta_rdm1_GS")
+
+        # write in output file
         if self.out_dir is not None:
             with open(self.out_dir + '/output.txt', 'w') as f:
                 f.write(info)
@@ -1036,20 +1098,26 @@ class ECW:
         axs1[1].plot(self.Larray, self.Delta_lamb, marker='o', markerfacecolor='red', markersize=5,
                      color='orange', linewidth=1)
 
-        axs2[1].plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=4,
-                     color='lightblue', linewidth=1)
+        if self.Delta_rdm1 is not None and self.cal_rdm1_Delta:
+            axs2[1].plot(self.Larray, self.Delta_rdm1, marker='x', markerfacecolor='red', markersize=5,
+                         color='orange', linewidth=1)
+            axs2[1].set_ylabel(r'$\Delta_{target}$ (-)')
 
-        axs2[1].set_ylabel('V$_{max}$', color='blue')
-        axs1[1].set_ylabel(r'$\Delta$ (\%)', color='red')
+        else:
+            axs2[1].plot(self.Larray, self.vmax_lamb, marker='o', markerfacecolor='blue', markersize=4,
+                         color='lightblue', linewidth=1)
+            axs2[1].set_ylabel('V$_{max}$', color='blue')
+
+        axs1[1].set_ylabel(r'$\Delta$ (-)', color='red')
         axs1[1].set_xlabel(r'$\lambda$')
         axs1[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
         axs2[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
 
-        # Ek difference
+        # plot Ek difference if available
         if self.Delta_Ek:
             axs2[0].plot(self.Larray, self.Delta_Ek, marker='o', markerfacecolor='grey', markersize=4,
                          color='black', linewidth=1)
-            axs2[0].set_ylabel(r'$\Delta$ Ek (\%)', color='grey')
+            axs2[0].set_ylabel(r'$\Delta$ Ek (-)', color='grey')
 
         plt.show()
 
@@ -1102,8 +1170,8 @@ class ECW:
         axs2[0].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True, useLocale=True)
         axs1[0].set_ylabel("E'$_{ES}$ (au)", color='red')
         axs2[0].set_ylabel("E'$_{GS}$ (au)", color='black')
-        axs1[1].set_ylabel(r'$\Delta_{ES}$ (\%)', color='red')
-        axs2[1].set_ylabel(r'$\Delta_{GS}$ (\%)', color='black')
+        axs1[1].set_ylabel(r'$\Delta_{ES}$ (-)', color='red')
+        axs2[1].set_ylabel(r'$\Delta_{GS}$ (-)', color='black')
         axs1[1].set_xlabel(r'$\lambda$')
         axs1[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
         axs2[1].ticklabel_format(axis='y', style='sci', scilimits=(-3, 3), useMathText=True)
