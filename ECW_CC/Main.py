@@ -90,6 +90,17 @@ class ECW:
             H	-0.9259120	0.0000000	-1.8616000
             """
 
+        elif molecule == 'formamide':
+            # (geo = CCSD(T)=FULL/cc-pVTZ)
+            mol.atom = """
+            C	-0.1602460	0.3869220	0.0000360
+            O	-1.1915410	-0.2451360	0.0001150
+            N	1.0794370	-0.1581170	-0.0013270
+            H	-0.1354140	1.4855780	0.0008460
+            H	1.1758790	-1.1556350	0.0035780
+            H	1.8972850	0.4164350	0.0037260
+            """
+
         elif molecule == 'h2o':
             # Water molecule
             mol.atom = [
@@ -623,7 +634,7 @@ class ECW:
 
             # store list for graph and output files
             self.Delta_lamb.append(Delta)
-            self.Ep_lamb.append(self.EHF - Ep)
+            self.Ep_lamb.append(Ep)
             self.vmax_lamb.append(vmax)
             if VXexp.Delta_Ek_GS is not None:
                 self.Delta_Ek.append(VXexp.Delta_Ek_GS)
@@ -891,7 +902,7 @@ class ECW:
             # L value at which a cube file is to be generated
             idx_L_print = []
             if self.out_dir is not None:
-                idx_L_print = np.round(np.linspace(0, len(Larray) - 1, nbr_cube_file)).astype(int)
+                idx_L_print = np.round(np.linspace(0, len(L) - 1, nbr_cube_file)).astype(int)
 
             # initialize
             dic_amp_ini = None
@@ -915,8 +926,7 @@ class ECW:
                     raise SyntaxError("method not recognize. Should be a string: 'scf' or 'diag'")
 
                 if self.out_dir is not None:
-                    if idx_L_loop in idx_L_print:
-                        fout = self.out_dir + '/L{:.2f}'.format(L)
+                        fout = self.out_dir + '/L{:.2f}'.format(lamb)
                         utilities.cube(rdm1_GS, self.mo_coeff, self.mol, fout)
 
                 self.Delta_lamb.append([Delta[0, 1:], Delta[1:, 0]])  # only take ES prop Delta
@@ -977,17 +987,17 @@ class ECW:
             self.molecule, self.method, self.mol.basis, out_target)
 
         data = np.column_stack([self.Larray, self.Delta_lamb, self.Ep_lamb, self.vmax_lamb])
-        header = ["L", "Delta", "EHF-Ep", "vmax"]
+        header = ["L", "Delta", "Ep", "vmax"]
 
         # add GS Ek
         if self.Delta_Ek:
             data = np.column_stack([data, self.Delta_Ek])
-            header.extend("Delta_Ek")
+            header.append("Delta_Ek")
 
         # add Delta wrt the target GS rdm1
         if self.Delta_rdm1:
             data = np.column_stack([data, self.Delta_rdm1])
-            header.extend("Delta_rdm1_GS")
+            header.append("Delta_rdm1_GS")
 
         # write in output file
         if self.out_dir is not None:

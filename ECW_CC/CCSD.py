@@ -15,7 +15,6 @@
 # todo: verify energy terms in L1 and L2 equations
 # todo: recast Lambda intermediates in a class (like for T)
 # todo: L1 regularization term only for doubles
-# todo: add EOM(1)-CCSD equations
 #
 ###################################################################
 
